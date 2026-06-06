@@ -93,7 +93,7 @@ Run in this environment and capture real output as the proof artifact:
 - `make up` brings the stack healthy.
 - The smoke run shows validated events (including the scripted incident) consumed
   from a real Redpanda broker — captured as evidence.
-- `pytest` green (11 tests).
+- `pytest` green (10 tests).
 - `.github/workflows/ci.yml` present and YAML-valid; repo initialized; not pushed.
 - README accurate to the new infra (ports, commands).
 
