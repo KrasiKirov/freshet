@@ -23,13 +23,14 @@ up:
 down:
 	$(COMPOSE) down -v
 
-# Run the unit tests (no broker needed; uses the JSONL sink).
+# Run the unit tests (no broker needed).
 test:
 	$(PY) -m pytest -q
 
 # Produce -> consume -> validate against the real broker, and confirm Postgres.
-# --count 60 emits 69 events total (60 noise + 9 scripted incident); --max 69 reads them all on a fresh stack.
+# --count 60 emits 69 events total (60 noise + 9 scripted incident). A unique
+# consumer group makes this re-runnable without tearing the stack down.
 smoke:
 	$(PY) -m generator --sink kafka --brokers localhost:9092 --count 60
-	$(PY) -m pipeline.consumer_helloworld --brokers localhost:9092 --max 69
+	$(PY) -m pipeline.consumer_helloworld --brokers localhost:9092 --max 69 --group smoke-$$(date +%s)
 	pg_isready -h localhost -p 5433

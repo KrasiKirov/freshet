@@ -7,7 +7,7 @@ produce→consume hello-world, and tests.
 
 ## Run (Phase 0)
 
-Unit tests (no broker needed — uses the JSONL sink):
+Unit tests (no broker needed):
 
     cd beacon
     python3 -m venv .venv && source .venv/bin/activate
