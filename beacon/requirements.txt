@@ -1,0 +1,8 @@
+pydantic>=2
+confluent-kafka>=2
+sentence-transformers>=2
+fastapi>=0.110
+uvicorn>=0.29
+psycopg[binary]>=3
+pgvector>=0.2
+pytest>=8
