@@ -21,7 +21,7 @@ services:
       test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
       interval: 5s
       timeout: 5s
-      retries: 12
+      retries: 20
 
   postgres:
     image: pgvector/pgvector:pg16
