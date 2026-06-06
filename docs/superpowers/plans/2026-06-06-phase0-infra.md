@@ -58,7 +58,7 @@ Run:
 ```bash
 PYTHONPATH=. pytest -q
 ```
-Expected: `11 passed`.
+Expected: `10 passed`.
 
 ---
 
@@ -373,7 +373,7 @@ Run (from `beacon/`, venv active):
 ```bash
 PYTHONPATH=. pytest -q
 ```
-Expected: `11 passed`.
+Expected: `10 passed`.
 
 - [ ] **Step 2: Confirm clean git state**
 
