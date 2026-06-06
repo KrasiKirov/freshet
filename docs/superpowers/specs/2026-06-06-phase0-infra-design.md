@@ -8,7 +8,7 @@ real broker, and CI. No pipeline logic (normalizer/embedder/schema) — that is 
 
 The Beacon repo (see `beacon/`, `BRIEF_for_Claude_Code.md`) is at Phase 0: data
 contract, deterministic synthetic generator, Kafka I/O helpers, a hello-world
-consumer, and 11 passing unit tests. The README references a `docker-compose` stack
+consumer, and 10 passing unit tests. The README references a `docker-compose` stack
 and CI that **do not exist yet**, so Phase 0's stated "done" criteria are not met:
 
 > *Done when:* `docker-compose up` starts the broker + Postgres; the generator
