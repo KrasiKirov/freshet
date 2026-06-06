@@ -1,4 +1,4 @@
-"""Canonical data contract for the Beacon incident-intelligence pipeline.
+"""Canonical data contract for the Freshet incident-intelligence pipeline.
 
 Everything downstream (normalizer, embedder, query layer, eval) depends on these
 schemas, so they are deliberately small and explicit. The three timestamps on

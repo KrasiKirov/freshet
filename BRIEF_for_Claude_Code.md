@@ -1,6 +1,6 @@
-# Build Brief — Beacon: Real-Time Incident Intelligence
+# Build Brief — Freshet: Real-Time Incident Intelligence
 
-*Hand this to Claude Code as the project brief. It is self-contained: it tells you what to build, why, how, the exact build order, and how to know each step is done. Read it fully before writing code. Working name "Beacon" — rename freely.*
+*Hand this to Claude Code as the project brief. It is self-contained: it tells you what to build, why, how, the exact build order, and how to know each step is done. Read it fully before writing code. Working name "Freshet" — rename freely.*
 
 ---
 

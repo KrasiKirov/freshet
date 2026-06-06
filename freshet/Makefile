@@ -7,12 +7,12 @@ PY := PYTHONPATH=. python
 up:
 	$(COMPOSE) up -d
 	@echo "waiting for services to be healthy..."
-	@i=0; until [ "$$(docker inspect -f '{{.State.Health.Status}}' beacon-redpanda 2>/dev/null)" = "healthy" ] \
-		&& [ "$$(docker inspect -f '{{.State.Health.Status}}' beacon-postgres 2>/dev/null)" = "healthy" ]; do \
+	@i=0; until [ "$$(docker inspect -f '{{.State.Health.Status}}' freshet-redpanda 2>/dev/null)" = "healthy" ] \
+		&& [ "$$(docker inspect -f '{{.State.Health.Status}}' freshet-postgres 2>/dev/null)" = "healthy" ]; do \
 		i=$$((i+1)); \
 		if [ $$i -ge 30 ]; then \
 			echo "ERROR: stack did not become healthy after 60s"; \
-			docker inspect -f '{{.Name}} -> {{.State.Health.Status}}' beacon-redpanda beacon-postgres; \
+			docker inspect -f '{{.Name}} -> {{.State.Health.Status}}' freshet-redpanda freshet-postgres; \
 			exit 1; \
 		fi; \
 		sleep 2; echo "  ...still waiting ($$i/30)"; \

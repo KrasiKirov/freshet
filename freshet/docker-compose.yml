@@ -1,11 +1,11 @@
-# Beacon Phase 0 local stack: Redpanda (Kafka API) + Postgres/pgvector.
+# Freshet Phase 0 local stack: Redpanda (Kafka API) + Postgres/pgvector.
 # Container-only Postgres at this phase — no schema, no extension creation
 # (that is Phase 1's contract). Postgres is published on host port 5433 to
 # avoid colliding with a local Postgres on 5432.
 services:
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
-    container_name: beacon-redpanda
+    container_name: freshet-redpanda
     command:
       - redpanda
       - start
@@ -25,17 +25,17 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: beacon-postgres
+    container_name: freshet-postgres
     environment:
-      POSTGRES_USER: beacon
-      POSTGRES_PASSWORD: beacon
-      POSTGRES_DB: beacon
+      POSTGRES_USER: freshet
+      POSTGRES_PASSWORD: freshet
+      POSTGRES_DB: freshet
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U beacon"]
+      test: ["CMD-SHELL", "pg_isready -U freshet"]
       interval: 5s
       timeout: 5s
       retries: 12
