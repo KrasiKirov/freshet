@@ -1,4 +1,4 @@
-# Beacon — Real-Time Incident Intelligence (Phase 0)
+# Freshet — Real-Time Incident Intelligence (Phase 0)
 
 Freshness-first streaming-RAG system for on-call engineers. See `BRIEF.md` for the
 full what/why/how and build order. This repo currently contains **Phase 0**: the
@@ -9,7 +9,7 @@ produce→consume hello-world, and tests.
 
 Unit tests (no broker needed):
 
-    cd beacon
+    cd freshet
     python3 -m venv .venv && source .venv/bin/activate
     pip install -r requirements.txt
     PYTHONPATH=. pytest -q
@@ -22,7 +22,7 @@ Full stack (Redpanda + Postgres/pgvector via docker-compose):
 
 Notes:
 - Kafka API is on `localhost:9092`. Postgres is on `localhost:5433`
-  (5432 is left free for a local Postgres), db/user/password `beacon`.
+  (5432 is left free for a local Postgres), db/user/password `freshet`.
 - Postgres is container-only at Phase 0 (no schema/extension yet — that is
   Phase 1). `make smoke` only exercises the Kafka round-trip.
 

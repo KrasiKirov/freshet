@@ -133,7 +133,7 @@ class KafkaSink:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Beacon synthetic event generator")
+    p = argparse.ArgumentParser(description="Freshet synthetic event generator")
     p.add_argument("--sink", choices=["jsonl", "kafka"], default="jsonl")
     p.add_argument("--out", default="events.jsonl", help="JSONL output path")
     p.add_argument("--brokers", default="localhost:9092")

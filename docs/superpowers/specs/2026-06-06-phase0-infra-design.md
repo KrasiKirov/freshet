@@ -1,12 +1,12 @@
 # Phase 0 Infra — Design
 
-*Status: approved 2026-06-06. Scope: close out Phase 0 of the Beacon brief — local
+*Status: approved 2026-06-06. Scope: close out Phase 0 of the Freshet brief — local
 infrastructure (`docker-compose`), a verified produce→consume→validate run against a
 real broker, and CI. No pipeline logic (normalizer/embedder/schema) — that is Phase 1.*
 
 ## Context
 
-The Beacon repo (see `beacon/`, `BRIEF_for_Claude_Code.md`) is at Phase 0: data
+The Freshet repo (see `freshet/`, `BRIEF_for_Claude_Code.md`) is at Phase 0: data
 contract, deterministic synthetic generator, Kafka I/O helpers, a hello-world
 consumer, and 10 passing unit tests. The README references a `docker-compose` stack
 and CI that **do not exist yet**, so Phase 0's stated "done" criteria are not met:
@@ -35,7 +35,7 @@ This increment delivers exactly that and nothing more.
 
 ## Components
 
-### 1. `beacon/docker-compose.yml`
+### 1. `freshet/docker-compose.yml`
 
 Two services.
 
@@ -46,12 +46,12 @@ Two services.
   hello-world flow.
 - **`postgres`** — `pgvector/pgvector:pg16`. Host port `5433`→`5432`. Named volume
   `pgdata` for persistence. `pg_isready` healthcheck. Default DB/user/password set
-  via env (e.g. `beacon`/`beacon`/`beacon`) for local use only.
+  via env (e.g. `freshet`/`freshet`/`freshet`) for local use only.
 
 No application services in compose at this phase (the generator/consumer run from the
 host venv during verification).
 
-### 2. `beacon/Makefile`
+### 2. `freshet/Makefile`
 
 Thin targets for reproducibility:
 
@@ -62,8 +62,8 @@ Thin targets for reproducibility:
 
 ### 3. CI — `.github/workflows/ci.yml`
 
-On push/PR: set up Python 3.12, `pip install -r beacon/requirements.txt`, run
-`pytest -q` with `working-directory: beacon` and `PYTHONPATH: .`. The unit tests use
+On push/PR: set up Python 3.12, `pip install -r freshet/requirements.txt`, run
+`pytest -q` with `working-directory: freshet` and `PYTHONPATH: .`. The unit tests use
 the JSONL sink, so **CI needs no broker or database**.
 
 Supporting: `.gitignore` (venv, `__pycache__`, `.pytest_cache`, `events.jsonl`,
@@ -78,7 +78,7 @@ targets, and the `5433` Postgres host port. No overclaiming.
 
 Run in this environment and capture real output as the proof artifact:
 
-1. Create/activate a venv; `pip install -r beacon/requirements.txt` (proves
+1. Create/activate a venv; `pip install -r freshet/requirements.txt` (proves
    `confluent-kafka` installs on this machine / Python).
 2. `make up`; wait for both healthchecks green.
 3. `python -m generator --sink kafka --brokers localhost:9092 --count 60` — produces
