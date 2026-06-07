@@ -11,3 +11,6 @@ venv/
 # Generator output
 events.jsonl
 *.jsonl
+
+# Local documentation (kept out of git for now, by request)
+documentation/

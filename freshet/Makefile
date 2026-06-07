@@ -1,5 +1,6 @@
 COMPOSE := docker compose
-PY := PYTHONPATH=. python
+PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
+PY := PYTHONPATH=. $(PYTHON)
 
 .PHONY: up down smoke test
 
