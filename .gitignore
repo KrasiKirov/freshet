@@ -14,3 +14,6 @@ events.jsonl
 
 # Local documentation (kept out of git for now, by request)
 documentation/
+
+# Project brief
+BRIEF_for_Claude_Code.md
