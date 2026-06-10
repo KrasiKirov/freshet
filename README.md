@@ -1,7 +1,6 @@
 # Freshet — Real-Time Incident Intelligence
 
-Freshness-first streaming-RAG system for on-call engineers. See `BRIEF.md` for the
-full what/why/how and build order. This repo currently contains the foundation
+Freshness-first streaming-RAG system for on-call engineers. This repo currently contains the foundation
 (data contract, deterministic synthetic event generator, Kafka I/O helpers,
 produce→consume hello-world, tests) plus the in-progress ingestion slice:
 pgvector schema, embedding interface, and the normalizer worker. The
