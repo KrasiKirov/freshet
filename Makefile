@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up down smoke test
+.PHONY: up down db-init smoke test
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -22,6 +22,10 @@ up:
 # Tear down and drop the Postgres volume.
 down:
 	$(COMPOSE) down -v
+
+# Apply the schema to a running stack (idempotent).
+db-init:
+	docker exec -i freshet-postgres psql -v ON_ERROR_STOP=1 -U freshet -d freshet < db/init.sql
 
 # Run the unit tests (no broker needed; integration tests are excluded by pytest addopts).
 test:

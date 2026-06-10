@@ -24,8 +24,9 @@ Full stack (Redpanda + Postgres/pgvector via docker-compose):
 Notes:
 - Kafka API is on `localhost:9092`. Postgres is on `localhost:5433`
   (5432 is left free for a local Postgres), db/user/password `freshet`.
-- Postgres is container-only at Phase 0 (no schema/extension yet — that is
-  Phase 1). `make smoke` only exercises the Kafka round-trip.
+- The schema (`db/init.sql`: pgvector extension + `vector_records` table) is
+  auto-applied on a fresh volume; for an existing volume run `make db-init`.
+  `make smoke` only exercises the Kafka round-trip.
 
 Equivalent manual commands:
 
