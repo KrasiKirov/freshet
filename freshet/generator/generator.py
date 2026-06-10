@@ -18,8 +18,8 @@ import random
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
-from common.schemas import Event, EventSource, EventType, Severity
-from generator.scenarios import build_scenario
+from freshet.common.schemas import Event, EventSource, EventType, Severity
+from freshet.generator.scenarios import build_scenario
 
 SERVICES = [
     "scheduler-api",
@@ -116,7 +116,7 @@ class KafkaSink:
     """Lazy Kafka producer sink. Requires confluent-kafka + a running broker."""
 
     def __init__(self, brokers: str, topic: str):
-        from common.kafka_io import make_producer  # lazy import
+        from freshet.common.kafka_io import make_producer  # lazy import
 
         self.topic = topic
         self.producer = make_producer(brokers)

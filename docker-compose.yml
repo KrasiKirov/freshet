@@ -1,7 +1,7 @@
-# Freshet Phase 0 local stack: Redpanda (Kafka API) + Postgres/pgvector.
-# Container-only Postgres at this phase — no schema, no extension creation
-# (that is Phase 1's contract). Postgres is published on host port 5433 to
-# avoid colliding with a local Postgres on 5432.
+# Freshet local stack: Redpanda (Kafka API) + Postgres/pgvector.
+# db/init.sql is auto-applied on a fresh volume (docker-entrypoint-initdb.d);
+# for an existing volume run `make db-init`. Postgres is published on host
+# port 5433 to avoid colliding with a local Postgres on 5432.
 services:
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
@@ -34,6 +34,7 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U freshet"]
       interval: 5s

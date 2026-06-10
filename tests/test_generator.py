@@ -1,6 +1,6 @@
-from common.schemas import Event, EventSource, EventType
-from generator.generator import EventGenerator
-from generator.scenarios import BAD_VERSION, GOOD_VERSION, SERVICE, build_scenario
+from freshet.common.schemas import Event, EventSource, EventType
+from freshet.generator.generator import EventGenerator
+from freshet.generator.scenarios import BAD_VERSION, GOOD_VERSION, SERVICE, build_scenario
 from datetime import datetime, timezone
 
 

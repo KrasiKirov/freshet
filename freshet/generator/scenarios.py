@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Callable
 
-from common.schemas import Event, EventSource, EventType, Severity
+from freshet.common.schemas import Event, EventSource, EventType, Severity
 
 # Each step: (offset_seconds_from_incident_start, factory(start_ts, incident_id) -> Event)
 ScenarioStep = tuple[float, Callable[[datetime, str], Event]]

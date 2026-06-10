@@ -6,7 +6,7 @@ produce -> Kafka -> consume -> validate path before any real processing
 (normalization, embedding) is added in Phase 1.
 
 Run (with docker-compose up first):
-    python -m pipeline.consumer_helloworld --brokers localhost:9092
+    python -m freshet.pipeline.consumer_helloworld --brokers localhost:9092
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 
-from common.kafka_io import consume_loop
-from common.schemas import Event
+from freshet.common.kafka_io import consume_loop
+from freshet.common.schemas import Event
 
 
 def handle(value: str) -> None:

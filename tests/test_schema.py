@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from common.schemas import Event, EventSource, Incident, Severity, VectorRecord
+from freshet.common.schemas import Event, EventSource, Incident, Severity, VectorRecord
 
 
 def test_event_defaults_and_ids():
