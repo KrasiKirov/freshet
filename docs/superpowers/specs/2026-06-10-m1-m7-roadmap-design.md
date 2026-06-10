@@ -105,6 +105,10 @@ Then polish: README rewritten to lead with results (problem → architecture dia
 - **Grafana provisioning is fiddly.** Commit dashboard JSON and provisioning YAML from the first M3 commit.
 - **Model download (~90 MB)** stays out of CI via the stub embedder.
 
+## Post-M7 candidate: M8 — one real connector
+
+Not part of this roadmap's scope, recorded as the designated next step after M7. A single webhook connector (GitHub is the natural first: CI failures, pushes, releases from the author's active repos) translating real payloads into the canonical `Event` contract and producing to `raw.events`. The pipeline downstream works unchanged. This converts the project from a demonstration on synthetic data into something personally usable ("what broke in this repo recently, and what fixed the last similar failure?") and lets the README show the system running on real data. Aligns with brief §7's "future phases: real connectors via webhooks". Build only after M6's eval exists — the eval remains the differentiator.
+
 ## Out of scope (unchanged from brief §7)
 
 Real connectors/OAuth/MCP, multi-tenancy/auth/RBAC, action-taking agents, skill induction, closed-loop monitoring, heavyweight orchestrators (Airflow/Dagster/Spark/Flink), full OpenTelemetry tracing, alerting rules.
