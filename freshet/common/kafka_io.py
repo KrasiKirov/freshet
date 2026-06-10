@@ -17,7 +17,7 @@ def make_producer(brokers: str):
     return Producer({"bootstrap.servers": brokers, "linger.ms": 5})
 
 
-def make_consumer(brokers: str, group_id: str, topics: list[str]):
+def make_consumer(brokers: str, group_id: str, topics: list[str], auto_commit: bool = True):
     from confluent_kafka import Consumer
 
     c = Consumer(
@@ -25,7 +25,7 @@ def make_consumer(brokers: str, group_id: str, topics: list[str]):
             "bootstrap.servers": brokers,
             "group.id": group_id,
             "auto.offset.reset": "earliest",
-            "enable.auto.commit": True,
+            "enable.auto.commit": auto_commit,
         }
     )
     c.subscribe(topics)
@@ -38,13 +38,16 @@ def consume_loop(
     topics: list[str],
     handler: Callable[[str], None],
     max_messages: Optional[int] = None,
+    auto_commit: bool = True,
 ) -> int:
     """Run a simple consume loop, calling handler(value_str) per message.
 
-    Returns the number of messages processed. `max_messages` lets callers/tests
-    bound the loop; None runs until interrupted.
+    With auto_commit=False the offset is committed only after the handler
+    returns, so an unprocessed message is redelivered after a crash
+    (at-least-once). Returns the number of messages processed. `max_messages`
+    lets callers/tests bound the loop; None runs until interrupted.
     """
-    c = make_consumer(brokers, group_id, topics)
+    c = make_consumer(brokers, group_id, topics, auto_commit=auto_commit)
     n = 0
     try:
         while max_messages is None or n < max_messages:
@@ -56,6 +59,8 @@ def consume_loop(
                 print(f"[consume error] {msg.error()}")
                 continue
             handler(msg.value().decode("utf-8"))
+            if not auto_commit:
+                c.commit(message=msg)
             n += 1
     finally:
         c.close()
