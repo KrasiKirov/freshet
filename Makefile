@@ -1,6 +1,5 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
-PY := PYTHONPATH=. $(PYTHON)
 
 .PHONY: up down smoke test
 
@@ -24,14 +23,14 @@ up:
 down:
 	$(COMPOSE) down -v
 
-# Run the unit tests (no broker needed).
+# Run the unit tests (no broker needed; integration tests are excluded by pytest addopts).
 test:
-	$(PY) -m pytest -q
+	$(PYTHON) -m pytest -q
 
 # Produce -> consume -> validate against the real broker, and confirm Postgres.
 # --count 60 emits 69 events total (60 noise + 9 scripted incident). A unique
 # consumer group makes this re-runnable without tearing the stack down.
 smoke:
-	$(PY) -m generator --sink kafka --brokers localhost:9092 --count 60
-	$(PY) -m pipeline.consumer_helloworld --brokers localhost:9092 --max 69 --group smoke-$$(date +%s)
+	$(PYTHON) -m freshet.generator --sink kafka --brokers localhost:9092 --count 60
+	$(PYTHON) -m freshet.pipeline.consumer_helloworld --brokers localhost:9092 --max 69 --group smoke-$$(date +%s)
 	pg_isready -h localhost -p 5433

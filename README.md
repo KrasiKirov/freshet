@@ -1,18 +1,19 @@
-# Freshet — Real-Time Incident Intelligence (Phase 0)
+# Freshet — Real-Time Incident Intelligence
 
 Freshness-first streaming-RAG system for on-call engineers. See `BRIEF.md` for the
-full what/why/how and build order. This repo currently contains **Phase 0**: the
-data contract, a deterministic synthetic event generator, Kafka I/O helpers, a
-produce→consume hello-world, and tests.
+full what/why/how and build order. This repo currently contains the foundation
+(data contract, deterministic synthetic event generator, Kafka I/O helpers,
+produce→consume hello-world, tests) plus the in-progress ingestion slice:
+pgvector schema, embedding interface, and the normalizer worker. The
+end-to-end pipeline is not wired up yet.
 
-## Run (Phase 0)
+## Run
 
 Unit tests (no broker needed):
 
-    cd freshet
     python3 -m venv .venv && source .venv/bin/activate
-    pip install -r requirements.txt
-    PYTHONPATH=. pytest -q
+    pip install -e ".[test]"
+    pytest -q
 
 Full stack (Redpanda + Postgres/pgvector via docker-compose):
 
@@ -28,11 +29,11 @@ Notes:
 
 Equivalent manual commands:
 
-    PYTHONPATH=. python -m generator --sink kafka --brokers localhost:9092 --count 60
-    PYTHONPATH=. python -m pipeline.consumer_helloworld --brokers localhost:9092 --max 69
+    python -m freshet.generator --sink kafka --brokers localhost:9092 --count 60
+    python -m freshet.pipeline.consumer_helloworld --brokers localhost:9092 --max 69
 
 ## Layout
-    common/      # schemas (the contract) + kafka helpers
-    generator/   # synthetic events + scripted incident scenario
-    pipeline/    # consumers (Phase 0: hello-world; Phase 1+: normalizer, embedder)
-    tests/       # schema + generator tests
+    freshet/common/      # schemas (the contract) + kafka helpers
+    freshet/generator/   # synthetic events + scripted incident scenario
+    freshet/pipeline/    # consumers: hello-world, normalizer, embeddings (worker WIP)
+    tests/               # schema + generator tests
