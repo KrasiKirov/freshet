@@ -3,8 +3,10 @@
 Freshness-first streaming-RAG system for on-call engineers. The repo currently
 contains the M2 vertical slice: events flow generator → Kafka (Redpanda) →
 normalizer → embedding worker → Postgres/pgvector and are queryable within
-seconds via a minimal vector-search API. Hybrid retrieval, dashboards, and the
-evaluation harness are upcoming milestones.
+seconds via a minimal vector-search API. Ingestion is hardened (incident
+correlation, dead-letter topic, graceful shutdown, replay, scaled consumers —
+see `RESULTS.md`); hybrid retrieval and the evaluation harness are upcoming
+milestones.
 
 ## Quickstart
 
@@ -58,6 +60,8 @@ consumer lag comes from Redpanda's built-in metrics endpoint.
     make api              # serve POST /query on :8000
     make test-integration # end-to-end test against the running stack
     make db-init          # apply schema to a running stack (idempotent)
+    make replay           # re-index the corpus under a fresh consumer group
+    make scale-demo       # WORKERS=1|3 throughput demonstration
 
 Example query against `make api`:
 

@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up up-obs down db-init smoke test test-integration api slice replay
+.PHONY: up up-obs down db-init smoke test test-integration api slice replay scale-demo
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -62,3 +62,7 @@ slice:
 # overwrite rows in place. EMBEDDER=stub skips the model download.
 replay:
 	$(PYTHON) -m freshet.pipeline.embedder --brokers localhost:9092 --group reindex-$$(date +%s) --embedder $${EMBEDDER:-minilm} --metrics-port 0 --idle-timeout 10
+
+# Throughput demo: WORKERS=1 make scale-demo, then WORKERS=3 make scale-demo.
+scale-demo:
+	bash scripts/run_scaling_demo.sh
