@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up down db-init smoke test
+.PHONY: up down db-init smoke test test-integration api slice
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -31,6 +31,10 @@ db-init:
 test:
 	$(PYTHON) -m pytest -q
 
+# Integration tests against the running stack (make up first).
+test-integration:
+	$(PYTHON) -m pytest -q -m integration
+
 # Produce -> consume -> validate against the real broker, and confirm Postgres.
 # --count 60 emits 69 events total (60 noise + 9 scripted incident). A unique
 # consumer group makes this re-runnable without tearing the stack down.
@@ -38,3 +42,11 @@ smoke:
 	$(PYTHON) -m freshet.generator --sink kafka --brokers localhost:9092 --count 60
 	$(PYTHON) -m freshet.pipeline.consumer_helloworld --brokers localhost:9092 --max 69 --group smoke-$$(date +%s)
 	pg_isready -h localhost -p 5433
+
+# Serve the query API on :8000 (stack must be up; FRESHET_EMBEDDER=stub to skip model).
+api:
+	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
+
+# Run the vertical-slice demo end to end (make up first; EMBEDDER=stub to skip model).
+slice:
+	bash scripts/run_slice.sh

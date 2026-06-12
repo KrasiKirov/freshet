@@ -1,39 +1,68 @@
 # Freshet — Real-Time Incident Intelligence
 
-Freshness-first streaming-RAG system for on-call engineers. This repo currently contains the foundation
-(data contract, deterministic synthetic event generator, Kafka I/O helpers,
-produce→consume hello-world, tests) plus the in-progress ingestion slice:
-pgvector schema, embedding interface, and the normalizer worker. The
-end-to-end pipeline is not wired up yet.
+Freshness-first streaming-RAG system for on-call engineers. The repo currently
+contains the M2 vertical slice: events flow generator → Kafka (Redpanda) →
+normalizer → embedding worker → Postgres/pgvector and are queryable within
+seconds via a minimal vector-search API. Hybrid retrieval, dashboards, and the
+evaluation harness are upcoming milestones.
 
-## Run
-
-Unit tests (no broker needed):
+## Quickstart
 
     python3 -m venv .venv && source .venv/bin/activate
     pip install -e ".[test]"
-    pytest -q
+    pytest -q                  # unit tests, no broker needed
 
-Full stack (Redpanda + Postgres/pgvector via docker-compose):
+    make up                    # Redpanda + Postgres/pgvector, waits until healthy
+    make slice                 # full pipeline demo + freshness report (see below)
+    make down                  # tear down (drops the Postgres volume)
 
-    make up      # starts the broker + Postgres, waits until healthy
-    make smoke   # produce -> consume -> validate against the real broker
-    make down    # stop and remove the stack
+`make slice` uses the local MiniLM embedding model (`pip install -e ".[embed]"`,
+~90 MB download on first use). `EMBEDDER=stub make slice` runs with
+deterministic fake embeddings and no download. Run the demo on a fresh stack
+for clean freshness numbers.
 
-Notes:
-- Kafka API is on `localhost:9092`. Postgres is on `localhost:5433`
-  (5432 is left free for a local Postgres), db/user/password `freshet`.
-- The schema (`db/init.sql`: pgvector extension + `vector_records` table) is
-  auto-applied on a fresh volume; for an existing volume run `make db-init`.
-  `make smoke` only exercises the Kafka round-trip.
+## What the demo shows
 
-Equivalent manual commands:
+1. **Generate** — emit live-stamped synthetic events (noise + a scripted
+   scheduler-api incident) to Kafka `raw.events`; each event carries `ts`
+   (event time).
+2. **Normalize** — the normalizer worker consumes `raw.events`, stamps
+   `ingested_at`, and forwards to `normalized.events`.
+3. **Embed** — the embedding worker consumes `normalized.events`, stamps
+   `indexed_at`, computes a vector embedding, and upserts into
+   `pgvector` (`vector_records`) idempotently.
+4. **Freshness report** — `freshet.eval.freshness` prints p50/p95/p99 of
+   `indexed_at − ts` across all records (freshness = time from event to
+   queryable).
+5. **Semantic query** — an example vector search for `"what is happening with
+   scheduler-api?"` returns the top-3 hits with cosine score, source, `ts`,
+   and `indexed_at`.
 
-    python -m freshet.generator --sink kafka --brokers localhost:9092 --count 60
-    python -m freshet.pipeline.consumer_helloworld --brokers localhost:9092 --max 69
+The three timestamps (`ts`, `ingested_at`, `indexed_at`) let you measure
+per-stage latency and total freshness end-to-end.
+
+## Other commands
+
+    make smoke            # Kafka round-trip sanity check
+    make api              # serve POST /query on :8000
+    make test-integration # end-to-end test against the running stack
+    make db-init          # apply schema to a running stack (idempotent)
+
+Example query against `make api`:
+
+    curl -s localhost:8000/query -X POST -H 'content-type: application/json' \
+      -d '{"question": "what is happening with scheduler-api?", "k": 3}'
 
 ## Layout
-    freshet/common/      # schemas (the contract) + kafka helpers
-    freshet/generator/   # synthetic events + scripted incident scenario
-    freshet/pipeline/    # consumers: hello-world, normalizer, embeddings (worker WIP)
-    tests/               # schema + generator tests
+
+    freshet/common/      # schemas (the contract), kafka helpers, db helper
+    freshet/generator/   # synthetic events + scripted incident scenario (--live mode)
+    freshet/pipeline/    # workers: normalizer, embedder (+ embedding backends)
+    freshet/api/         # minimal vector-search API (hybrid retrieval comes in M5)
+    freshet/eval/        # freshness report (full eval harness comes in M6)
+    db/                  # init.sql: pgvector extension + vector_records
+    scripts/             # run_slice.sh demo
+    tests/               # unit + integration tests
+
+Notes: Kafka on `localhost:9092`, Postgres on `localhost:5433` (5432 left free),
+db/user/password `freshet`.

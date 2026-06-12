@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
@@ -97,6 +98,20 @@ class EventGenerator:
             emitted += 1
 
 
+def live_stream(gen: EventGenerator, count: int, spacing_s: float) -> Iterator[Event]:
+    """Re-stamp ts to wall-clock now and pace emission.
+
+    The default stream uses fixed historical timestamps for reproducibility;
+    freshness (indexed_at - ts) is only meaningful when ts is real time, so
+    demos and the slice run use this wrapper.
+    """
+    for ev in gen.stream(count):
+        ev.ts = datetime.now(timezone.utc)
+        yield ev
+        if spacing_s > 0:
+            time.sleep(spacing_s)
+
+
 # --------------------------------------------------------------------------- #
 # Sinks
 # --------------------------------------------------------------------------- #
@@ -140,6 +155,8 @@ def main() -> None:
     p.add_argument("--topic", default="raw.events")
     p.add_argument("--count", type=int, default=200)
     p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--live", action="store_true", help="stamp ts=now and pace emission (for freshness demos)")
+    p.add_argument("--live-spacing", type=float, default=0.2, help="seconds between events in --live mode")
     args = p.parse_args()
 
     gen = EventGenerator(seed=args.seed)
@@ -148,9 +165,10 @@ def main() -> None:
         if args.sink == "jsonl"
         else KafkaSink(args.brokers, args.topic)
     )
+    stream = live_stream(gen, args.count, args.live_spacing) if args.live else gen.stream(args.count)
     n = 0
     try:
-        for ev in gen.stream(args.count):
+        for ev in stream:
             sink.write(ev)
             n += 1
     finally:
