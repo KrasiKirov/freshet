@@ -17,6 +17,7 @@ from typing import Optional
 
 from freshet.common.schemas import Event, VectorRecord
 from freshet.pipeline.embedding import Embedder, make_embedder, vec_literal
+from freshet.pipeline.metrics import FRESHNESS, INDEXED_EVENTS, start_metrics_server
 from freshet.pipeline.normalizer import NORMALIZED_TOPIC
 
 
@@ -61,6 +62,12 @@ def upsert_record(conn, rec: VectorRecord, embedding: list[float]) -> None:
     )
 
 
+def observe_indexed(rec: VectorRecord) -> None:
+    """Record metrics for one indexed (queryable) record."""
+    INDEXED_EVENTS.inc()
+    FRESHNESS.observe((rec.indexed_at - rec.ts).total_seconds())
+
+
 def run(
     brokers: str,
     group: str = "embedder",
@@ -68,7 +75,9 @@ def run(
     topic: str = NORMALIZED_TOPIC,
     embedder: Optional[Embedder] = None,
     dsn: Optional[str] = None,
+    metrics_port: int = 0,
 ) -> int:
+    start_metrics_server(metrics_port)
     from freshet.common.db import connect
     from freshet.common.kafka_io import consume_loop
 
@@ -82,6 +91,7 @@ def run(
         rec = to_vector_record(ev)
         [vector] = emb.encode([rec.text])
         upsert_record(conn, rec, vector)
+        observe_indexed(rec)
 
     try:
         n = consume_loop(brokers, group, [topic], handle, max_messages, auto_commit=False)
@@ -97,8 +107,9 @@ def main() -> None:
     p.add_argument("--max", type=int, default=None)
     p.add_argument("--embedder", choices=["minilm", "stub"], default="minilm")
     p.add_argument("--dsn", default=None)
+    p.add_argument("--metrics-port", type=int, default=8002, help="Prometheus /metrics port (0 disables)")
     a = p.parse_args()
-    n = run(a.brokers, group=a.group, max_messages=a.max, embedder=make_embedder(a.embedder), dsn=a.dsn)
+    n = run(a.brokers, group=a.group, max_messages=a.max, embedder=make_embedder(a.embedder), dsn=a.dsn, metrics_port=a.metrics_port)
     print(f"[embedder] processed {n} messages")
 
 
