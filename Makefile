@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up down db-init smoke test
+.PHONY: up down db-init smoke test api
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -38,3 +38,7 @@ smoke:
 	$(PYTHON) -m freshet.generator --sink kafka --brokers localhost:9092 --count 60
 	$(PYTHON) -m freshet.pipeline.consumer_helloworld --brokers localhost:9092 --max 69 --group smoke-$$(date +%s)
 	pg_isready -h localhost -p 5433
+
+# Serve the query API on :8000 (stack must be up; FRESHET_EMBEDDER=stub to skip model).
+api:
+	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
