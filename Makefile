@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up up-obs down db-init smoke test test-integration api slice
+.PHONY: up up-obs down db-init smoke test test-integration api slice replay
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -56,3 +56,9 @@ api:
 # Run the vertical-slice demo end to end (make up first; EMBEDDER=stub to skip model).
 slice:
 	bash scripts/run_slice.sh
+
+# Re-index the whole corpus under a fresh consumer group (e.g. after a model
+# change). Reads normalized.events from the beginning; idempotent upserts
+# overwrite rows in place. EMBEDDER=stub skips the model download.
+replay:
+	$(PYTHON) -m freshet.pipeline.embedder --brokers localhost:9092 --group reindex-$$(date +%s) --embedder $${EMBEDDER:-minilm} --metrics-port 0 --idle-timeout 10

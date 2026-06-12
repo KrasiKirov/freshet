@@ -132,11 +132,12 @@ def main() -> None:
     p.add_argument("--embedder", choices=["minilm", "stub"], default="minilm")
     p.add_argument("--dsn", default=None)
     p.add_argument("--metrics-port", type=int, default=8002, help="Prometheus /metrics port (0 disables)")
+    p.add_argument("--idle-timeout", type=float, default=None, help="exit after N seconds without messages (replay)")
     a = p.parse_args()
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
-    n = run(a.brokers, group=a.group, max_messages=a.max, embedder=make_embedder(a.embedder), dsn=a.dsn, metrics_port=a.metrics_port, stop=stop)
+    n = run(a.brokers, group=a.group, max_messages=a.max, embedder=make_embedder(a.embedder), dsn=a.dsn, metrics_port=a.metrics_port, stop=stop, idle_timeout_s=a.idle_timeout)
     print(f"[embedder] processed {n} messages")
 
 
