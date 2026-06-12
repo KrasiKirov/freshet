@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up down db-init smoke test api
+.PHONY: up down db-init smoke test test-integration api
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -30,6 +30,10 @@ db-init:
 # Run the unit tests (no broker needed; integration tests are excluded by pytest addopts).
 test:
 	$(PYTHON) -m pytest -q
+
+# Integration tests against the running stack (make up first).
+test-integration:
+	$(PYTHON) -m pytest -q -m integration
 
 # Produce -> consume -> validate against the real broker, and confirm Postgres.
 # --count 60 emits 69 events total (60 noise + 9 scripted incident). A unique
