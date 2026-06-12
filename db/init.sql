@@ -16,3 +16,13 @@ CREATE TABLE IF NOT EXISTS vector_records (
 
 CREATE INDEX IF NOT EXISTS vector_records_service_ts_idx
     ON vector_records (service, ts DESC);
+
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id        text PRIMARY KEY,
+    title              text NOT NULL DEFAULT '',
+    services           text[] NOT NULL DEFAULT '{}',
+    opened_at          timestamptz NOT NULL,
+    resolved_at        timestamptz,
+    resolution_summary text,
+    event_ids          text[] NOT NULL DEFAULT '{}'
+);
