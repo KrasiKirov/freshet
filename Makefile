@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up down db-init smoke test test-integration api
+.PHONY: up down db-init smoke test test-integration api slice
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -46,3 +46,7 @@ smoke:
 # Serve the query API on :8000 (stack must be up; FRESHET_EMBEDDER=stub to skip model).
 api:
 	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
+
+# Run the vertical-slice demo end to end (make up first; EMBEDDER=stub to skip model).
+slice:
+	bash scripts/run_slice.sh
