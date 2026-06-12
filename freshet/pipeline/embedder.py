@@ -16,8 +16,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from freshet.common.schemas import Event, VectorRecord
+from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
 from freshet.pipeline.embedding import Embedder, make_embedder, vec_literal
-from freshet.pipeline.metrics import FRESHNESS, INDEXED_EVENTS, start_metrics_server
+from freshet.pipeline.metrics import DEADLETTER_EVENTS, FRESHNESS, INDEXED_EVENTS, start_metrics_server
 from freshet.pipeline.normalizer import NORMALIZED_TOPIC
 
 
@@ -75,17 +76,25 @@ def run(
     topic: str = NORMALIZED_TOPIC,
     embedder: Optional[Embedder] = None,
     dsn: Optional[str] = None,
+    deadletter_topic: str = DEADLETTER_TOPIC,
     metrics_port: int = 0,
 ) -> int:
     start_metrics_server(metrics_port)
     from freshet.common.db import connect
-    from freshet.common.kafka_io import consume_loop
+    from freshet.common.kafka_io import consume_loop, make_producer
 
     emb = embedder or make_embedder("minilm")
     conn = connect(dsn)
+    producer = make_producer(brokers)
 
     def handle(value: str) -> None:
-        ev = Event.model_validate_json(value)
+        try:
+            ev = Event.model_validate_json(value)
+        except Exception as e:
+            DEADLETTER_EVENTS.inc()
+            producer.produce(deadletter_topic, value=build_deadletter(str(e), value, topic))
+            producer.flush()
+            return
         if not ev.text.strip():
             return
         rec = to_vector_record(ev)
@@ -96,6 +105,7 @@ def run(
     try:
         n = consume_loop(brokers, group, [topic], handle, max_messages, auto_commit=False)
     finally:
+        producer.flush()
         conn.close()
     return n
 

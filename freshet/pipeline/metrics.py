@@ -19,9 +19,9 @@ NORMALIZED_EVENTS = Counter(
     "freshet_normalizer_events_total",
     "Events validated and republished by the normalizer",
 )
-INVALID_EVENTS = Counter(
-    "freshet_normalizer_invalid_total",
-    "Payloads that failed validation (dead-letter topic arrives in M4)",
+DEADLETTER_EVENTS = Counter(
+    "freshet_deadletter_total",
+    "Messages routed to the dead-letter topic (normalizer + embedder)",
 )
 INGEST_LAG = Histogram(
     "freshet_ingest_lag_seconds",

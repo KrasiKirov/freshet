@@ -1,11 +1,10 @@
-"""Normalizer worker: raw.events -> validate -> stamp ingested_at -> normalized.events.
+"""Normalizer worker: raw.events -> validate -> correlate -> normalized.events.
 
-M4: validation + timestamping + incident correlation (state in Postgres). The
-dead-letter topic lands in the next commit — until then invalid payloads are
-skipped with a warning, never silently dropped without trace. Also deferred:
-the produce happens async and the consumer offset commits before the producer
-flushes, so a crash in that window can lose (not duplicate) an event; cured in
-the dead-letter commit via per-message flush.
+Validates each payload against the canonical Event schema, stamps ingested_at,
+attaches the event to an incident (state in Postgres), and republishes keyed
+by service. Invalid payloads go to the dead-letter topic, never silently
+dropped. The produce is flushed before the consumer offset commits, so a crash
+can only cause redelivery (at-least-once), not loss.
 
 Run (stack up first):
     python -m freshet.pipeline.normalizer --brokers localhost:9092
@@ -18,9 +17,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from freshet.common.schemas import Event
+from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
 from freshet.pipeline.metrics import (
+    DEADLETTER_EVENTS,
     INGEST_LAG,
-    INVALID_EVENTS,
     NORMALIZED_EVENTS,
     start_metrics_server,
 )
@@ -53,6 +53,7 @@ def run(
     max_messages: Optional[int] = None,
     raw_topic: str = RAW_TOPIC,
     normalized_topic: str = NORMALIZED_TOPIC,
+    deadletter_topic: str = DEADLETTER_TOPIC,
     metrics_port: int = 0,
     dsn: Optional[str] = None,
 ) -> int:
@@ -69,15 +70,19 @@ def run(
         ev = normalize(value)
         if ev is None:
             skipped += 1
-            INVALID_EVENTS.inc()
-            print(f"[normalizer] skipped invalid payload ({skipped} so far)")
+            DEADLETTER_EVENTS.inc()
+            producer.produce(deadletter_topic, value=build_deadletter("validation failed", value, raw_topic))
+            producer.flush()
+            print(f"[normalizer] dead-lettered invalid payload ({skipped} so far)")
             return
         assigned = correlate(conn, ev)
         if assigned is not None:
             ev.incident_id = assigned
         # key by service to preserve per-service ordering downstream
         producer.produce(normalized_topic, key=ev.service, value=ev.model_dump_json())
-        producer.poll(0)
+        # flush before the loop commits this offset: closes the documented
+        # produce-before-commit loss window (per-message flush is fine at demo rate)
+        producer.flush()
         observe_normalized(ev)
 
     try:
