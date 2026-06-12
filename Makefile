@@ -18,6 +18,8 @@ up:
 		sleep 2; echo "  ...still waiting ($$i/30)"; \
 	done
 	@echo "stack healthy."
+	@docker exec freshet-redpanda rpk topic create raw.events normalized.events deadletter.events -p 3 >/dev/null 2>&1 || true
+	@echo "topics ready (3 partitions)."
 
 # Bring up the stack plus Prometheus (:9090) and Grafana (:3000).
 up-obs:
