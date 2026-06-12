@@ -50,7 +50,7 @@ per-stage latency and total freshness end-to-end.
 
 Grafana auto-provisions a "Freshet pipeline" dashboard at
 http://localhost:3000/d/freshet-pipeline: freshness percentiles (p50/p95/p99),
-pipeline throughput, per-group consumer lag, and invalid-event count. The
+pipeline throughput, per-group consumer lag, and dead-lettered messages. The
 workers expose Prometheus metrics on :8001 (normalizer) and :8002 (embedder);
 consumer lag comes from Redpanda's built-in metrics endpoint.
 
@@ -75,8 +75,8 @@ Example query against `make api`:
     freshet/pipeline/    # workers: normalizer, embedder (+ embedding backends)
     freshet/api/         # minimal vector-search API (hybrid retrieval comes in M5)
     freshet/eval/        # freshness report (full eval harness comes in M6)
-    db/                  # init.sql: pgvector extension + vector_records
-    scripts/             # run_slice.sh demo
+    db/                  # init.sql: pgvector extension, vector_records, incidents
+    scripts/             # run_slice.sh + run_scaling_demo.sh demos
     tests/               # unit + integration tests
 
 Notes: Kafka on `localhost:9092`, Postgres on `localhost:5433` (5432 left free),

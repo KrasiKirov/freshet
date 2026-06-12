@@ -73,8 +73,8 @@ def run(
         ev = normalize(value)
         if ev is None:
             skipped += 1
-            DEADLETTER_EVENTS.inc()
             produce_sync(producer, deadletter_topic, build_deadletter("validation failed", value, raw_topic))
+            DEADLETTER_EVENTS.inc()
             print(f"[normalizer] dead-lettered invalid payload ({skipped} so far)")
             return
         assigned = correlate(conn, ev)

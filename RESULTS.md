@@ -25,6 +25,6 @@ Reproduce: `make down && make up && WORKERS=1 make scale-demo` (then WORKERS=3).
 
 ## M2 — event-to-queryable freshness (slice demo, real embedder)
 
-p50 ≈ 2–3 s, p95 ≈ 6 s over 69 live events (`make slice`; printed by
+p50 ≈ 2–4 s, p95 ≈ 6–8 s over 69 live events (`make slice`; printed by
 `freshet.eval.freshness`). The full eval harness with committed artifacts is
 M6.

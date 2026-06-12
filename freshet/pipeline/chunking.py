@@ -1,6 +1,7 @@
 """Greedy word-packing chunker for long event texts (e.g. postmortems).
 
-Words are never split; each chunk stays under max_chars. 400 chars keeps a
+Words are never split, so a chunk stays under max_chars unless a single word
+exceeds it (then that word is its own oversized chunk). 400 chars keeps a
 chunk comfortably inside the embedding model's input window while leaving
 retrieval granularity per-paragraph-ish.
 """

@@ -7,6 +7,11 @@ service, or opens a new one. A healthy event resolves its incident; an RCA
 event records the resolution summary. All writes are idempotent (guarded array
 appends, COALESCE on resolution fields) so at-least-once redelivery cannot
 duplicate or regress state.
+
+Single-writer assumption: the find-or-create in correlate() is not atomic, so
+correctness requires exactly one normalizer instance (or a partial unique
+index on open incidents per service) — scale embedders, not normalizers,
+until that guard exists.
 """
 
 from __future__ import annotations

@@ -102,8 +102,8 @@ def run(
         try:
             ev = Event.model_validate_json(value)
         except Exception as e:
-            DEADLETTER_EVENTS.inc()
             produce_sync(producer, deadletter_topic, build_deadletter(str(e), value, topic))
+            DEADLETTER_EVENTS.inc()
             return
         records = records_for_event(ev)
         if not records:
