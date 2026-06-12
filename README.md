@@ -41,6 +41,17 @@ for clean freshness numbers.
 The three timestamps (`ts`, `ingested_at`, `indexed_at`) let you measure
 per-stage latency and total freshness end-to-end.
 
+## Observability
+
+    make up-obs   # stack + Prometheus (:9090) + Grafana (:3000, anonymous admin)
+    make slice    # generate load, then watch the dashboard
+
+Grafana auto-provisions a "Freshet pipeline" dashboard at
+http://localhost:3000/d/freshet-pipeline: freshness percentiles (p50/p95/p99),
+pipeline throughput, per-group consumer lag, and invalid-event count. The
+workers expose Prometheus metrics on :8001 (normalizer) and :8002 (embedder);
+consumer lag comes from Redpanda's built-in metrics endpoint.
+
 ## Other commands
 
     make smoke            # Kafka round-trip sanity check

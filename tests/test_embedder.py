@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from freshet.common.schemas import Event, EventSource
 from freshet.pipeline.embedder import to_vector_record
@@ -30,3 +30,21 @@ def test_to_vector_record_copies_fields_and_stamps_indexed_at():
     assert rec.text == "hello"
     assert rec.source is EventSource.CHAT
     assert rec.incident_id is None
+
+
+def test_observe_indexed_records_freshness():
+    from prometheus_client import REGISTRY
+
+    from freshet.pipeline.embedder import observe_indexed
+
+    ev = Event(service="s", source=EventSource.ALERT, type="error_spike", text="x")
+    now = ev.ts + timedelta(seconds=2.5)
+    rec = to_vector_record(ev, now=now)
+
+    events_before = REGISTRY.get_sample_value("freshet_embedder_events_total") or 0
+    sum_before = REGISTRY.get_sample_value("freshet_freshness_seconds_sum") or 0
+
+    observe_indexed(rec)
+
+    assert REGISTRY.get_sample_value("freshet_embedder_events_total") == events_before + 1
+    assert abs(REGISTRY.get_sample_value("freshet_freshness_seconds_sum") - sum_before - 2.5) < 1e-6

@@ -1,0 +1,114 @@
+{
+  "uid": "freshet-pipeline",
+  "title": "Freshet pipeline",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Freshness p50",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Freshness p95",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Invalid events (dead-letter candidates)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(freshet_normalizer_invalid_total)", "refId": "A" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Events indexed",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(freshet_embedder_events_total)", "refId": "A" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Event -> queryable freshness (percentiles)",
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 9 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Throughput (events/s)",
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 9 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(rate(freshet_normalizer_events_total[1m]))",
+          "legendFormat": "normalizer",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(freshet_embedder_events_total[1m]))",
+          "legendFormat": "embedder",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Consumer lag (messages)",
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 9 },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "clamp_min(sum by (redpanda_group) (redpanda_kafka_max_offset{redpanda_namespace=\"kafka\",redpanda_topic=~\"raw.events|normalized.events\"} - on(redpanda_topic, redpanda_partition) group_right() redpanda_kafka_consumer_group_committed_offset{redpanda_group=~\"normalizer|embedder\"}), 0)",
+          "legendFormat": "{{redpanda_group}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up down db-init smoke test test-integration api slice
+.PHONY: up up-obs down db-init smoke test test-integration api slice
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -19,9 +19,13 @@ up:
 	done
 	@echo "stack healthy."
 
+# Bring up the stack plus Prometheus (:9090) and Grafana (:3000).
+up-obs:
+	COMPOSE_PROFILES=obs $(MAKE) up
+
 # Tear down and drop the Postgres volume.
 down:
-	$(COMPOSE) down -v
+	COMPOSE_PROFILES=obs $(COMPOSE) down -v
 
 # Apply the schema to a running stack (idempotent).
 db-init:

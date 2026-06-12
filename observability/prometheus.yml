@@ -1,0 +1,16 @@
+# Scrapes the host-side workers (they run outside compose) and Redpanda's
+# built-in /public_metrics. 5s interval keeps dashboard latency demo-friendly.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: redpanda
+    metrics_path: /public_metrics
+    static_configs:
+      - targets: ["redpanda:9644"]
+
+  - job_name: freshet-workers
+    static_configs:
+      - targets:
+          - "host.docker.internal:8001"   # normalizer
+          - "host.docker.internal:8002"   # embedder
