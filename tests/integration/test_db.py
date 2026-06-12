@@ -23,5 +23,16 @@ def test_schema_applied():
             "chunk_id", "event_id", "incident_id", "service",
             "ts", "indexed_at", "source", "text", "embedding",
         } <= cols
+        inc_cols = {
+            r[0]
+            for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_name = 'incidents'"
+            ).fetchall()
+        }
+        assert {
+            "incident_id", "title", "services", "opened_at",
+            "resolved_at", "resolution_summary", "event_ids",
+        } <= inc_cols
     finally:
         conn.close()
