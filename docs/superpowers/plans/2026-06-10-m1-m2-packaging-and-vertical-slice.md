@@ -1432,10 +1432,11 @@ def test_slice_end_to_end(conn):
     raw_topic = f"raw.events.it{run_id}"
     norm_topic = f"normalized.events.it{run_id}"
 
-    # produce 20 noise + 9 scripted = 29 live-stamped events
+    # produce 20 noise + 9 scripted = 29 live-stamped events. incident_after
+    # must be < count or the scripted incident never injects (default is 20).
     sink = KafkaSink(BROKERS, raw_topic)
     produced = 0
-    for ev in live_stream(EventGenerator(seed=3), count=20, spacing_s=0):
+    for ev in live_stream(EventGenerator(seed=3, incident_after=10), count=20, spacing_s=0):
         sink.write(ev)
         produced += 1
     sink.close()

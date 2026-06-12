@@ -51,3 +51,14 @@ def test_timestamps_monotonic_in_noise():
     noise = [e for e in events if e.structured.get("noise")]
     ts = [e.ts for e in noise]
     assert ts == sorted(ts)
+
+
+def test_live_stream_stamps_wall_clock_and_preserves_count():
+    from freshet.generator.generator import live_stream
+
+    gen = EventGenerator(seed=1, incident_after=0)
+    before = datetime.now(timezone.utc)
+    events = list(live_stream(gen, count=5, spacing_s=0))
+    after = datetime.now(timezone.utc)
+    assert len(events) == 5 + 9  # noise + scripted incident
+    assert all(before <= e.ts <= after for e in events)
