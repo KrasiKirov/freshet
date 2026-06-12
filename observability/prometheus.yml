@@ -13,4 +13,6 @@ scrape_configs:
     static_configs:
       - targets:
           - "host.docker.internal:8001"   # normalizer
-          - "host.docker.internal:8002"   # embedder
+          - "host.docker.internal:8002"   # embedder 1
+          - "host.docker.internal:8003"   # embedder 2 (scaling demo)
+          - "host.docker.internal:8004"   # embedder 3 (scaling demo)

@@ -1,11 +1,10 @@
-"""Normalizer worker: raw.events -> validate -> stamp ingested_at -> normalized.events.
+"""Normalizer worker: raw.events -> validate -> correlate -> normalized.events.
 
-M2 scope: validation + timestamping only. Incident correlation and the
-dead-letter topic arrive in M4 — until then invalid payloads are skipped with
-a warning, never silently dropped without trace. Also deferred to M4: the
-produce happens async and the consumer offset commits before the producer
-flushes, so a crash in that window can lose (not duplicate) an event; the
-recovery path until then is topic replay from offset 0.
+Validates each payload against the canonical Event schema, stamps ingested_at,
+attaches the event to an incident (state in Postgres), and republishes keyed
+by service. Invalid payloads go to the dead-letter topic, never silently
+dropped. The produce is flushed before the consumer offset commits, so a crash
+can only cause redelivery (at-least-once), not loss.
 
 Run (stack up first):
     python -m freshet.pipeline.normalizer --brokers localhost:9092
@@ -14,16 +13,20 @@ Run (stack up first):
 from __future__ import annotations
 
 import argparse
+import signal
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 
 from freshet.common.schemas import Event
+from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
 from freshet.pipeline.metrics import (
+    DEADLETTER_EVENTS,
     INGEST_LAG,
-    INVALID_EVENTS,
     NORMALIZED_EVENTS,
     start_metrics_server,
 )
+from freshet.pipeline.incidents import correlate
 
 RAW_TOPIC = "raw.events"
 NORMALIZED_TOPIC = "normalized.events"
@@ -52,11 +55,16 @@ def run(
     max_messages: Optional[int] = None,
     raw_topic: str = RAW_TOPIC,
     normalized_topic: str = NORMALIZED_TOPIC,
+    deadletter_topic: str = DEADLETTER_TOPIC,
     metrics_port: int = 0,
+    dsn: Optional[str] = None,
+    stop: Optional[threading.Event] = None,
 ) -> int:
     start_metrics_server(metrics_port)
-    from freshet.common.kafka_io import consume_loop, make_producer
+    from freshet.common.db import connect
+    from freshet.common.kafka_io import consume_loop, make_producer, produce_sync
 
+    conn = connect(dsn)
     producer = make_producer(brokers)
     skipped = 0
 
@@ -65,16 +73,24 @@ def run(
         ev = normalize(value)
         if ev is None:
             skipped += 1
-            INVALID_EVENTS.inc()
-            print(f"[normalizer] skipped invalid payload ({skipped} so far)")
+            produce_sync(producer, deadletter_topic, build_deadletter("validation failed", value, raw_topic))
+            DEADLETTER_EVENTS.inc()
+            print(f"[normalizer] dead-lettered invalid payload ({skipped} so far)")
             return
+        assigned = correlate(conn, ev)
+        if assigned is not None:
+            ev.incident_id = assigned
         # key by service to preserve per-service ordering downstream
-        producer.produce(normalized_topic, key=ev.service, value=ev.model_dump_json())
-        producer.poll(0)
+        # delivery-checked produce before the loop commits this offset: a crash
+        # or failed produce can only cause redelivery, never silent loss
+        produce_sync(producer, normalized_topic, ev.model_dump_json(), key=ev.service)
         observe_normalized(ev)
 
-    n = consume_loop(brokers, group, [raw_topic], handle, max_messages, auto_commit=False)
-    producer.flush()
+    try:
+        n = consume_loop(brokers, group, [raw_topic], handle, max_messages, auto_commit=False, stop=stop)
+    finally:
+        producer.flush()
+        conn.close()
     return n
 
 
@@ -84,8 +100,12 @@ def main() -> None:
     p.add_argument("--group", default="normalizer")
     p.add_argument("--max", type=int, default=None)
     p.add_argument("--metrics-port", type=int, default=8001, help="Prometheus /metrics port (0 disables)")
+    p.add_argument("--dsn", default=None)
     a = p.parse_args()
-    n = run(a.brokers, group=a.group, max_messages=a.max, metrics_port=a.metrics_port)
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    n = run(a.brokers, group=a.group, max_messages=a.max, metrics_port=a.metrics_port, dsn=a.dsn, stop=stop)
     print(f"[normalizer] processed {n} messages")
 
 

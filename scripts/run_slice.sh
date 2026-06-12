@@ -6,9 +6,6 @@
 # fresh stack (make down && make up): workers use stable consumer groups, so
 # they also drain any events left on the topics by earlier runs, and old
 # non-live events carry fake-historical ts values that pollute the report.
-# Re-runs also stall ~30s while the broker times out the previous run's
-# killed workers before reassigning partitions (graceful shutdown lands in M4),
-# which inflates that run's freshness numbers.
 set -euo pipefail
 cd "$(dirname "$0")/.."          # repo root, so db/init.sql resolves regardless of caller
 

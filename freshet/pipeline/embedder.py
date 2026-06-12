@@ -2,8 +2,7 @@
 
 chunk_id derives from event_id, so redelivered or replayed events overwrite
 their own row instead of duplicating (at-least-once + idempotent = effectively
-once in the index). One chunk per event at M2; chunking for long texts (e.g.
-postmortems) arrives in M4.
+once in the index). Long texts are chunked; each chunk is its own idempotent row.
 
 Run (stack up first; use --embedder stub to skip the model download):
     python -m freshet.pipeline.embedder --brokers localhost:9092
@@ -12,26 +11,37 @@ Run (stack up first; use --embedder stub to skip the model download):
 from __future__ import annotations
 
 import argparse
+import signal
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 
 from freshet.common.schemas import Event, VectorRecord
+from freshet.pipeline.chunking import chunk_text
+from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
 from freshet.pipeline.embedding import Embedder, make_embedder, vec_literal
-from freshet.pipeline.metrics import FRESHNESS, INDEXED_EVENTS, start_metrics_server
+from freshet.pipeline.metrics import DEADLETTER_EVENTS, FRESHNESS, INDEXED_EVENTS, start_metrics_server
 from freshet.pipeline.normalizer import NORMALIZED_TOPIC
 
 
-def to_vector_record(ev: Event, now: Optional[datetime] = None) -> VectorRecord:
-    return VectorRecord(
-        chunk_id=f"chk_{ev.event_id}_0",
-        event_id=ev.event_id,
-        incident_id=ev.incident_id,
-        service=ev.service,
-        ts=ev.ts,
-        indexed_at=now or datetime.now(timezone.utc),
-        text=ev.text,
-        source=ev.source,
-    )
+def records_for_event(ev: Event, now: Optional[datetime] = None) -> list[VectorRecord]:
+    """One record per text chunk. chunk_id derives from event_id + index, so
+    redelivery and replay overwrite the same rows (idempotent). Blank text
+    yields no records."""
+    stamp = now or datetime.now(timezone.utc)
+    return [
+        VectorRecord(
+            chunk_id=f"chk_{ev.event_id}_{i}",
+            event_id=ev.event_id,
+            incident_id=ev.incident_id,
+            service=ev.service,
+            ts=ev.ts,
+            indexed_at=stamp,
+            text=chunk,
+            source=ev.source,
+        )
+        for i, chunk in enumerate(chunk_text(ev.text))
+    ]
 
 
 UPSERT_SQL = """
@@ -75,27 +85,41 @@ def run(
     topic: str = NORMALIZED_TOPIC,
     embedder: Optional[Embedder] = None,
     dsn: Optional[str] = None,
+    deadletter_topic: str = DEADLETTER_TOPIC,
     metrics_port: int = 0,
+    stop: Optional[threading.Event] = None,
+    idle_timeout_s: Optional[float] = None,
 ) -> int:
     start_metrics_server(metrics_port)
     from freshet.common.db import connect
-    from freshet.common.kafka_io import consume_loop
+    from freshet.common.kafka_io import consume_loop, make_producer, produce_sync
 
     emb = embedder or make_embedder("minilm")
     conn = connect(dsn)
+    producer = make_producer(brokers)
 
     def handle(value: str) -> None:
-        ev = Event.model_validate_json(value)
-        if not ev.text.strip():
+        try:
+            ev = Event.model_validate_json(value)
+        except Exception as e:
+            produce_sync(producer, deadletter_topic, build_deadletter(str(e), value, topic))
+            DEADLETTER_EVENTS.inc()
             return
-        rec = to_vector_record(ev)
-        [vector] = emb.encode([rec.text])
-        upsert_record(conn, rec, vector)
-        observe_indexed(rec)
+        records = records_for_event(ev)
+        if not records:
+            return
+        vectors = emb.encode([r.text for r in records])
+        if len(vectors) != len(records):
+            # zip would silently truncate; a miscounting embedder must fail loudly
+            raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
+        for rec, vector in zip(records, vectors):
+            upsert_record(conn, rec, vector)
+            observe_indexed(rec)
 
     try:
-        n = consume_loop(brokers, group, [topic], handle, max_messages, auto_commit=False)
+        n = consume_loop(brokers, group, [topic], handle, max_messages, auto_commit=False, stop=stop, idle_timeout_s=idle_timeout_s)
     finally:
+        producer.flush()
         conn.close()
     return n
 
@@ -108,8 +132,12 @@ def main() -> None:
     p.add_argument("--embedder", choices=["minilm", "stub"], default="minilm")
     p.add_argument("--dsn", default=None)
     p.add_argument("--metrics-port", type=int, default=8002, help="Prometheus /metrics port (0 disables)")
+    p.add_argument("--idle-timeout", type=float, default=None, help="exit after N seconds without messages (replay)")
     a = p.parse_args()
-    n = run(a.brokers, group=a.group, max_messages=a.max, embedder=make_embedder(a.embedder), dsn=a.dsn, metrics_port=a.metrics_port)
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    n = run(a.brokers, group=a.group, max_messages=a.max, embedder=make_embedder(a.embedder), dsn=a.dsn, metrics_port=a.metrics_port, stop=stop, idle_timeout_s=a.idle_timeout)
     print(f"[embedder] processed {n} messages")
 
 

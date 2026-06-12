@@ -36,11 +36,11 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Invalid events (dead-letter candidates)",
+      "title": "Dead-lettered messages",
       "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
       "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
       "targets": [
-        { "expr": "sum(freshet_normalizer_invalid_total)", "refId": "A" }
+        { "expr": "sum(freshet_deadletter_total)", "refId": "A" }
       ]
     },
     {

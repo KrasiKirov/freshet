@@ -3,8 +3,10 @@
 Freshness-first streaming-RAG system for on-call engineers. The repo currently
 contains the M2 vertical slice: events flow generator → Kafka (Redpanda) →
 normalizer → embedding worker → Postgres/pgvector and are queryable within
-seconds via a minimal vector-search API. Hybrid retrieval, dashboards, and the
-evaluation harness are upcoming milestones.
+seconds via a minimal vector-search API. Ingestion is hardened (incident
+correlation, dead-letter topic, graceful shutdown, replay, scaled consumers —
+see `RESULTS.md`); hybrid retrieval and the evaluation harness are upcoming
+milestones.
 
 ## Quickstart
 
@@ -48,7 +50,7 @@ per-stage latency and total freshness end-to-end.
 
 Grafana auto-provisions a "Freshet pipeline" dashboard at
 http://localhost:3000/d/freshet-pipeline: freshness percentiles (p50/p95/p99),
-pipeline throughput, per-group consumer lag, and invalid-event count. The
+pipeline throughput, per-group consumer lag, and dead-lettered messages. The
 workers expose Prometheus metrics on :8001 (normalizer) and :8002 (embedder);
 consumer lag comes from Redpanda's built-in metrics endpoint.
 
@@ -58,6 +60,8 @@ consumer lag comes from Redpanda's built-in metrics endpoint.
     make api              # serve POST /query on :8000
     make test-integration # end-to-end test against the running stack
     make db-init          # apply schema to a running stack (idempotent)
+    make replay           # re-index the corpus under a fresh consumer group
+    make scale-demo       # WORKERS=1|3 throughput demonstration
 
 Example query against `make api`:
 
@@ -71,8 +75,8 @@ Example query against `make api`:
     freshet/pipeline/    # workers: normalizer, embedder (+ embedding backends)
     freshet/api/         # minimal vector-search API (hybrid retrieval comes in M5)
     freshet/eval/        # freshness report (full eval harness comes in M6)
-    db/                  # init.sql: pgvector extension + vector_records
-    scripts/             # run_slice.sh demo
+    db/                  # init.sql: pgvector extension, vector_records, incidents
+    scripts/             # run_slice.sh + run_scaling_demo.sh demos
     tests/               # unit + integration tests
 
 Notes: Kafka on `localhost:9092`, Postgres on `localhost:5433` (5432 left free),

@@ -1,10 +1,10 @@
 from prometheus_client import REGISTRY
 
 from freshet.pipeline.metrics import (
+    DEADLETTER_EVENTS,
     FRESHNESS,
     INDEXED_EVENTS,
     INGEST_LAG,
-    INVALID_EVENTS,
     NORMALIZED_EVENTS,
     start_metrics_server,
 )
@@ -19,9 +19,9 @@ def test_counters_increment():
     NORMALIZED_EVENTS.inc()
     assert _value("freshet_normalizer_events_total") == before + 1
 
-    before = _value("freshet_normalizer_invalid_total")
-    INVALID_EVENTS.inc()
-    assert _value("freshet_normalizer_invalid_total") == before + 1
+    before = _value("freshet_deadletter_total")
+    DEADLETTER_EVENTS.inc()
+    assert _value("freshet_deadletter_total") == before + 1
 
     before = _value("freshet_embedder_events_total")
     INDEXED_EVENTS.inc()
