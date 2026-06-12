@@ -1,9 +1,12 @@
 """Prometheus metrics shared by the pipeline workers.
 
-Defined at module level on the default registry so the normalizer and embedder
-each expose their own metrics when run as separate processes, and unit tests
-can read observations without any HTTP server. Freshness buckets are sized for
-the project's SLO story: the interesting range is sub-second to a few minutes.
+Defined at module level on the default registry so unit tests can read
+observations without any HTTP server. Note: because the module defines the
+full metric set at import, BOTH workers' endpoints expose all five metrics —
+each worker only increments its own, the rest sit at zero. Dashboards must
+therefore aggregate with sum() across instances (which is also what scaled
+multi-instance workers will need). Freshness buckets are sized for the
+project's SLO story: the interesting range is sub-second to a few minutes.
 """
 
 from __future__ import annotations
