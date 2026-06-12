@@ -13,6 +13,8 @@ Run (stack up first):
 from __future__ import annotations
 
 import argparse
+import signal
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -56,10 +58,11 @@ def run(
     deadletter_topic: str = DEADLETTER_TOPIC,
     metrics_port: int = 0,
     dsn: Optional[str] = None,
+    stop: Optional[threading.Event] = None,
 ) -> int:
     start_metrics_server(metrics_port)
     from freshet.common.db import connect
-    from freshet.common.kafka_io import consume_loop, make_producer
+    from freshet.common.kafka_io import consume_loop, make_producer, produce_sync
 
     conn = connect(dsn)
     producer = make_producer(brokers)
@@ -71,22 +74,20 @@ def run(
         if ev is None:
             skipped += 1
             DEADLETTER_EVENTS.inc()
-            producer.produce(deadletter_topic, value=build_deadletter("validation failed", value, raw_topic))
-            producer.flush()
+            produce_sync(producer, deadletter_topic, build_deadletter("validation failed", value, raw_topic))
             print(f"[normalizer] dead-lettered invalid payload ({skipped} so far)")
             return
         assigned = correlate(conn, ev)
         if assigned is not None:
             ev.incident_id = assigned
         # key by service to preserve per-service ordering downstream
-        producer.produce(normalized_topic, key=ev.service, value=ev.model_dump_json())
-        # flush before the loop commits this offset: closes the documented
-        # produce-before-commit loss window (per-message flush is fine at demo rate)
-        producer.flush()
+        # delivery-checked produce before the loop commits this offset: a crash
+        # or failed produce can only cause redelivery, never silent loss
+        produce_sync(producer, normalized_topic, ev.model_dump_json(), key=ev.service)
         observe_normalized(ev)
 
     try:
-        n = consume_loop(brokers, group, [raw_topic], handle, max_messages, auto_commit=False)
+        n = consume_loop(brokers, group, [raw_topic], handle, max_messages, auto_commit=False, stop=stop)
     finally:
         producer.flush()
         conn.close()
@@ -101,7 +102,10 @@ def main() -> None:
     p.add_argument("--metrics-port", type=int, default=8001, help="Prometheus /metrics port (0 disables)")
     p.add_argument("--dsn", default=None)
     a = p.parse_args()
-    n = run(a.brokers, group=a.group, max_messages=a.max, metrics_port=a.metrics_port, dsn=a.dsn)
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    n = run(a.brokers, group=a.group, max_messages=a.max, metrics_port=a.metrics_port, dsn=a.dsn, stop=stop)
     print(f"[normalizer] processed {n} messages")
 
 

@@ -12,6 +12,8 @@ Run (stack up first; use --embedder stub to skip the model download):
 from __future__ import annotations
 
 import argparse
+import signal
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -78,10 +80,12 @@ def run(
     dsn: Optional[str] = None,
     deadletter_topic: str = DEADLETTER_TOPIC,
     metrics_port: int = 0,
+    stop: Optional[threading.Event] = None,
+    idle_timeout_s: Optional[float] = None,
 ) -> int:
     start_metrics_server(metrics_port)
     from freshet.common.db import connect
-    from freshet.common.kafka_io import consume_loop, make_producer
+    from freshet.common.kafka_io import consume_loop, make_producer, produce_sync
 
     emb = embedder or make_embedder("minilm")
     conn = connect(dsn)
@@ -92,8 +96,7 @@ def run(
             ev = Event.model_validate_json(value)
         except Exception as e:
             DEADLETTER_EVENTS.inc()
-            producer.produce(deadletter_topic, value=build_deadletter(str(e), value, topic))
-            producer.flush()
+            produce_sync(producer, deadletter_topic, build_deadletter(str(e), value, topic))
             return
         if not ev.text.strip():
             return
@@ -103,7 +106,7 @@ def run(
         observe_indexed(rec)
 
     try:
-        n = consume_loop(brokers, group, [topic], handle, max_messages, auto_commit=False)
+        n = consume_loop(brokers, group, [topic], handle, max_messages, auto_commit=False, stop=stop, idle_timeout_s=idle_timeout_s)
     finally:
         producer.flush()
         conn.close()
@@ -119,7 +122,10 @@ def main() -> None:
     p.add_argument("--dsn", default=None)
     p.add_argument("--metrics-port", type=int, default=8002, help="Prometheus /metrics port (0 disables)")
     a = p.parse_args()
-    n = run(a.brokers, group=a.group, max_messages=a.max, embedder=make_embedder(a.embedder), dsn=a.dsn, metrics_port=a.metrics_port)
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    n = run(a.brokers, group=a.group, max_messages=a.max, embedder=make_embedder(a.embedder), dsn=a.dsn, metrics_port=a.metrics_port, stop=stop)
     print(f"[embedder] processed {n} messages")
 
 
