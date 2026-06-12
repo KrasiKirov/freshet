@@ -1,11 +1,11 @@
 """Normalizer worker: raw.events -> validate -> stamp ingested_at -> normalized.events.
 
-M2 scope: validation + timestamping only. Incident correlation and the
-dead-letter topic arrive in M4 — until then invalid payloads are skipped with
-a warning, never silently dropped without trace. Also deferred to M4: the
-produce happens async and the consumer offset commits before the producer
-flushes, so a crash in that window can lose (not duplicate) an event; the
-recovery path until then is topic replay from offset 0.
+M4: validation + timestamping + incident correlation (state in Postgres). The
+dead-letter topic lands in the next commit — until then invalid payloads are
+skipped with a warning, never silently dropped without trace. Also deferred:
+the produce happens async and the consumer offset commits before the producer
+flushes, so a crash in that window can lose (not duplicate) an event; cured in
+the dead-letter commit via per-message flush.
 
 Run (stack up first):
     python -m freshet.pipeline.normalizer --brokers localhost:9092
@@ -24,6 +24,7 @@ from freshet.pipeline.metrics import (
     NORMALIZED_EVENTS,
     start_metrics_server,
 )
+from freshet.pipeline.incidents import correlate
 
 RAW_TOPIC = "raw.events"
 NORMALIZED_TOPIC = "normalized.events"
@@ -53,10 +54,13 @@ def run(
     raw_topic: str = RAW_TOPIC,
     normalized_topic: str = NORMALIZED_TOPIC,
     metrics_port: int = 0,
+    dsn: Optional[str] = None,
 ) -> int:
     start_metrics_server(metrics_port)
+    from freshet.common.db import connect
     from freshet.common.kafka_io import consume_loop, make_producer
 
+    conn = connect(dsn)
     producer = make_producer(brokers)
     skipped = 0
 
@@ -68,13 +72,19 @@ def run(
             INVALID_EVENTS.inc()
             print(f"[normalizer] skipped invalid payload ({skipped} so far)")
             return
+        assigned = correlate(conn, ev)
+        if assigned is not None:
+            ev.incident_id = assigned
         # key by service to preserve per-service ordering downstream
         producer.produce(normalized_topic, key=ev.service, value=ev.model_dump_json())
         producer.poll(0)
         observe_normalized(ev)
 
-    n = consume_loop(brokers, group, [raw_topic], handle, max_messages, auto_commit=False)
-    producer.flush()
+    try:
+        n = consume_loop(brokers, group, [raw_topic], handle, max_messages, auto_commit=False)
+    finally:
+        producer.flush()
+        conn.close()
     return n
 
 
@@ -84,8 +94,9 @@ def main() -> None:
     p.add_argument("--group", default="normalizer")
     p.add_argument("--max", type=int, default=None)
     p.add_argument("--metrics-port", type=int, default=8001, help="Prometheus /metrics port (0 disables)")
+    p.add_argument("--dsn", default=None)
     a = p.parse_args()
-    n = run(a.brokers, group=a.group, max_messages=a.max, metrics_port=a.metrics_port)
+    n = run(a.brokers, group=a.group, max_messages=a.max, metrics_port=a.metrics_port, dsn=a.dsn)
     print(f"[normalizer] processed {n} messages")
 
 
