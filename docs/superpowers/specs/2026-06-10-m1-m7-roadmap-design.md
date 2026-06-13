@@ -105,9 +105,23 @@ Then polish: README rewritten to lead with results (problem → architecture dia
 - **Grafana provisioning is fiddly.** Commit dashboard JSON and provisioning YAML from the first M3 commit.
 - **Model download (~90 MB)** stays out of CI via the stub embedder.
 
-## Post-M7 candidate: M8 — one real connector
+## Post-M7 candidates
 
-Not part of this roadmap's scope, recorded as the designated next step after M7. A single webhook connector (GitHub is the natural first: CI failures, pushes, releases from the author's active repos) translating real payloads into the canonical `Event` contract and producing to `raw.events`. The pipeline downstream works unchanged. This converts the project from a demonstration on synthetic data into something personally usable ("what broke in this repo recently, and what fixed the last similar failure?") and lets the README show the system running on real data. Aligns with brief §7's "future phases: real connectors via webhooks". Build only after M6's eval exists — the eval remains the differentiator.
+Independent extensions recorded for after the core roadmap. Both are gated on M6: the eval harness is the project's differentiator, and either of these added before measured results exist is the "build for the reviewer who reads the dependency list" trap the brief warns against. They are unordered relative to each other.
+
+### M8 — one real connector
+
+A single webhook connector (GitHub is the natural first: CI failures, pushes, releases from the author's active repos) translating real payloads into the canonical `Event` contract and producing to `raw.events`. The pipeline downstream works unchanged. This converts the project from a demonstration on synthetic data into something personally usable ("what broke in this repo recently, and what fixed the last similar failure?") and lets the README show the system running on real data. Aligns with brief §7's "future phases: real connectors via webhooks". Build only after M6's eval exists.
+
+### M9 — agentic RAG (evaluated)
+
+An LLM-orchestrated query layer sitting on top of M5's retrieval primitives: instead of single-shot hybrid retrieval, Claude decomposes the question, chooses among the existing tools (vector search, keyword search, metadata filters, the SQL incident-join), judges whether the evidence is sufficient, re-retrieves or abstains, then composes a cited answer. Built behind the same pluggable interface as M5's composer, so the keyless core still runs. The retrieval tools already exist after M5, so the addition is small (~1–2 tasks); the real work is honest evaluation.
+
+**Hard requirement, and the reason this is gated on M6:** ship it *only* with a measured comparison against the M5 non-agentic hybrid baseline on the same labeled set — retrieval quality, answer groundedness, **and added latency/cost** — reporting where the agent helps and, honestly, where it just adds steps. Agentic loops are nondeterministic and harder to measure; the value of this milestone is the comparison, not the agent. "Agentic RAG, measured against a non-agentic baseline" is the only framing consistent with the project's thesis.
+
+This is distinct from brief §7's excluded "agents that take actions" — M9 still only *answers*; humans act. It does not move the action-taking / skill-induction boundary, which stays out of scope.
+
+> Note: numbered M8/M9 only to disambiguate; they are not sequential and either may be built first (or never). The construction-time subagent pipeline used to build this project is a separate thing — a build methodology, not a product feature — and is not part of this or any milestone.
 
 ## Out of scope (unchanged from brief §7)
 
