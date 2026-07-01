@@ -1,0 +1,46 @@
+"""Prometheus metrics shared by the pipeline workers.
+
+Defined at module level on the default registry so unit tests can read
+observations without any HTTP server. Note: because the module defines the
+full metric set at import, BOTH workers' endpoints expose all five metrics —
+each worker only increments its own, the rest sit at zero. Dashboards must
+therefore aggregate with sum() across instances (which is also what scaled
+multi-instance workers will need). Freshness buckets are sized for the
+project's SLO story: the interesting range is sub-second to a few minutes.
+"""
+
+from __future__ import annotations
+
+from prometheus_client import Counter, Histogram, start_http_server
+
+LATENCY_BUCKETS = (0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0)
+
+NORMALIZED_EVENTS = Counter(
+    "freshet_normalizer_events_total",
+    "Events validated and republished by the normalizer",
+)
+DEADLETTER_EVENTS = Counter(
+    "freshet_deadletter_total",
+    "Messages routed to the dead-letter topic (normalizer + embedder)",
+)
+INGEST_LAG = Histogram(
+    "freshet_ingest_lag_seconds",
+    "Seconds from event time (ts) to pipeline receipt (ingested_at)",
+    buckets=LATENCY_BUCKETS,
+)
+
+INDEXED_EVENTS = Counter(
+    "freshet_embedder_events_total",
+    "Events embedded and upserted into pgvector",
+)
+FRESHNESS = Histogram(
+    "freshet_freshness_seconds",
+    "Event->queryable freshness: seconds from ts to indexed_at",
+    buckets=LATENCY_BUCKETS,
+)
+
+
+def start_metrics_server(port: int) -> None:
+    """Expose /metrics on the given port; 0 disables (tests, library callers)."""
+    if port:
+        start_http_server(port)
