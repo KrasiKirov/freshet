@@ -270,4 +270,5 @@ status-page incidents behind a demo UI — see the sections above.)
     tests/               # unit + integration tests
 
 Notes: Kafka on `localhost:9092`, Postgres on `localhost:5433` (5432 left free),
-db/user/password `freshet`. See `BRIEF.md` for the full design rationale.
+db/user/password `freshet`. See [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md)
+for measured numbers and the design rationale behind each choice.
