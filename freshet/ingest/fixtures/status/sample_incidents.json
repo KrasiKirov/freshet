@@ -1,0 +1,18 @@
+{
+  "page": {"id": "abc", "name": "Cloudflare"},
+  "incidents": [
+    {
+      "id": "inc_100",
+      "name": "Elevated 5xx errors in WAF",
+      "status": "resolved",
+      "impact": "major",
+      "shortlink": "https://stspg.io/abc",
+      "created_at": "2026-06-29T10:00:00Z",
+      "incident_updates": [
+        {"id": "u1", "status": "investigating", "body": "We are investigating elevated 5xx errors.", "created_at": "2026-06-29T10:00:00Z"},
+        {"id": "u2", "status": "identified", "body": "A bad WAF rule deploy is the cause; rolling back.", "created_at": "2026-06-29T10:12:00Z"},
+        {"id": "u3", "status": "resolved", "body": "Rollback complete; error rates normal.", "created_at": "2026-06-29T10:40:00Z"}
+      ]
+    }
+  ]
+}
