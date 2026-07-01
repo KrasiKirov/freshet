@@ -36,3 +36,6 @@ tasks/
 # Local secrets — API keys etc. NEVER commit these.
 .env.local
 .env
+
+# Local Claude Code config (launch configs etc.)
+.claude/
