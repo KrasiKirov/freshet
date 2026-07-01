@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Generator output
+events.jsonl
+*.jsonl
+
+# Eval comparison scratch
+results/_compare_*/
+
+# Local documentation (kept out of git for now, by request)
+documentation/
+
+# Claude planning artifacts (brainstorm specs + implementation plans) — local only
+docs/superpowers/
+
+# Interview prep — local only
+interview-prep/
+
+# Project brief
+BRIEF_for_Claude_Code.md
+
+# Local working notes
+tasks/
+
+# Local secrets — API keys etc. NEVER commit these.
+.env.local
+.env

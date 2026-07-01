@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "freshet"
+version = "0.1.0"
+description = "Freshness-first streaming-RAG system for on-call engineers"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2",
+    "confluent-kafka>=2",
+    "psycopg[binary]>=3",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "prometheus-client>=0.20",
+]
+
+[project.optional-dependencies]
+embed = ["sentence-transformers>=2"]
+llm = ["anthropic>=0.40"]
+eval = ["matplotlib>=3.7"]
+test = ["pytest>=8", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+include = ["freshet*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires the docker-compose stack (broker + Postgres)",
+]
+addopts = "-m 'not integration'"
