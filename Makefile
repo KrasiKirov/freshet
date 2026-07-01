@@ -43,7 +43,9 @@ test-integration:
 
 
 # Serve the query API on :8000 (stack must be up; FRESHET_EMBEDDER=stub to skip model).
+# Sources .env.local so ANTHROPIC_API_KEY enables the LLM answer composer.
 api:
+	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
 
 # Run the vertical-slice demo end to end (make up first; EMBEDDER=stub to skip model).

@@ -10,6 +10,15 @@ EMBEDDER="${EMBEDDER:-bge}"
 PY="${PY:-.venv/bin/python3}"
 PSQL=(docker exec -i freshet-postgres psql -U freshet -d freshet)
 
+# Load local secrets so /query synthesizes cited answers via the LLM composer
+# instead of the keyless extractive fallback. Never printed.
+if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  echo "==> Answer synthesis: LLM (claude-sonnet-4-6)"
+else
+  echo "==> Answer synthesis: extractive template (set ANTHROPIC_API_KEY in .env.local for LLM)"
+fi
+
 echo "==> Resetting corpus + topics"
 "${PSQL[@]}" -c "DELETE FROM vector_records; DELETE FROM incidents;" >/dev/null
 docker exec freshet-redpanda rpk topic delete raw.events normalized.events deadletter.events >/dev/null 2>&1 || true

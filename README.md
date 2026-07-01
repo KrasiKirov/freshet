@@ -21,9 +21,10 @@ incident's severity, status, and how many seconds ago it was ingested.
 ![live demo](docs/live-demo.gif)
 
 Honest notes: the data is **real** but the corpus is small (a few companies' recent
-incidents); the demo runs the **full Kafka streaming stack locally**. The default
-answer path is keyless (cited template answers); set `ANTHROPIC_API_KEY` for
-LLM-written answers.
+incidents); the demo runs the **full Kafka streaming stack locally**. `make live-demo`
+loads `.env.local`, so with `ANTHROPIC_API_KEY` set the answers are **LLM-written,
+grounded, and cited**; without a key it falls back to the keyless cited-template
+composer (still grounded, just extractive).
 
 ## Results
 
@@ -247,8 +248,8 @@ by design, and the path needs a key — the keyless core and CI are untouched.
   guard exists.
 - **Abstention threshold is calibrated by eye** for MiniLM on this corpus.
 - **No rerank model** (the fusion seam is where one would slot).
-- **The LLM answer path is optional and unexercised without a key**; the keyless
-  template composer is the default and what the committed results use.
+- **The LLM answer path is optional (key-gated)**; the keyless template composer is
+  the fallback, and what CI and the committed results use.
 
 (Built since the core: root-cause synthesis with cross-encoder reranking, an
 optional LLM narrative held accountable by an LLM-as-judge, a benchmark-scale
