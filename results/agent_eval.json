@@ -1,0 +1,20 @@
+{
+  "configs": {
+    "single-shot": {
+      "cause_recall": 0.167,
+      "fix_recall": 0.417,
+      "n": 12
+    },
+    "agent": {
+      "cause_recall": 1.0,
+      "fix_recall": 1.0,
+      "n": 12
+    }
+  },
+  "lift": {
+    "cause_recall": 0.833,
+    "fix_recall": 0.583
+  },
+  "n_incidents": 12,
+  "note": "agent runs are indicative and non-deterministic"
+}

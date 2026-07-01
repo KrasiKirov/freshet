@@ -1,0 +1,29 @@
+{
+  "batch_interval_s": 3600.0,
+  "k": 5,
+  "mean_staleness_batch_s": 1777.568578553616,
+  "mean_staleness_streaming_s": 5.0,
+  "n_queries": 160,
+  "retrieval": {
+    "hybrid": {
+      "mrr": 0.49885416666666665,
+      "ndcg@5": 0.5351582375084349,
+      "precision@5": 0.1787499999999996,
+      "recall@5": 0.696875
+    },
+    "keyword": {
+      "mrr": 0.4739583333333335,
+      "ndcg@5": 0.5020533585787034,
+      "precision@5": 0.1437499999999997,
+      "recall@5": 0.609375
+    },
+    "vector": {
+      "mrr": 0.5002083333333335,
+      "ndcg@5": 0.5166302476876814,
+      "precision@5": 0.16999999999999962,
+      "recall@5": 0.671875
+    }
+  },
+  "staleness_ratio_batch_over_streaming": 355.5137157107232,
+  "streaming_freshness_s": 3.0
+}

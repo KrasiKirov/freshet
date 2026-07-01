@@ -1,0 +1,273 @@
+# Freshet — Real-Time Incident Intelligence
+
+A **freshness-first streaming-RAG system** for on-call engineers. During an
+incident, engineers waste most of their time reconstructing context — what
+changed, what's related, what fixed something similar before — from data
+scattered across many tools, under pressure. The information that matters most is
+the newest, which is exactly what a nightly-batch index misses. Freshet
+continuously ingests operational events (alerts, deploys, metrics, incident
+chat, postmortems) through Kafka, indexes them into a vector store within
+**seconds**, and answers questions like *"what's happening with scheduler-api?"*
+with cited, timestamped, recency-aware answers.
+
+## Live demo — real incidents, right now
+
+`make up && make live-demo` polls **real public status feeds** (Cloudflare, GitHub,
+OpenAI, Discord, Reddit), streams them through the full pipeline, and opens a UI at
+`http://localhost:8000` where you can ask *"what's degraded right now?"* and get a
+grounded, **cited** answer over live incidents — with a streaming feed showing each
+incident's severity, status, and how many seconds ago it was ingested.
+
+![live demo](docs/live-demo.gif)
+
+Honest notes: the data is **real** but the corpus is small (a few companies' recent
+incidents); the demo runs the **full Kafka streaming stack locally**. The default
+answer path is keyless (cited template answers); set `ANTHROPIC_API_KEY` for
+LLM-written answers.
+
+## Results
+
+Measured on a laptop, reproducible (`make eval` / `make drills`); full tables,
+plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md).
+
+- **Production-grade hybrid retrieval, measured on a 160-query benchmark** — dense
+  (`bge-base-en-v1.5`) + lexical (Postgres full-text), **RRF fusion**,
+  **cross-encoder reranking**, **citation verification**, and **abstention**. Hybrid
+  wins recall@5 **0.81** and nDCG@5 **0.63** over vector-only (0.80) and
+  keyword-only (0.62), with ground truth auto-derived alongside the corpus.
+- **The retriever upgrade is measured, not assumed** — swapping MiniLM-L6 for
+  `bge-base-en-v1.5` lifts hybrid recall@5 **0.70 → 0.81** and nDCG@5 **0.54 → 0.63**
+  on the same benchmark (deterministic before/after).
+- **Optional LLM query transformation** — multi-query (paraphrase → retrieve →
+  RRF-fuse) lifts recall@5 **0.78 → 0.83** on a 20-query sample (indicative,
+  key-gated; an opt-in `/query` flag).
+- **Root-cause synthesis recovers the true cause and fix for all 40 incidents
+  across all six archetypes** (deploy / config / dependency / resource / cert /
+  migration) — the generalized timeline, validated service-scoped.
+- **Multi-step retrieval closes the hard whole-corpus gap**: with no service hint,
+  single-shot retrieval reaches only 0.17 cause-recall / 0.42 fix-recall even with
+  the bge retriever; adding a **non-semantic temporal lookup** ("what changed just
+  before the spike?") reaches **1.0 / 1.0** over 12 incidents. The win is the
+  retrieval capability, not LLM agency (the fixed-pipeline ablation is open and
+  named as such) — indicative,
+  key-gated.
+- **Streaming is ~356× fresher than a batch baseline** (5s vs 1778s mean data
+  staleness at an hourly batch cadence; ~4 orders of magnitude at a real nightly
+  cadence) — the comparison the project is built to make.
+- **Event-to-queryable freshness p50 ≈ 2–4s**, watched live on Grafana.
+- **Resilient**: no data loss when a worker is killed mid-stream, durable replay
+  re-indexes the corpus after a model change, and a 10× burst drains without loss
+  — each demonstrated with an evidence graph.
+
+## Architecture
+
+```
+ synthetic generator ──produce──▶  Kafka: raw.events  (partition key = service)
+                                        │
+                                        ▼
+                        normalizer (consumer group)
+                          · validate → canonical Event
+                          · correlate events into incidents → Postgres
+                          · stamp ingested_at
+                          · invalid payloads → deadletter.events
+                                        │ produce
+                                        ▼
+                              Kafka: normalized.events
+                                        │
+                                        ▼
+                    embedding workers (consumer group, scalable)
+                          · chunk long text, embed (local MiniLM)
+                          · stamp indexed_at
+                          · idempotent upsert → pgvector
+                                        │
+                                        ▼
+   FastAPI POST /query:  hybrid retrieval (vector + keyword + filters)
+                          → reciprocal-rank fusion → recency weighting
+                          → grounded answer with [event_id @ timestamp] citations
+                          → abstains when evidence is weak
+
+ Storage:  Postgres + pgvector (one datastore: incident state + vectors)
+ Metrics:  Prometheus + Grafana — freshness percentiles, lag, throughput, dead-letters
+```
+
+Every event carries three timestamps — `ts` (occurred), `ingested_at` (received),
+`indexed_at` (queryable) — and every freshness number derives from them.
+
+## Why Kafka, why RAG (load-bearing, not decoration)
+
+**Why Kafka.** The input is a continuous, multi-source, high-volume stream.
+Embedding workers scale independently as a **consumer group** (demonstrated:
+[`RESULTS.md`](RESULTS.md) scaling section). Durable **replay** re-indexes history
+after a model or chunking change (demonstrated: [`DRILLS.md`](DRILLS.md) drill 2).
+**Partition-by-service** preserves per-service ordering. At-least-once delivery
+with idempotent upserts means a worker crash costs redelivery, never loss
+(demonstrated: drill 1). It is not a queue stand-in or a cron job.
+
+**Why RAG.** Retrieval is over a large, constantly-changing unstructured corpus,
+grounding answers with citations and recency. Fine-tuning can't track a
+minute-by-minute corpus; retrieval can. The split is explicit: **vectors for the
+semantic/fuzzy parts, SQL for the structured parts** (alert → deploy links,
+incident timelines are joins on ids/timestamps, not vector search).
+
+## Run
+
+    python3 -m venv .venv && source .venv/bin/activate
+    pip install -e ".[test]"
+    pytest -q                  # unit tests, no broker needed
+
+    make up                    # Redpanda + Postgres/pgvector, waits until healthy
+    make demo                  # ingest the scripted incident, then answer about it
+    make down                  # tear down (drops the Postgres volume)
+
+The core path needs **no API key**. `make demo` and `make slice` use the local
+MiniLM model (`pip install -e ".[embed]"`, ~90 MB on first use); `EMBEDDER=stub`
+runs with deterministic fake embeddings and no download. Optional extras:
+`.[llm]` (Anthropic-composed answers — set `ANTHROPIC_API_KEY`, pick the model
+with `FRESHET_LLM_MODEL`), `.[eval]` (the evaluation harness + plots).
+
+### Other commands
+
+    make up-obs           # stack + Prometheus (:9090) + Grafana (:3000 dashboard)
+    make slice            # stream the incident + freshness report + example query
+    make api              # serve the query API + UI on :8000
+    make eval             # regenerate retrieval + staleness results (results/)
+    make drills           # failure drills: worker recovery, replay, burst (results/)
+    make rootcause-demo   # stream the corpus, print a cited root-cause timeline
+    make rootcause-eval   # completeness: did retrieval surface the true cause/fix?
+    make answer-eval      # LLM-judge: extractive timeline vs LLM narrative (needs a key)
+    make agent-eval       # multi-step vs single-shot root-cause retrieval (needs a key)
+    make agent-demo       # investigate one incident, save the transcript (needs a key)
+    make embedding-compare # deterministic MiniLM-vs-bge retrieval before/after
+    make multiquery-eval  # single-query vs LLM multi-query retrieval (needs a key)
+    make replay           # re-index the corpus under a fresh consumer group
+    make scale-demo       # WORKERS=1|3 throughput demonstration
+    make test-integration # end-to-end tests against the running stack
+    make db-init          # apply schema to a running stack (idempotent)
+
+Open http://localhost:8000 for the UI (query box + live freshness/lag gauges
+that read Prometheus), or query directly:
+
+    curl -s localhost:8000/query -X POST -H 'content-type: application/json' \
+      -d '{"question": "what is happening with scheduler-api?", "k": 5}'
+
+The query returns a grounded answer that cites events as `[event_id @ timestamp]`,
+or abstains when retrieval is weak.
+
+## Root-cause synthesis — explain an incident, grounded
+
+This reframes the task so retrieval is genuinely load-bearing: instead of "show me
+recent events," the question is *"what caused this incident and how was it
+resolved?"* over a richer seeded corpus (multiple incident arcs + per-service
+runbooks) — too much to eyeball, so finding the true cause/fix *is* the task.
+`make rootcause-demo` streams the corpus and prints a **cited root-cause timeline**:
+the cause (the deploy preceding the error spike), the resolution (the rollback),
+and the ordered supporting events, each line `[event_id @ timestamp]` — keyless, no
+LLM. Optional **cross-encoder reranking** (`FRESHET_RERANK=cross-encoder`, keyless,
+off by default) sits in the retrieval seam.
+
+`make rootcause-eval` measures it honestly over the **40-incident, six-archetype
+benchmark**. Each incident's true cause/fix are authored with the corpus, so we
+score whether the timeline captured them (a reproducible selection metric, not
+"the AI discovered an unknown cause"). **Result: the generalized timeline recovers
+the cause and fix for all 40 incidents across every archetype** — deploy/rollback,
+config revert, dependency failover, scale-up, cert renewal, migration revert
+(`results/rootcause_completeness.png`). This eval is service-scoped (mirroring the
+product's root-cause path), so it isolates *synthesis*; the hard *whole-corpus*
+retrieval number lives in `make eval`. Cross-encoder reranking is **neutral** here
+(both 1.0) — which updates the earlier toy-scale observation that rerank appeared
+to *hurt* completeness: once an incident is in scope, reranking neither helps nor
+harms cause/fix capture. The genuinely hard part surfaces at whole-corpus scale,
+where a single-shot retriever still struggles to surface a terse `Deploy
+v2.15.0 started` cause that doesn't read like an answer to "what caused…" — which
+is exactly what the **agentic investigator** below was built to close.
+
+**The LLM narrative (optional, M10b).** With `ANTHROPIC_API_KEY` set, an LLM writes
+the causal explanation in prose over the same timeline — the one thing a template
+can't do. `make answer-eval` measures it with a hand-rolled **LLM-as-judge**:
+faithfulness (are the narrative's claims supported by the cited events?) and
+answer-relevance, comparing the keyless **extractive** timeline (faithful by
+construction) against the **LLM narrative** — the precise question of whether
+fluency cost groundedness. Measured result (claude-sonnet-4-6 judge, indicative):
+the narrative matched the extractive timeline on relevance (0.95 = 0.95) and was
+nearly as faithful (0.87 vs 0.89) — fluency did *not* meaningfully cost
+groundedness. The extractive timeline scoring 0.89 rather than a perfect 1.0 is the
+judge's own imperfection (it's an LLM too), which is exactly why
+these numbers are reported as indicative, not absolute. Honest caveats: LLM-judge
+scores are non-deterministic
+and the judge is itself an LLM that can be wrong (reported as indicative); the
+narrative + judge need a key and real API spend, so reproducing the committed
+numbers isn't keyless; the extractive timeline, the keyless core, and CI are
+unchanged.
+
+## Multi-step retrieval — closing the whole-corpus gap (M11)
+
+The completeness eval above is service-scoped, which isolates *synthesis*. The
+genuinely hard problem is **whole-corpus** root cause: with no service hint, a
+single-shot retriever surfaces the error spike and the rollback but mostly **misses
+the cause** — 0.17 cause-recall even with the bge retriever (0.0 under the old
+MiniLM) — because `Deploy v2.15.0 started` doesn't read like an answer to "what
+caused this?". The fix is to *re-retrieve* with a different question: "what changed
+just before the spike?"
+
+`make agent-eval` runs a **tool-calling LLM loop** (`freshet/api/agent.py`) over
+three tools: `search` (hybrid retrieval), `get_runbook` (the per-service playbook),
+and the load-bearing one, **`get_events_around`** — a non-semantic temporal lookup
+that returns whatever happened within a window of a timestamp, regardless of
+wording. It ends with a `submit_findings` terminal tool, and cited event-ids are
+validated against ids it actually saw (unseen ids dropped, keeping it grounded).
+
+Measured head-to-head on 12 incidents (2 per archetype), both whole-corpus:
+
+| config | cause_recall | fix_recall |
+|---|---|---|
+| single-shot baseline (bge) | 0.17 | 0.42 |
+| **multi-step + temporal lookup** | **1.00** | **1.00** |
+
+It recovers cause and fix on every incident across every archetype, where the
+single-shot baseline finds only ~1-in-6 causes. A sample run is committed at
+[`results/agent_transcript.md`](results/agent_transcript.md) so a keyless clone can
+read it step by step. **Honest framing:** the win is the **temporal-lookup tool**,
+not the LLM agency — a fixed two-step pipeline using the same tool would likely
+match this; that ablation is open. Caveats: the run is **non-deterministic** (one
+committed run; the baseline is keyless and deterministic), the sample is small (12)
+by design, and the path needs a key — the keyless core and CI are untouched.
+
+## Limitations (honest)
+
+- **Synthetic data.** The numbers come from a seeded 40-incident, six-archetype
+  benchmark with ground truth and ~160 queries auto-derived from it — varied and
+  reproducible, but still authored, so *indicative* rather than a real-world
+  benchmark.
+- **The batch baseline is a model.** Streaming-vs-batch staleness is computed from
+  a steady event stream at the generator's cadence (we don't wait a real night);
+  the streaming side is the measured freshness.
+- **Single-node.** One Redpanda, one Postgres, workers on the host.
+- **Single-writer normalizer.** Incident correlation's find-or-create isn't
+  atomic; scale embedders, not the normalizer, until an open-incident uniqueness
+  guard exists.
+- **Abstention threshold is calibrated by eye** for MiniLM on this corpus.
+- **No rerank model** (the fusion seam is where one would slot).
+- **The LLM answer path is optional and unexercised without a key**; the keyless
+  template composer is the default and what the committed results use.
+
+(Built since the core: root-cause synthesis with cross-encoder reranking, an
+optional LLM narrative held accountable by an LLM-as-judge, a benchmark-scale
+evaluation, a multi-step investigator measured against the single-shot baseline,
+a stronger embedding model + LLM multi-query, and live ingestion of real
+status-page incidents behind a demo UI — see the sections above.)
+
+## Layout
+
+    freshet/common/      # schemas (the contract), kafka helpers, db helper
+    freshet/generator/   # synthetic events + scripted incident scenario (--live mode)
+    freshet/pipeline/    # workers: normalizer, embedder (+ embedding backends, dead-letter)
+    freshet/api/         # hybrid retrieval, cross-encoder rerank, root-cause synthesis, composer, UI
+    freshet/ingest/      # real status-feed poller (live-demo ingestion)
+    freshet/eval/        # freshness report + evaluation harness + failure drills
+    db/                  # init.sql: pgvector extension, vector_records, incidents
+    scripts/             # run_slice.sh, run_scaling_demo.sh, run_demo.sh, run_live_demo.sh
+    results/             # committed eval + drill artifacts (JSON, PNGs)
+    tests/               # unit + integration tests
+
+Notes: Kafka on `localhost:9092`, Postgres on `localhost:5433` (5432 left free),
+db/user/password `freshet`. See `BRIEF.md` for the full design rationale.

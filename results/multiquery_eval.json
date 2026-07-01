@@ -1,0 +1,10 @@
+{
+  "config": {
+    "single_recall@5": 0.775,
+    "multi_recall@5": 0.825,
+    "lift": 0.05,
+    "n": 20
+  },
+  "n_queries": 20,
+  "note": "multi-query is indicative and non-deterministic"
+}

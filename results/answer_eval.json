@@ -1,0 +1,15 @@
+{
+  "configs": {
+    "extractive": {
+      "faithfulness": 0.887,
+      "answer_relevance": 0.95,
+      "incidents": 4
+    },
+    "narrative": {
+      "faithfulness": 0.866,
+      "answer_relevance": 0.95,
+      "incidents": 5
+    }
+  },
+  "note": "LLM-judge scores are indicative and non-deterministic"
+}

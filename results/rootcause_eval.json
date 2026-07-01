@@ -1,0 +1,16 @@
+{
+  "configs": {
+    "hybrid": {
+      "cause_recall": 1.0,
+      "fix_recall": 1.0,
+      "key_event_recall": 1.0,
+      "incidents": 40
+    },
+    "hybrid+rerank": {
+      "cause_recall": 1.0,
+      "fix_recall": 1.0,
+      "key_event_recall": 1.0,
+      "incidents": 40
+    }
+  }
+}
