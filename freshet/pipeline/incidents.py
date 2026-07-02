@@ -17,6 +17,7 @@ until that guard exists.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import Optional
 
 from freshet.common.schemas import Event, EventType, Severity
@@ -26,6 +27,12 @@ SEVERE_TYPES = {
     EventType.LATENCY_SPIKE.value,
     EventType.ROLLBACK.value,
 }
+
+
+@dataclass
+class CorrelationResult:
+    incident_id: "Optional[str]"
+    transition: "Optional[str]"  # "opened" | "resolved" | None
 
 
 def is_severe(ev: Event) -> bool:
@@ -51,11 +58,13 @@ ON CONFLICT (incident_id) DO UPDATE SET
                      THEN incidents.event_ids
                      ELSE array_append(incidents.event_ids, %(event_id)s) END,
     opened_at = LEAST(incidents.opened_at, EXCLUDED.opened_at)
+RETURNING (xmax = 0) AS inserted
 """
 
 RESOLVE_SQL = (
-    "UPDATE incidents SET resolved_at = COALESCE(resolved_at, %(ts)s)"
-    " WHERE incident_id = %(id)s"
+    "UPDATE incidents SET resolved_at = %(ts)s"
+    " WHERE incident_id = %(id)s AND resolved_at IS NULL"
+    " RETURNING incident_id"
 )
 SUMMARY_SQL = (
     "UPDATE incidents SET resolution_summary = COALESCE(resolution_summary, %(text)s)"
@@ -68,8 +77,8 @@ FIND_OPEN_SQL = (
 )
 
 
-def correlate(conn, ev: Event) -> Optional[str]:
-    """Record ev against its incident; return the incident_id or None.
+def correlate(conn, ev: Event) -> CorrelationResult:
+    """Record ev against its incident; report the incident_id and transition.
 
     Resolution rules apply only to events explicitly carrying an incident_id —
     a routine 'healthy' noise event must not close an open incident.
@@ -79,8 +88,8 @@ def correlate(conn, ev: Event) -> Optional[str]:
         row = conn.execute(FIND_OPEN_SQL, {"service": ev.service}).fetchone()
         incident_id = row[0] if row else _new_incident_id()
     if incident_id is None:
-        return None
-    conn.execute(
+        return CorrelationResult(None, None)
+    inserted = conn.execute(
         UPSERT_INCIDENT_SQL,
         {
             "id": incident_id,
@@ -89,9 +98,11 @@ def correlate(conn, ev: Event) -> Optional[str]:
             "ts": ev.ts,
             "event_id": ev.event_id,
         },
-    )
+    ).fetchone()[0]
+    transition = "opened" if inserted else None
     if ev.incident_id is not None and ev.type == EventType.HEALTHY.value:
-        conn.execute(RESOLVE_SQL, {"ts": ev.ts, "id": incident_id})
+        if conn.execute(RESOLVE_SQL, {"ts": ev.ts, "id": incident_id}).fetchone():
+            transition = "resolved"
     elif ev.incident_id is not None and ev.type == EventType.RCA.value:
         conn.execute(SUMMARY_SQL, {"text": ev.text, "id": incident_id})
-    return incident_id
+    return CorrelationResult(incident_id, transition)
