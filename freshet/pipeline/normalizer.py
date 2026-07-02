@@ -63,6 +63,7 @@ def run(
     start_metrics_server(metrics_port)
     from freshet.common.db import connect
     from freshet.common.kafka_io import consume_loop, make_producer, produce_sync
+    from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC, LifecycleEvent
 
     conn = connect(dsn)
     producer = make_producer(brokers)
@@ -77,9 +78,18 @@ def run(
             DEADLETTER_EVENTS.inc()
             print(f"[normalizer] dead-lettered invalid payload ({skipped} so far)")
             return
-        assigned = correlate(conn, ev)
+        result = correlate(conn, ev)
+        assigned = result.incident_id
         if assigned is not None:
             ev.incident_id = assigned
+        if result.transition is not None:
+            life = LifecycleEvent(
+                type=result.transition,
+                incident_id=result.incident_id,
+                service=ev.service,
+                ts=ev.ts.isoformat(),
+            )
+            produce_sync(producer, LIFECYCLE_TOPIC, life.to_json(), key=ev.service)
         # key by service to preserve per-service ordering downstream
         # delivery-checked produce before the loop commits this offset: a crash
         # or failed produce can only cause redelivery, never silent loss
