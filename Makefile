@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval answer-eval agent-eval agent-demo embedding-compare multiquery-eval live-demo
+.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval answer-eval agent-eval agent-demo embedding-compare multiquery-eval live-demo autopilot
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -18,7 +18,7 @@ up:
 		sleep 2; echo "  ...still waiting ($$i/30)"; \
 	done
 	@echo "stack healthy."
-	@docker exec freshet-redpanda rpk topic create raw.events normalized.events deadletter.events -p 3 >/dev/null 2>&1 || true
+	@docker exec freshet-redpanda rpk topic create raw.events normalized.events deadletter.events incident.lifecycle -p 3 >/dev/null 2>&1 || true
 	@echo "topics ready (3 partitions)."
 
 # Bring up the stack plus Prometheus (:9090) and Grafana (:3000).
@@ -47,6 +47,12 @@ test-integration:
 api:
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
+
+# Autopilot: consume incident.lifecycle and print a cited brief per new incident.
+# Sources .env.local so ANTHROPIC_API_KEY enables the full agent (keyless otherwise).
+autopilot:
+	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
+	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
 
 # Run the vertical-slice demo end to end (make up first; EMBEDDER=stub to skip model).
 slice:

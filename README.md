@@ -26,6 +26,16 @@ loads `.env.local`, so with `ANTHROPIC_API_KEY` set the answers are **LLM-writte
 grounded, and cited**; without a key it falls back to the keyless cited-template
 composer (still grounded, just extractive).
 
+### Autopilot (autonomous responder — sub-project ①)
+
+`make autopilot` runs a separate consumer that reacts to incident lifecycle
+events on Kafka: when the normalizer opens a new incident, autopilot debounces
+briefly, then investigates it (the tool-using agent with a key, the keyless
+extractive timeline without one) and prints a **cited incident brief** — cause,
+runbook, status. Each incident is briefed exactly once (a durable `briefed_at`
+claim), so redelivery and restarts never double-post. Slack delivery, postmortems,
+and impact estimation are the next sub-projects.
+
 ## Results
 
 Measured on a laptop, reproducible (`make eval` / `make drills`); full tables,
