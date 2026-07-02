@@ -38,3 +38,8 @@ CREATE TABLE IF NOT EXISTS incidents (
     resolution_summary text,
     event_ids          text[] NOT NULL DEFAULT '{}'
 );
+
+-- Autopilot (sub-project ①): durable idempotency markers so a brief / postmortem
+-- fires at most once per incident even under at-least-once redelivery.
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS briefed_at    timestamptz;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_at timestamptz;
