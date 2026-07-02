@@ -31,8 +31,8 @@ SEVERE_TYPES = {
 
 @dataclass
 class CorrelationResult:
-    incident_id: "Optional[str]"
-    transition: "Optional[str]"  # "opened" | "resolved" | None
+    incident_id: Optional[str]
+    transition: Optional[str]  # "opened" | "resolved" | None
 
 
 def is_severe(ev: Event) -> bool:

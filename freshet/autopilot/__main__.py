@@ -34,14 +34,17 @@ def main() -> None:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
-    keyed = "agent" if os.environ.get("ANTHROPIC_API_KEY") else "keyless timeline"
-    print(f"[autopilot] listening on {LIFECYCLE_TOPIC} (window={args.window_s}s, mode={keyed})")
+    mode = "agent" if os.environ.get("ANTHROPIC_API_KEY") else "keyless timeline"
+    print(f"[autopilot] listening on {LIFECYCLE_TOPIC} (window={args.window_s}s, mode={mode})")
 
-    consume_loop(
-        args.brokers, args.group, [LIFECYCLE_TOPIC],
-        lambda v: handle_lifecycle(conn, embedder, v, window_s=args.window_s),
-        max_messages=args.max_messages, auto_commit=False, stop=stop,
-    )
+    try:
+        consume_loop(
+            args.brokers, args.group, [LIFECYCLE_TOPIC],
+            lambda v: handle_lifecycle(conn, embedder, v, window_s=args.window_s),
+            max_messages=args.max_messages, auto_commit=False, stop=stop,
+        )
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

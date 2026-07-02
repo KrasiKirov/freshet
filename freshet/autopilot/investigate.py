@@ -26,7 +26,7 @@ def fetch_runbook(conn, service: str) -> Optional[str]:
     return row[0] if row else None
 
 
-def lookup_hit(conn, event_id: str):
+def lookup_hit(conn, event_id: str) -> Optional[_Hit]:
     row = conn.execute(_LOOKUP_SQL, (event_id,)).fetchone()
     return _Hit(event_id=row[0], ts=row[1], text=row[2]) if row else None
 
