@@ -17,6 +17,7 @@ from freshet.common.kafka_io import consume_loop
 from freshet.pipeline.embedding import make_embedder
 from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC
 from freshet.autopilot.consumer import handle_lifecycle
+from freshet.autopilot.sinks.stdout import StdoutSink
 
 
 def main() -> None:
@@ -30,6 +31,7 @@ def main() -> None:
 
     conn = connect()
     embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
+    sink = StdoutSink()
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -40,7 +42,7 @@ def main() -> None:
     try:
         consume_loop(
             args.brokers, args.group, [LIFECYCLE_TOPIC],
-            lambda v: handle_lifecycle(conn, embedder, v, window_s=args.window_s),
+            lambda v: handle_lifecycle(conn, embedder, v, window_s=args.window_s, sink=sink),
             max_messages=args.max_messages, auto_commit=False, stop=stop,
         )
     finally:

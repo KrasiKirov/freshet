@@ -20,6 +20,7 @@ def test_open_incident_briefs_once(conn, monkeypatch, capsys):
     from freshet.pipeline.embedding import make_embedder
     from freshet.pipeline.lifecycle import LifecycleEvent
     from freshet.autopilot.consumer import handle_lifecycle
+    from freshet.autopilot.sinks.stdout import StdoutSink
     from freshet.generator.generator import build_benchmark
     from freshet.eval.run_eval import index_corpus
 
@@ -38,11 +39,11 @@ def test_open_incident_briefs_once(conn, monkeypatch, capsys):
     raw = LifecycleEvent("opened", iid, truth.service, "2026-07-01T00:00:00+00:00").to_json()
 
     # first handle → briefs
-    handle_lifecycle(conn, emb, raw, window_s=0, sleep=lambda s: None)
+    handle_lifecycle(conn, emb, raw, window_s=0, sink=StdoutSink(), sleep=lambda s: None)
     out1 = capsys.readouterr().out
     assert "INCIDENT BRIEF" in out1 and truth.cause_id in out1
 
     # second handle (redelivery) → claim lost → no second brief
-    handle_lifecycle(conn, emb, raw, window_s=0, sleep=lambda s: None)
+    handle_lifecycle(conn, emb, raw, window_s=0, sink=StdoutSink(), sleep=lambda s: None)
     out2 = capsys.readouterr().out
     assert "already briefed" in out2.lower() and "INCIDENT BRIEF" not in out2
