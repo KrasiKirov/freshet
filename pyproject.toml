@@ -22,6 +22,7 @@ embed = ["sentence-transformers>=2"]
 llm = ["anthropic>=0.40"]
 eval = ["matplotlib>=3.7"]
 test = ["pytest>=8", "httpx>=0.27"]
+slack = ["slack_sdk>=3"]
 
 [tool.setuptools.packages.find]
 include = ["freshet*"]
