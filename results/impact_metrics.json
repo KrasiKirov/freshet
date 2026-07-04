@@ -1,0 +1,32 @@
+{
+  "n": 12,
+  "exact_agreement": 0.583,
+  "adjacent_agreement": 0.917,
+  "confusion": [
+    {
+      "incident": "IMP-0003",
+      "truth": "High",
+      "pred": "Medium"
+    },
+    {
+      "incident": "IMP-0009",
+      "truth": "Low",
+      "pred": "Medium"
+    },
+    {
+      "incident": "IMP-0010",
+      "truth": "Low",
+      "pred": "Medium"
+    },
+    {
+      "incident": "IMP-0011",
+      "truth": "Low",
+      "pred": "High"
+    },
+    {
+      "incident": "IMP-0012",
+      "truth": "Low",
+      "pred": "Medium"
+    }
+  ]
+}

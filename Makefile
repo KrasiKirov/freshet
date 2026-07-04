@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval answer-eval agent-eval agent-demo embedding-compare multiquery-eval live-demo autopilot autopilot-slack
+.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval live-demo autopilot autopilot-slack
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -116,6 +116,10 @@ embedding-compare:
 # Key-gated: multi-query vs single-query retrieval recall (needs a key + fresh DB).
 multiquery-eval:
 	$(PYTHON) -m freshet.eval.multiquery_eval
+
+# Keyless: impact heuristic agreement vs the authored impact benchmark (results/).
+impact-eval:
+	$(PYTHON) -m freshet.eval.impact_eval
 
 # Live demo: ingest REAL public status-feed incidents through the pipeline + open the UI.
 live-demo:
