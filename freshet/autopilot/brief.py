@@ -7,8 +7,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-IMPACT_STUB = "Impact: estimation pending (sub-project ④)."
-
 
 @dataclass
 class Findings:
@@ -21,6 +19,7 @@ class Findings:
     runbook: Optional[str]
     narrative: Optional[str]
     meta: Optional[str] = None
+    impact: Optional[str] = None
 
 
 def cite_hit(hit) -> str:
@@ -72,5 +71,6 @@ def render_brief(f: Findings) -> str:
     lines.append(f"Runbook: {f.runbook}" if f.runbook else "Runbook: none found")
     if f.meta:
         lines.append(f.meta)
-    lines.append(IMPACT_STUB)
+    if f.impact:
+        lines.append(f.impact)
     return "\n".join(lines)

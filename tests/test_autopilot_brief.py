@@ -19,16 +19,23 @@ def test_cite_hit_format():
     assert cite_hit(h) == "[ev1 @ 2026-07-01 12:00:00]"
 
 
-def test_render_includes_cause_runbook_status_and_impact_stub():
+def test_render_includes_cause_runbook_and_status():
     f = Findings(service="scheduler-api", status="open",
                  cause_text="bad deploy", cause_cite="[ev1 @ 2026-07-01 12:00:00]",
-                 fix_text=None, fix_cite=None, runbook="restart the worker",
-                 narrative=None)
+                 fix_text=None, fix_cite=None, runbook="restart the worker", narrative=None)
     out = render_brief(f)
     assert "scheduler-api" in out
     assert "bad deploy" in out and "[ev1 @ 2026-07-01 12:00:00]" in out
     assert "restart the worker" in out
-    assert "impact" in out.lower()  # stub line present
+    assert "estimation pending" not in out  # the ④ stub is gone
+
+
+def test_render_shows_impact_when_set():
+    from freshet.autopilot.brief import Findings, render_brief
+    f = Findings(service="api", status="open", cause_text=None, cause_cite=None,
+                 fix_text=None, fix_cite=None, runbook=None, narrative="n",
+                 impact="Impact: High — 3 services, ongoing")
+    assert "Impact: High — 3 services, ongoing" in render_brief(f)
 
 
 def test_findings_from_timeline_uses_cause_hit():

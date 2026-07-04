@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from freshet.autopilot.brief import Findings, IMPACT_STUB, render_brief
+from freshet.autopilot.brief import Findings, render_brief
 
 _EMOJI = {"open": "🔴", "investigating": "🔴", "identified": "🔴",
           "monitoring": "🟠", "resolved": "🟢", "postmortem": "🟢"}
@@ -29,10 +29,12 @@ def slack_blocks(f: Findings) -> list[dict]:
         body = f"{cause}\n{resolution}"
     section = {"type": "section", "text": {"type": "mrkdwn", "text": body}}
     runbook = f"Runbook: {f.runbook}" if f.runbook else "Runbook: none found"
-    ctx = f"{runbook}\n{IMPACT_STUB}"
+    parts = [runbook]
+    if f.impact:
+        parts.insert(0, f.impact)
     if f.meta:
-        ctx = f"{f.meta}\n{ctx}"
-    context = {"type": "context", "elements": [{"type": "mrkdwn", "text": ctx}]}
+        parts.insert(0, f.meta)
+    context = {"type": "context", "elements": [{"type": "mrkdwn", "text": "\n".join(parts)}]}
     return [header, section, context]
 
 

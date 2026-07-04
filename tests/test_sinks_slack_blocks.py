@@ -1,4 +1,4 @@
-from freshet.autopilot.brief import Findings, IMPACT_STUB
+from freshet.autopilot.brief import Findings
 from freshet.autopilot.sinks.slack import slack_blocks
 
 
@@ -21,9 +21,14 @@ def test_section_cites_cause():
     assert "bad deploy" in txt and "[ev1 @ 2026-07-01 00:00:00]" in txt
 
 
-def test_context_has_runbook_and_impact_stub():
+def test_context_has_runbook_no_stub():
     ctx = slack_blocks(_f())[2]["elements"][0]["text"]
-    assert "restart the worker" in ctx and IMPACT_STUB in ctx
+    assert "restart the worker" in ctx and "estimation pending" not in ctx
+
+
+def test_context_shows_impact_when_set():
+    ctx = slack_blocks(_f(impact="Impact: Medium — 1 service, 30m"))[2]["elements"][0]["text"]
+    assert "Impact: Medium — 1 service, 30m" in ctx
 
 
 def test_narrative_preferred_over_cause_lines():
