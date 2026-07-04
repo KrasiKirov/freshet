@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 
 from freshet.autopilot.investigate import gather_findings
+from freshet.autopilot.sinks.base import Sink
 from freshet.pipeline.lifecycle import LifecycleEvent
 
 _CLAIM_SQL = ("UPDATE incidents SET briefed_at = now()"
@@ -19,7 +20,7 @@ def claim_incident(conn, incident_id: str) -> bool:
     return conn.execute(_CLAIM_SQL, (incident_id,)).fetchone() is not None
 
 
-def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink,
+def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Sink,
                      sleep=time.sleep, client=None) -> None:
     ev = LifecycleEvent.from_json(raw_json)
     if ev.type != "opened":

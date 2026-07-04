@@ -6,6 +6,7 @@ from freshet.pipeline.lifecycle import LifecycleEvent
 
 
 class _FakeConn:
+    """Returns a preset claim result; records if claim SQL ran."""
     def __init__(self, claim_ok):
         self._claim_ok = claim_ok
         self.claims = 0
