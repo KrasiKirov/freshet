@@ -36,3 +36,9 @@ def test_narrative_preferred_over_cause_lines():
 def test_missing_cause_uses_fallback():
     txt = slack_blocks(_f(cause_text=None, cause_cite=None))[1]["text"]["text"]
     assert "not identified from retrieved evidence" in txt
+
+
+def test_context_includes_meta_when_present():
+    b = slack_blocks(_f(meta="Duration 42m · rolled back"))
+    ctx = b[2]["elements"][0]["text"]
+    assert "Duration 42m · rolled back" in ctx

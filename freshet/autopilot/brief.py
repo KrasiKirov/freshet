@@ -20,6 +20,7 @@ class Findings:
     fix_cite: Optional[str]
     runbook: Optional[str]
     narrative: Optional[str]
+    meta: Optional[str] = None
 
 
 def cite_hit(hit) -> str:
@@ -54,7 +55,8 @@ def findings_from_investigation(inv, service: str, status: str,
 
 
 def render_brief(f: Findings) -> str:
-    lines = [f"=== INCIDENT BRIEF — {f.service} ({f.status}) ==="]
+    title = "POSTMORTEM" if f.status == "resolved" else "INCIDENT BRIEF"
+    lines = [f"=== {title} — {f.service} ({f.status}) ==="]
     if f.narrative:
         lines.append("")
         lines.append(f.narrative)
@@ -68,5 +70,7 @@ def render_brief(f: Findings) -> str:
         else:
             lines.append("Resolution: not identified from retrieved evidence")
     lines.append(f"Runbook: {f.runbook}" if f.runbook else "Runbook: none found")
+    if f.meta:
+        lines.append(f.meta)
     lines.append(IMPACT_STUB)
     return "\n".join(lines)

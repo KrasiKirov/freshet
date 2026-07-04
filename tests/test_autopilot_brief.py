@@ -51,3 +51,21 @@ def test_render_prefers_narrative_when_present():
                  narrative="Cause: bad deploy [evX @ 2026-07-01 09:00:00].")
     out = render_brief(f)
     assert "bad deploy [evX @ 2026-07-01 09:00:00]" in out
+
+
+def test_meta_renders_when_present():
+    from freshet.autopilot.brief import Findings, render_brief
+    f = Findings(service="api", status="resolved", cause_text=None, cause_cite=None,
+                 fix_text=None, fix_cite=None, runbook=None,
+                 narrative="Root cause: bad deploy.", meta="Duration 42m · rolled back")
+    out = render_brief(f)
+    assert "POSTMORTEM" in out and "Duration 42m · rolled back" in out
+
+
+def test_meta_absent_by_default_leaves_brief_unchanged():
+    from freshet.autopilot.brief import Findings, render_brief
+    f = Findings(service="api", status="open", cause_text="bad deploy",
+                 cause_cite="[ev1 @ 2026-07-01 00:00:00]", fix_text=None, fix_cite=None,
+                 runbook="rb", narrative=None)
+    out = render_brief(f)
+    assert "INCIDENT BRIEF" in out and "Duration" not in out

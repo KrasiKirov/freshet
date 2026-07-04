@@ -27,8 +27,10 @@ def slack_blocks(f: Findings) -> list[dict]:
         body = f"{cause}\n{resolution}"
     section = {"type": "section", "text": {"type": "mrkdwn", "text": body}}
     runbook = f"Runbook: {f.runbook}" if f.runbook else "Runbook: none found"
-    context = {"type": "context",
-               "elements": [{"type": "mrkdwn", "text": f"{runbook}\n{IMPACT_STUB}"}]}
+    ctx = f"{runbook}\n{IMPACT_STUB}"
+    if f.meta:
+        ctx = f"{f.meta}\n{ctx}"
+    context = {"type": "context", "elements": [{"type": "mrkdwn", "text": ctx}]}
     return [header, section, context]
 
 
