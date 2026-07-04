@@ -43,3 +43,7 @@ CREATE TABLE IF NOT EXISTS incidents (
 -- fires at most once per incident even under at-least-once redelivery.
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS briefed_at    timestamptz;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_at timestamptz;
+
+-- Autopilot ③: the Slack ts of the incident's brief message, so the postmortem
+-- can post as a threaded reply under it.
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS slack_ts text;
