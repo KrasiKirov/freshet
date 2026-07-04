@@ -28,7 +28,7 @@ def test_gather_findings_keyless_recovers_cause(conn, monkeypatch):
     index_corpus(conn, emb, corpus)
     truth = truths[0]
 
-    f = gather_findings(conn, emb, truth.service, status="open")
+    f = gather_findings(conn, emb, truth.service, "INC-does-not-exist", "open")
     assert f.service is not None
     # cause line should cite the authored cause event id
     assert f.cause_cite is not None and truth.cause_id in f.cause_cite
