@@ -13,3 +13,9 @@ def test_stdout_sink_prints_cited_brief(capsys):
     out = capsys.readouterr().out
     assert "INCIDENT BRIEF" in out
     assert "bad deploy" in out and "[ev1 @ 2026-07-01 00:00:00]" in out
+
+
+def test_stdout_returns_none_and_annotates_thread(capsys):
+    ret = StdoutSink().deliver(_f(), thread="9.9")
+    out = capsys.readouterr().out
+    assert ret is None and "reply to 9.9" in out

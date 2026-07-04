@@ -45,12 +45,12 @@ class SlackSink:
     def dry_run(self) -> bool:
         return self._dry_run
 
-    def deliver(self, findings: Findings) -> None:
+    def deliver(self, findings: Findings, *, thread=None):
         blocks = slack_blocks(findings)
         text = render_brief(findings)  # plain-text notification fallback
         if self._dry_run:
-            print(f"[slack-dry-run] channel={self._channel}\ntext={text}\nblocks={blocks}")
-            return
+            print(f"[slack-dry-run] channel={self._channel} thread={thread}\ntext={text}\nblocks={blocks}")
+            return None
         client = self._client
         if client is None:
             try:
@@ -61,6 +61,9 @@ class SlackSink:
                 ) from exc
             client = WebClient(token=self._token)
         try:
-            client.chat_postMessage(channel=self._channel, text=text, blocks=blocks)
+            resp = client.chat_postMessage(channel=self._channel, text=text,
+                                           blocks=blocks, thread_ts=thread)
+            return resp["ts"] if resp is not None else None
         except Exception as exc:  # never crash the autopilot loop on a delivery failure
             print(f"[slack] post failed: {exc!r}")
+            return None
