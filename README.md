@@ -40,6 +40,12 @@ By default the brief prints to stdout. `make autopilot-slack` posts it to Slack
 `pip install -e ".[slack]"`); `--sink slack-dry-run` renders the Slack payload
 without posting.
 
+Each brief/postmortem includes a derived **impact** line (Low/Medium/High from
+breadth + duration + impact figures quoted in the source text) — an *indicator*, not
+measured user impact. `make impact-eval` reports how well that heuristic recovers an
+authored severity-driven label on a dedicated synthetic benchmark (see
+[`RESULTS.md`](RESULTS.md)).
+
 ## Results
 
 Measured on a laptop, reproducible (`make eval` / `make drills`); full tables,

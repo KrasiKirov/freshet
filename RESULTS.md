@@ -3,6 +3,18 @@
 Reproducible numbers, newest first. Hardware context: Apple Silicon laptop,
 single-node Redpanda + Postgres in Docker, workers on the host.
 
+## Impact estimation (indicative, keyless)
+
+The autopilot's impact line is a *derived indicator* — Low/Medium/High from breadth,
+duration, and error-percentages quoted in the incident text. It is **not** measured
+user impact (no error-rate/affected-user metrics exist in the corpus). `make
+impact-eval` measures how well those observable proxies recover an **authored,
+severity-driven** label on a dedicated benchmark (12 incidents spanning Low/Med/High;
+the shared retrieval benchmark is untouched): exact agreement 0.583, adjacent-
+tolerant agreement 0.917 (Low↔High counts as a worse miss than Low↔Medium). The
+misses are honest: incidents that were severe but quiet in their observable signals
+(under-estimated), and a small-but-loud spike (over-estimated).
+
 ## M14 — RAG quality: stronger retriever + query transformation
 
 This is a standard production-RAG stack — dense + lexical hybrid, RRF fusion,
