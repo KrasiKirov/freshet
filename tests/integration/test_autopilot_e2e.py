@@ -47,3 +47,36 @@ def test_open_incident_briefs_once(conn, monkeypatch, capsys):
     handle_lifecycle(conn, emb, raw, window_s=0, sink=StdoutSink(), sleep=lambda s: None)
     out2 = capsys.readouterr().out
     assert "already briefed" in out2.lower() and "INCIDENT BRIEF" not in out2
+
+
+def test_resolve_posts_postmortem_once(conn, monkeypatch, capsys):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    from freshet.pipeline.embedding import make_embedder
+    from freshet.pipeline.lifecycle import LifecycleEvent
+    from freshet.autopilot.consumer import handle_lifecycle
+    from freshet.autopilot.sinks.stdout import StdoutSink
+    from freshet.generator.generator import build_benchmark
+    from freshet.eval.run_eval import index_corpus
+
+    corpus, truths = build_benchmark(seed=1, n_incidents=40)
+    emb = make_embedder("bge")
+    index_corpus(conn, emb, corpus)
+    truth = truths[0]
+
+    iid = f"INC_{uuid.uuid4().hex[:12]}"
+    conn.execute(
+        "INSERT INTO incidents (incident_id, title, services, opened_at, resolved_at,"
+        " resolution_summary) VALUES (%s, %s, ARRAY[%s], now() - interval '30 minutes',"
+        " now(), %s)",
+        (iid, f"{truth.service}: resolved", truth.service, "rolled back"),
+    )
+    raw = LifecycleEvent("resolved", iid, truth.service, "2026-07-01T00:00:00+00:00").to_json()
+
+    handle_lifecycle(conn, emb, raw, window_s=0, sink=StdoutSink(), sleep=lambda s: None)
+    out1 = capsys.readouterr().out
+    assert "POSTMORTEM" in out1 and truth.service in out1
+
+    # redelivery → postmortem already posted → no second postmortem
+    handle_lifecycle(conn, emb, raw, window_s=0, sink=StdoutSink(), sleep=lambda s: None)
+    out2 = capsys.readouterr().out
+    assert "already" in out2.lower() and "POSTMORTEM" not in out2
