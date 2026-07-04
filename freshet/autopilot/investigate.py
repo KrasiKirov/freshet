@@ -48,3 +48,45 @@ def gather_findings(conn, embedder, service: str, status: str, *, client=None) -
     res = hybrid_search(conn, embedder, q, k=12, service=service)
     tl = build_timeline(res.hits)
     return findings_from_timeline(tl, status, runbook)
+
+
+_INCIDENT_ROW_SQL = ("SELECT opened_at, resolved_at, resolution_summary"
+                     " FROM incidents WHERE incident_id = %s")
+
+
+def _format_duration(opened_at, resolved_at) -> Optional[str]:
+    if not opened_at or not resolved_at:
+        return None
+    secs = int((resolved_at - opened_at).total_seconds())
+    if secs < 60:
+        return f"{secs}s"
+    mins = secs // 60
+    if mins < 60:
+        return f"{mins}m"
+    return f"{mins // 60}h {mins % 60}m"
+
+
+def gather_postmortem(conn, embedder, service: str, incident_id: str, *, client=None) -> Findings:
+    row = conn.execute(_INCIDENT_ROW_SQL, (incident_id,)).fetchone()
+    opened_at, resolved_at, resolution_summary = row if row else (None, None, None)
+    duration = _format_duration(opened_at, resolved_at)
+
+    from freshet.api.retrieval import hybrid_search
+    from freshet.api.synthesis import build_timeline, synthesize_narrative
+    q = f"what caused the {service} incident and how was it resolved?"
+    res = hybrid_search(conn, embedder, q, k=12, service=service)
+    tl = build_timeline(res.hits)
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            narrative = synthesize_narrative(tl, client=client)
+        except Exception as exc:  # degrade to the extractive timeline, never crash
+            print(f"[autopilot] narrative synthesis failed ({exc!r}); using extractive timeline")
+            narrative = tl.render()
+    else:
+        narrative = tl.render()
+
+    runbook = fetch_runbook(conn, service)
+    summary = resolution_summary or "resolved"
+    meta = f"Duration {duration} · {summary}" if duration else summary
+    return Findings(service=service, status="resolved", cause_text=None, cause_cite=None,
+                    fix_text=None, fix_cite=None, runbook=runbook, narrative=narrative, meta=meta)
