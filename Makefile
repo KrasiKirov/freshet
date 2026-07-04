@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval answer-eval agent-eval agent-demo embedding-compare multiquery-eval live-demo autopilot
+.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval answer-eval agent-eval agent-demo embedding-compare multiquery-eval live-demo autopilot autopilot-slack
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -53,6 +53,12 @@ api:
 autopilot:
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
+
+# Autopilot posting to Slack. Sources .env.local for SLACK_BOT_TOKEN/SLACK_CHANNEL
+# (and ANTHROPIC_API_KEY). Posts only because --sink slack is explicit.
+autopilot-slack:
+	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
+	$(PYTHON) -m freshet.autopilot --brokers localhost:9092 --sink slack
 
 # Run the vertical-slice demo end to end (make up first; EMBEDDER=stub to skip model).
 slice:

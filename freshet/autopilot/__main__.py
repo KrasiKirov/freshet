@@ -17,7 +17,7 @@ from freshet.common.kafka_io import consume_loop
 from freshet.pipeline.embedding import make_embedder
 from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC
 from freshet.autopilot.consumer import handle_lifecycle
-from freshet.autopilot.sinks.stdout import StdoutSink
+from freshet.autopilot.sinks.factory import make_sink
 
 
 def main() -> None:
@@ -27,11 +27,13 @@ def main() -> None:
     p.add_argument("--window-s", type=float,
                    default=float(os.environ.get("AUTOPILOT_WINDOW_S", "45")))
     p.add_argument("--max-messages", type=int, default=None)
+    p.add_argument("--sink", default=os.environ.get("FRESHET_SINK", "stdout"),
+                   choices=["stdout", "slack", "slack-dry-run"])
     args = p.parse_args()
 
     conn = connect()
     embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
-    sink = StdoutSink()
+    sink = make_sink(args.sink)
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
