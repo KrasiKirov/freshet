@@ -1,6 +1,7 @@
 """Pure rendering for the autopilot incident brief. Given normalized Findings,
 produce a plain-text, cited brief. No I/O, no DB — trivially unit-testable.
-Slack formatting is sub-project ②; impact math is sub-project ④ (stub here)."""
+Slack formatting lives in the Slack sink; the impact line is computed by the impact
+heuristic (freshet/autopilot/impact.py) and rendered here when present."""
 
 from __future__ import annotations
 

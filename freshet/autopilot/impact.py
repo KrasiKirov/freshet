@@ -9,7 +9,6 @@ import re
 from typing import Optional
 
 _PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
-_ORDER = {"Low": 0, "Medium": 1, "High": 2}
 
 
 def max_stated_pct(hit_texts: list[str]) -> Optional[float]:
@@ -42,6 +41,9 @@ def classify_impact(services: list[str], opened_at, resolved_at,
     mins = _duration_min(opened_at, resolved_at)
     if (pct is not None and pct >= 25) or n >= 3 or (mins is not None and mins >= 60):
         return "High"
+    # Low requires *positive* evidence of small impact (an explicitly stated low
+    # percentage). No stated figure means unknown severity → Medium, not Low: an
+    # on-call responder should not downgrade an unquantified incident to Low.
     if (pct is not None and pct < 5) and n == 1 and (mins is None or mins < 10):
         return "Low"
     return "Medium"

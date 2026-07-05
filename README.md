@@ -33,8 +33,9 @@ events on Kafka: when the normalizer opens a new incident, autopilot debounces
 briefly, then investigates it (the tool-using agent with a key, the keyless
 extractive timeline without one) and prints a **cited incident brief** — cause,
 runbook, status. Each incident is briefed exactly once (a durable `briefed_at`
-claim), so redelivery and restarts never double-post. Slack delivery, postmortems,
-and impact estimation are the next sub-projects.
+claim), so redelivery and restarts never double-post. On resolution it auto-posts a
+threaded, cited **postmortem** (cause + fix + duration); Slack delivery and impact
+estimation are covered below.
 By default the brief prints to stdout. `make autopilot-slack` posts it to Slack
 (`--sink slack`, needs `SLACK_BOT_TOKEN`/`SLACK_CHANNEL` in `.env.local` and
 `pip install -e ".[slack]"`); `--sink slack-dry-run` renders the Slack payload

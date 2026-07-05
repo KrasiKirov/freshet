@@ -43,6 +43,14 @@ def test_medium_otherwise():
     assert classify_impact(["a"], o, r, ["now 11%"]) == "Medium"
 
 
+def test_no_stated_figure_defaults_to_medium_not_low():
+    # intentional: absence of a quoted % is "unknown severity", not "small" —
+    # Medium, not Low. An explicitly low % on the same shape IS Low.
+    o, r = _span(5)
+    assert classify_impact(["a"], o, r, ["service recovered, no numbers here"]) == "Medium"
+    assert classify_impact(["a"], o, r, ["now 2%"]) == "Low"
+
+
 def test_monotonic_more_services_never_lowers():
     o, r = _span(5)
     order = {"Low": 0, "Medium": 1, "High": 2}
