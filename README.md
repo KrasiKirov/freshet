@@ -2,7 +2,7 @@
 
 A **freshness-first streaming-RAG system** for on-call engineers. During an
 incident, engineers waste most of their time reconstructing context — what
-changed, what's related, what fixed something similar before — from data
+changed, what's related, what fixed something similar before - from data
 scattered across many tools, under pressure. The information that matters most is
 the newest, which is exactly what a nightly-batch index misses. Freshet
 continuously ingests operational events (alerts, deploys, metrics, incident
@@ -203,7 +203,7 @@ where a single-shot retriever still struggles to surface a terse `Deploy
 v2.15.0 started` cause that doesn't read like an answer to "what caused…" — which
 is exactly what the **agentic investigator** below was built to close.
 
-**The LLM narrative (optional, M10b).** With `ANTHROPIC_API_KEY` set, an LLM writes
+**The LLM narrative** With `ANTHROPIC_API_KEY` set, an LLM writes
 the causal explanation in prose over the same timeline — the one thing a template
 can't do. `make answer-eval` measures it with a hand-rolled **LLM-as-judge**:
 faithfulness (are the narrative's claims supported by the cited events?) and
@@ -254,30 +254,6 @@ match this; that ablation is open. Caveats: the run is **non-deterministic** (on
 committed run; the baseline is keyless and deterministic), the sample is small (12)
 by design, and the path needs a key — the keyless core and CI are untouched.
 
-## Limitations (honest)
-
-- **Synthetic data.** The numbers come from a seeded 40-incident, six-archetype
-  benchmark with ground truth and ~160 queries auto-derived from it — varied and
-  reproducible, but still authored, so *indicative* rather than a real-world
-  benchmark.
-- **The batch baseline is a model.** Streaming-vs-batch staleness is computed from
-  a steady event stream at the generator's cadence (we don't wait a real night);
-  the streaming side is the measured freshness.
-- **Single-node.** One Redpanda, one Postgres, workers on the host.
-- **Single-writer normalizer.** Incident correlation's find-or-create isn't
-  atomic; scale embedders, not the normalizer, until an open-incident uniqueness
-  guard exists.
-- **Abstention threshold is calibrated by eye** for MiniLM on this corpus.
-- **No rerank model** (the fusion seam is where one would slot).
-- **The LLM answer path is optional (key-gated)**; the keyless template composer is
-  the fallback, and what CI and the committed results use.
-
-(Built since the core: root-cause synthesis with cross-encoder reranking, an
-optional LLM narrative held accountable by an LLM-as-judge, a benchmark-scale
-evaluation, a multi-step investigator measured against the single-shot baseline,
-a stronger embedding model + LLM multi-query, and live ingestion of real
-status-page incidents behind a demo UI — see the sections above.)
-
 ## Layout
 
     freshet/common/      # schemas (the contract), kafka helpers, db helper
@@ -290,7 +266,3 @@ status-page incidents behind a demo UI — see the sections above.)
     scripts/             # run_slice.sh, run_scaling_demo.sh, run_demo.sh, run_live_demo.sh
     results/             # committed eval + drill artifacts (JSON, PNGs)
     tests/               # unit + integration tests
-
-Notes: Kafka on `localhost:9092`, Postgres on `localhost:5433` (5432 left free),
-db/user/password `freshet`. See [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md)
-for measured numbers and the design rationale behind each choice.
