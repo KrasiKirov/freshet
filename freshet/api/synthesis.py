@@ -67,6 +67,36 @@ class Timeline:
         return "\n".join(lines)
 
 
+def _select_cause(candidates: list[RetrievedHit], hits: list[RetrievedHit],
+                  first_spike_ts) -> Optional[RetrievedHit]:
+    """Pick the cause among candidate changes at/before the spike. Blends retrieval
+    RANK (position in `hits`, which reranking reorders — lower is better) with temporal
+    proximity to the spike. Falls back to recency (latest) when rank is uninformative,
+    so a single candidate — or synthetic hits with no meaningful order — reproduces the
+    old `changes_before[-1]` behavior exactly."""
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    rank = {h.event_id: i for i, h in enumerate(hits)}
+    n = max(len(hits), 1)
+
+    def relevance(h: RetrievedHit) -> float:
+        return 1.0 / (1 + rank.get(h.event_id, n))          # rank 0 -> 1.0
+
+    def proximity(h: RetrievedHit) -> float:
+        if first_spike_ts is None:
+            return 1.0
+        mins = max((first_spike_ts - h.ts).total_seconds(), 0.0) / 60.0
+        return 1.0 / (1.0 + mins)                           # closer to spike -> higher
+
+    # If every candidate shares the same rank (uninformative retrieval order), fall
+    # back to pure recency — preserves prior behavior on non-ranked synthetic inputs.
+    if len({rank.get(h.event_id, n) for h in candidates}) == 1:
+        return candidates[-1]
+    return max(candidates, key=lambda h: relevance(h) * proximity(h))
+
+
 def build_timeline(hits: list[RetrievedHit]) -> Timeline:
     """Build the timeline for the dominant incident among the hits."""
     incident_hits = [h for h in hits if _role(h) != "runbook"]
@@ -80,7 +110,7 @@ def build_timeline(hits: list[RetrievedHit]) -> Timeline:
     first_spike_ts = next((h.ts for h in focus if _role(h) == "spike"), None)
     changes_before = [h for h in focus if h.type in _CAUSE_TYPES
                       and (first_spike_ts is None or h.ts <= first_spike_ts)]
-    cause = changes_before[-1] if changes_before else None
+    cause = _select_cause(changes_before, hits, first_spike_ts)
     fix = next((h for h in focus if h.type in REMEDIATION_TYPES), None)
     return Timeline(service=service, entries=entries, cause=cause, fix=fix)
 
