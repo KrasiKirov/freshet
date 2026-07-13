@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval live-demo autopilot autopilot-slack
+.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval live-demo autopilot autopilot-slack connector connector-demo
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -124,3 +124,12 @@ impact-eval:
 # Live demo: ingest REAL public status-feed incidents through the pipeline + open the UI.
 live-demo:
 	bash scripts/run_live_demo.sh
+
+# Run the connector webhook receiver on :8088 (sources .env.local for the HMAC secret).
+connector:
+	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
+	$(PYTHON) -m uvicorn freshet.connectors.webhook:app --port 8088
+
+# Commit-signal demo (stack up): replay a GitHub push + spike -> brief cites the SHA.
+connector-demo:
+	bash scripts/run_connector_demo.sh
