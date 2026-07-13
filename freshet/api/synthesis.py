@@ -23,7 +23,13 @@ _ROLE_BY_TYPE = {
     "memory_leak_shipped": "deploy", "scaled_up": "rollback",
     "cert_expired": "spike", "cert_renewed": "rollback",
     "migration_applied": "deploy", "migration_reverted": "rollback",
+    "commit": "commit",
 }
+
+# A code commit is a cause candidate too, but "commit" is connector-sourced (not an
+# archetype change type), so keep it out of the shared CHANGE_TYPES and widen only
+# the timeline's cause selection here.
+_CAUSE_TYPES = CHANGE_TYPES | frozenset({"commit"})
 
 
 def _role(hit: RetrievedHit) -> str:
@@ -72,7 +78,7 @@ def build_timeline(hits: list[RetrievedHit]) -> Timeline:
     entries = [TimelineEntry(role=_role(h), hit=h) for h in focus]
 
     first_spike_ts = next((h.ts for h in focus if _role(h) == "spike"), None)
-    changes_before = [h for h in focus if h.type in CHANGE_TYPES
+    changes_before = [h for h in focus if h.type in _CAUSE_TYPES
                       and (first_spike_ts is None or h.ts <= first_spike_ts)]
     cause = changes_before[-1] if changes_before else None
     fix = next((h for h in focus if h.type in REMEDIATION_TYPES), None)
