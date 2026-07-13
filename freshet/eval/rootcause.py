@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import os
 
+from freshet.api.retrieval import RetrievedHit, keyword_sql
+
 RESULTS = "results/rootcause_eval.json"
 PLOT = "results/rootcause_completeness.png"
 
@@ -44,29 +46,54 @@ def completeness(ground_truth: dict[str, tuple[str, str]],
     }
 
 
-def _captured_for_config(conn, embedder, ground_truth, services_by_incident, reranker):
-    """For each incident, retrieve + build a timeline and collect the surfaced ids."""
-    from freshet.api.retrieval import hybrid_search
-    from freshet.api.synthesis import build_timeline
+def cause_accuracy(ground_truth: dict[str, str], selected: dict[str, str | None]) -> float:
+    n = len(ground_truth)
+    if n == 0:
+        return 0.0
+    hit = sum(1 for iid, cid in ground_truth.items() if selected.get(iid) == cid)
+    return round(hit / n, 3)
 
-    captured: dict[str, set[str]] = {}
-    for iid, service in services_by_incident.items():
-        q = f"what caused the {service} incident and how was it resolved?"
-        # Service-scoped (k=12), mirroring the product's root-cause path
-        # (run_rootcause_demo). This isolates the *synthesis* question — given an
-        # incident in scope, does the generalized timeline recover its true cause
-        # and fix across all six archetypes? — while run_eval carries the hard
-        # whole-corpus retrieval number.
-        res = hybrid_search(conn, embedder, q, k=12, service=service,
-                            min_similarity=0.0, reranker=reranker, tau_s=_EVAL_TAU_S)
-        tl = build_timeline(res.hits)
-        ids = {e.hit.event_id for e in tl.entries}
-        if tl.cause:
-            ids.add(tl.cause.event_id)
-        if tl.fix:
-            ids.add(tl.fix.event_id)
-        captured[iid] = ids
-    return captured
+
+def mrr(ground_truth: dict[str, str], ranked: dict[str, list[str]]) -> float:
+    n = len(ground_truth)
+    if n == 0:
+        return 0.0
+    total = 0.0
+    for iid, cid in ground_truth.items():
+        ids = ranked.get(iid, [])
+        if cid in ids:
+            total += 1.0 / (ids.index(cid) + 1)
+    return round(total / n, 3)
+
+
+def recall_at_k(ground_truth: dict[str, str], retrieved: dict[str, set[str]]) -> float:
+    n = len(ground_truth)
+    if n == 0:
+        return 0.0
+    hit = sum(1 for iid, cid in ground_truth.items() if cid in retrieved.get(iid, set()))
+    return round(hit / n, 3)
+
+
+def keyword_only_hits(conn, question: str, k: int, service=None) -> list[RetrievedHit]:
+    """Keyword-only retrieval arm as RetrievedHits (reusing the production keyword_sql),
+    ranked by full-text rank. similarity=0.0 (no vector arm); score is rank-based so
+    list order reflects keyword relevance."""
+    params = {"q": question, "k": 30}
+    if service is not None:
+        params["service"] = service
+    rows = conn.execute(keyword_sql(service, None), params).fetchall()
+    hits: list[RetrievedHit] = []
+    seen: set[str] = set()
+    for r in rows:
+        if r[1] in seen:
+            continue
+        seen.add(r[1])
+        hits.append(RetrievedHit(chunk_id=r[0], event_id=r[1], service=r[2], ts=r[3],
+                                 indexed_at=r[4], source=r[5], text=r[6], type=r[7],
+                                 similarity=0.0, score=1.0 / (len(hits) + 1)))
+        if len(hits) >= k:
+            break
+    return hits
 
 
 def _index_corpus(conn, embedder, events) -> None:
@@ -81,59 +108,102 @@ def _index_corpus(conn, embedder, events) -> None:
             upsert_record(conn, rec, vec)
 
 
+def _hits_for_arm(conn, embedder, service, arm, reranker):
+    q = f"what caused the {service} incident and how was it resolved?"
+    if arm == "keyword":
+        return keyword_only_hits(conn, q, k=12, service=service)
+    from freshet.api.retrieval import hybrid_search
+    res = hybrid_search(conn, embedder, q, k=12, service=service,
+                        min_similarity=0.0, reranker=reranker, tau_s=_EVAL_TAU_S)
+    return res.hits
+
+
+def _naive_cause(hits):
+    """Baseline selector: last change (by ts) at/before the first spike."""
+    from freshet.api.synthesis import _CAUSE_TYPES, _role
+    focus = sorted(hits, key=lambda h: h.ts)
+    spike_ts = next((h.ts for h in focus if _role(h) == "spike"), None)
+    changes = [h for h in focus if h.type in _CAUSE_TYPES
+               and (spike_ts is None or h.ts <= spike_ts)]
+    return changes[-1].event_id if changes else None
+
+
+def _ranked_change_ids(hits):
+    """Candidate change ids ordered by the score-aware selector's preference (for MRR)."""
+    from freshet.api.synthesis import _CAUSE_TYPES, _role, _select_cause
+    focus = sorted(hits, key=lambda h: h.ts)
+    spike_ts = next((h.ts for h in focus if _role(h) == "spike"), None)
+    changes = [h for h in focus if h.type in _CAUSE_TYPES
+               and (spike_ts is None or h.ts <= spike_ts)]
+    ordered = []
+    pool = list(changes)
+    while pool:
+        pick = _select_cause(pool, hits, spike_ts)
+        ordered.append(pick.event_id)
+        pool = [h for h in pool if h.event_id != pick.event_id]
+    return ordered
+
+
 def main() -> None:
     from freshet.common.db import connect
-    from freshet.generator.generator import build_benchmark
+    from freshet.generator.generator import build_hard_benchmark
     from freshet.pipeline.embedding import make_embedder
     from freshet.api.rerank import CrossEncoderReranker
+    from freshet.api.synthesis import build_timeline
 
-    # minilm (real semantic retrieval) is the meaningful base for a root-cause task;
-    # still keyless (model downloaded once). Override with FRESHET_EMBEDDER=stub.
     embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
     conn = connect()
-    events, truths = build_benchmark(seed=1, n_incidents=40)
+    events, truths = build_hard_benchmark(seed=1, n_incidents=40)
     _index_corpus(conn, embedder, events)
-    gt = {t.incident_id: (t.cause_id, t.fix_id) for t in truths}
+    gt_cause = {t.incident_id: t.cause_id for t in truths}
     services = {t.incident_id: t.service for t in truths}
 
-    configs = {"hybrid": None, "hybrid+rerank": CrossEncoderReranker()}
-    result = {"configs": {}}
-    for label, reranker in configs.items():
-        captured = _captured_for_config(conn, embedder, gt, services, reranker)
-        result["configs"][label] = completeness(gt, captured)
+    arms = {"keyword": None, "hybrid": None, "hybrid+rerank": CrossEncoderReranker()}
+    result = {"tier": "hard", "n_incidents": len(truths), "ladder": {}}
+    for arm, reranker in arms.items():
+        hits_by_inc = {iid: _hits_for_arm(conn, embedder, svc, arm, reranker)
+                       for iid, svc in services.items()}
+        retrieved = {iid: {h.event_id for h in hs} for iid, hs in hits_by_inc.items()}
+        naive_sel = {iid: _naive_cause(hs) for iid, hs in hits_by_inc.items()}
+        aware_sel = {iid: (build_timeline(hs).cause.event_id if build_timeline(hs).cause
+                           else None) for iid, hs in hits_by_inc.items()}
+        ranked = {iid: _ranked_change_ids(hs) for iid, hs in hits_by_inc.items()}
+        result["ladder"][arm] = {
+            "recall_at_k": recall_at_k(gt_cause, retrieved),
+            "accuracy_naive": cause_accuracy(gt_cause, naive_sel),
+            "accuracy_score_aware": cause_accuracy(gt_cause, aware_sel),
+            "mrr_score_aware": mrr(gt_cause, ranked),
+        }
 
     os.makedirs("results", exist_ok=True)
     with open(RESULTS, "w") as fh:
         json.dump(result, fh, indent=2)
     print(json.dumps(result, indent=2))
-    _plot(result["configs"])
+    _plot_ladder(result["ladder"])
     conn.close()
 
 
-def _plot(configs) -> None:
+def _plot_ladder(ladder) -> None:
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        import numpy as np
     except ImportError:
         print("(matplotlib not installed; skipping plot — pip install -e '.[eval]')")
         return
-    labels = list(configs)
-    metrics = ["cause_recall", "fix_recall", "key_event_recall"]
-    import numpy as np
-    x = np.arange(len(metrics))
-    width = 0.8 / max(len(labels), 1)
-    fig, ax = plt.subplots(figsize=(6, 4))
-    for i, label in enumerate(labels):
-        ax.bar(x + i * width, [configs[label][m] for m in metrics], width, label=label)
-    ax.set_xticks(x + width * (len(labels) - 1) / 2)
-    ax.set_xticklabels(metrics, rotation=15)
-    ax.set_ylim(0, 1)
-    ax.set_ylabel("recall")
-    ax.set_title("Root-cause completeness: hybrid vs hybrid+rerank")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(PLOT, dpi=120)
+    arms = list(ladder)
+    x = np.arange(len(arms))
+    width = 0.38
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(x - width / 2, [ladder[a]["accuracy_naive"] for a in arms], width,
+           label="naive selector")
+    ax.bar(x + width / 2, [ladder[a]["accuracy_score_aware"] for a in arms], width,
+           label="score-aware selector")
+    ax.set_xticks(x); ax.set_xticklabels(arms, rotation=10)
+    ax.set_ylim(0, 1); ax.set_ylabel("cause accuracy@1")
+    ax.set_title("Root-cause (hard tier): naive vs score-aware, per arm")
+    ax.legend(); fig.tight_layout(); fig.savefig(PLOT, dpi=120)
     print(f"wrote {PLOT}")
 
 

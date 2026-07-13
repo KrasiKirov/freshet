@@ -1,16 +1,24 @@
 {
-  "configs": {
+  "tier": "hard",
+  "n_incidents": 40,
+  "ladder": {
+    "keyword": {
+      "recall_at_k": 1.0,
+      "accuracy_naive": 0.325,
+      "accuracy_score_aware": 0.325,
+      "mrr_score_aware": 0.662
+    },
     "hybrid": {
-      "cause_recall": 1.0,
-      "fix_recall": 1.0,
-      "key_event_recall": 1.0,
-      "incidents": 40
+      "recall_at_k": 0.825,
+      "accuracy_naive": 0.4,
+      "accuracy_score_aware": 0.4,
+      "mrr_score_aware": 0.613
     },
     "hybrid+rerank": {
-      "cause_recall": 1.0,
-      "fix_recall": 1.0,
-      "key_event_recall": 1.0,
-      "incidents": 40
+      "recall_at_k": 0.65,
+      "accuracy_naive": 0.55,
+      "accuracy_score_aware": 0.6,
+      "mrr_score_aware": 0.613
     }
   }
 }
