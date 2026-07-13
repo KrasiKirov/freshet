@@ -169,6 +169,47 @@ def build_benchmark(seed: int = 1, n_incidents: int = 40, noise_between: int = 6
     return events, truths
 
 
+def build_hard_benchmark(seed: int = 1, n_incidents: int = 40, n_volume: int = 10,
+                         start: datetime | None = None
+                         ) -> tuple[list[Event], list["IncidentTruth"]]:
+    """The `hard` benchmark tier: like build_benchmark but each incident carries
+    decoy causes (benign same-service changes for retrieval volume, plus a benign
+    change interposed between the true cause and the spike). Ground truth records the
+    BAD change as cause_id. Deterministic under seed. Shared build_benchmark is
+    untouched — this is a separate tier, so only the rootcause eval moves."""
+    from freshet.generator.scenarios import hard_incident_events
+
+    rng = random.Random(seed)
+    start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=timezone.utc)
+
+    def mint() -> str:
+        return f"evt_{rng.getrandbits(48):012x}"
+
+    events: list[Event] = []
+    for rb in build_runbooks(start, SERVICES):
+        rb.event_id = mint()
+        events.append(rb)
+
+    truths: list[IncidentTruth] = []
+    t = start
+    for i in range(n_incidents):
+        for _ in range(6):
+            ev = _noise_event(rng, t)
+            ev.event_id = mint()
+            events.append(ev)
+            t += timedelta(seconds=5.0)
+        archetype = ARCHETYPES[i % len(ARCHETYPES)]
+        service = f"{SERVICES[i % len(SERVICES)]}-{i:02d}"
+        incident_id = f"INC-{i + 1:04d}"
+        inc_events, cause_id, fix_id, spike_id = hard_incident_events(
+            archetype, service, t + timedelta(seconds=600), incident_id, mint, n_volume)
+        events.extend(inc_events)
+        truths.append(IncidentTruth(incident_id, service, archetype.name,
+                                    cause_id, fix_id, spike_id))
+        t += timedelta(seconds=4300)   # clear volume(-600s..) + postmortem(+3600s)
+    return events, truths
+
+
 class EventGenerator:
     def __init__(
         self,

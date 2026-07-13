@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Callable, Optional
 
 from freshet.common.schemas import Event, EventSource, EventType, Severity
 
@@ -174,3 +174,79 @@ ARCHETYPES: list[Archetype] = [
                   ("root cause of the {service} incident", {"rca"}),
                   ("{service} error rate spike", {"error_spike"}))),
 ]
+
+
+# A benign, same-archetype change (real but harmless) whose text is near-duplicate
+# vocab to the archetype's BAD change, keyed by archetype name. Interposed between the
+# bad change and the spike so naive last-before-spike mis-picks it.
+_BENIGN_DECOY: dict[str, tuple[EventSource, str, str]] = {
+    "deploy_regression":   (EventSource.DEPLOY, "deploy_started",
+                            "Deploy v2.14.2 of {service} started by ci-bot (docs-only change)"),
+    "config_change":       (EventSource.DEPLOY, "config_changed",
+                            "Config change applied to {service}: log level info -> debug"),
+    "dependency_outage":   (EventSource.DEPLOY, "config_changed",
+                            "Config change applied to {service}: enable request tracing"),
+    "resource_exhaustion": (EventSource.DEPLOY, "deploy_started",
+                            "Deploy v3.01.1 of {service} started by ci-bot (metrics label tweak)"),
+    "cert_expiry":         (EventSource.DEPLOY, "config_changed",
+                            "Config change applied to {service}: rotate non-TLS API key"),
+    "bad_migration":       (EventSource.DEPLOY, "migration_applied",
+                            "Schema migration applied to {service} (add nullable column, online)"),
+}
+
+# Generic same-service benign changes for retrieval volume (before the bad change).
+_VOLUME_CHANGES = [
+    (EventSource.DEPLOY, "config_changed", "Config change applied to {service}: bump request timeout to 30s"),
+    (EventSource.DEPLOY, "deploy_started", "Deploy of {service} started by ci-bot (dependency bump)"),
+    (EventSource.DEPLOY, "config_changed", "Config change applied to {service}: add readiness probe"),
+    (EventSource.DEPLOY, "deploy_started", "Deploy of {service} started by ci-bot (translation strings)"),
+    (EventSource.DEPLOY, "config_changed", "Config change applied to {service}: raise log retention to 14d"),
+]
+
+
+def hard_incident_events(archetype: Archetype, service: str, start: datetime,
+                         incident_id: str, mint: Callable[[], str],
+                         n_volume: int = 10) -> tuple[list[Event], str, str, str]:
+    """One hardened incident on `service`. Time order: n_volume benign same-service
+    changes, the BAD archetype change (cause), an interposed benign decoy (the LAST
+    change before the spike, near-dup vocab), then spike/chat*2/remediation/recovery/
+    postmortem. The postmortem references the BAD change signature, not the benign one.
+    Returns (events, cause_id, fix_id, spike_id)."""
+    c_step = archetype.steps[0]                 # role == "change" (the BAD change)
+    f_step = next(s for s in archetype.steps if s.role == "remediation")
+    b_src, b_type, b_text = _BENIGN_DECOY[archetype.name]
+
+    def ev(offset_s, source, type_, text, severity=None, benign=False):
+        e = Event(ts=start + timedelta(seconds=offset_s), incident_id=incident_id,
+                  service=service, source=source, type=type_, severity=severity,
+                  text=text.format(service=service),
+                  structured={"benign": True} if benign else {})
+        e.event_id = mint()
+        return e
+
+    events: list[Event] = []
+    # 1) benign volume changes BEFORE the bad change (retrieval distractors)
+    for i in range(n_volume):
+        src, typ, txt = _VOLUME_CHANGES[i % len(_VOLUME_CHANGES)]
+        events.append(ev(-600 - i * 30, src, typ, txt, benign=True))
+    # 2) the BAD change (ground-truth cause)
+    bad = ev(0, c_step.source, c_step.type, c_step.text)
+    events.append(bad)
+    # 3) interposed benign decoy — LAST change before the spike (naive trap)
+    events.append(ev(45, b_src, b_type, b_text, benign=True))
+    # 4) spike / chat / remediation / recovery / postmortem
+    spike = ev(90, EventSource.ALERT, "error_spike",
+               "5xx error rate on {service} crossed 5% (now 11%)", Severity.SEV2)
+    events.append(spike)
+    events.append(ev(120, EventSource.CHAT, "message",
+                     "alice: errors on {service} just spiked — investigating"))
+    events.append(ev(150, EventSource.CHAT, "message",
+                     "bob: looks correlated with the recent change to {service}"))
+    fix = ev(240, f_step.source, f_step.type, f_step.text)
+    events.append(fix)
+    events.append(ev(330, EventSource.ALERT, "healthy",
+                     "5xx error rate on {service} back below threshold"))
+    events.append(ev(3600, EventSource.POSTMORTEM, "rca",
+                     "Postmortem: the {service} incident was caused by the change above and "
+                     "resolved by the remediation above. Action item: add a guard."))
+    return events, bad.event_id, fix.event_id, spike.event_id
