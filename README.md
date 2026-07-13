@@ -47,6 +47,12 @@ measured user impact. `make impact-eval` reports how well that heuristic recover
 authored severity-driven label on a dedicated synthetic benchmark (see
 [`RESULTS.md`](RESULTS.md)).
 
+Root-cause quality is measured on a hardened benchmark tier with decoy causes (`make
+rootcause-eval`) over a keyword→hybrid→hybrid+rerank ladder with naive vs score-aware
+cause selection, plus a real-data face-validity pass (`make rootcause-facevalidity`)
+showing the selector abstains on symptom-only status-feed incidents. See
+[`RESULTS.md`](RESULTS.md).
+
 The cause is cited as an actual **commit** when a GitHub push is ingested: `make
 connector` runs an HMAC-verified webhook receiver (a `push` becomes a `commit` event;
 a `deployment` becomes a deploy), and `make connector-demo` replays a GitHub push

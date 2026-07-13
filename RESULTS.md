@@ -150,6 +150,41 @@ the toy-scale M10a observation that rerank appeared to hurt completeness.
 
 ![root-cause completeness](results/rootcause_completeness.png)
 
+### Root-cause (hard tier)
+
+The `easy` benchmark tier saturated (hybrid and hybrid+rerank both 1.0/1.0), so it is
+retained only as a fast smoke/regression baseline. The `hard` tier interposes a benign
+decoy change between the true cause and the spike (near-duplicate vocab) plus
+same-service distractor volume, so retrieval and cause selection must actually work.
+
+Metrics over the keyword → hybrid → hybrid+rerank ladder, naive (last-before-spike) vs
+score-aware (retrieval-rank × spike-proximity) selection, 40 hard-tier incidents
+(`results/rootcause_eval.json`):
+
+| arm | recall@k | accuracy (naive) | accuracy (score-aware) | MRR (score-aware) |
+|---|---|---|---|---|
+| keyword | 1.000 | 0.325 | 0.325 | 0.662 |
+| hybrid | 0.825 | 0.400 | 0.400 | 0.613 |
+| hybrid+rerank | 0.650 | 0.550 | 0.600 | 0.613 |
+
+Honest reading: the score-aware selector lifts cause accuracy only on the
+hybrid+rerank arm (0.55 → 0.60) — on keyword/hybrid the retrieval rank is uninformative
+(decoys and true causes aren't reliably separated by score), so the selector falls back
+to naive-equivalent recency and the two columns tie. Accuracy climbs with arm
+sophistication (0.325 → 0.40 → 0.55/0.60) while recall@k falls (1.00 → 0.825 → 0.65) —
+a genuine precision/recall trade-off from progressively tighter top-k, not a bug.
+
+Real-data face validity: over the committed real status-feed incidents (symptom-only,
+`make rootcause-facevalidity`), the cause selector abstains on **1/1 = 1.00** of
+incidents — it does not fabricate a root cause when no change event is in evidence.
+One honest nuance: the fixture incident's update text names a deploy in prose ("a bad
+WAF rule deploy is the cause"), but its event type is `identified` (a status label, not
+a change type), so the extractive selector correctly does **not** fabricate a
+structured cause from prose — disciplined abstention, not a miss. This is face
+validity, not accuracy: public status feeds carry no event-level cause labels, so the
+labeled ladder above is synthetic. Event-level real root-cause labels require internal
+deploy+incident+postmortem access no public API provides.
+
 ## M6 — retrieval quality + streaming-vs-batch (the differentiator)
 
 > The retrieval table here is the original **toy-scale** measurement (6 queries,
