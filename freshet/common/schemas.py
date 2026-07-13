@@ -62,6 +62,7 @@ class EventType(str, Enum):
     CERT_RENEWED = "cert_renewed"
     MIGRATION_APPLIED = "migration_applied"
     MIGRATION_REVERTED = "migration_reverted"
+    COMMIT = "commit"  # connector-sourced code change (see synthesis._CAUSE_TYPES)
 
 
 # The cause ("change") and fix ("remediation") event types across all incident
