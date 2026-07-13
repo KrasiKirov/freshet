@@ -16,7 +16,7 @@ docker exec freshet-redpanda rpk topic delete raw.events normalized.events deadl
 docker exec freshet-redpanda rpk topic create raw.events normalized.events deadletter.events -p 3 >/dev/null 2>&1 || true
 
 echo "==> Start normalizer + embedder"
-"$PY" -m freshet.pipeline.normalizer --brokers "$BROKERS" --group cx-norm &
+"$PY" -m freshet.pipeline.normalizer --brokers "$BROKERS" --group cx-norm --metrics-port 0 &
 NORM=$!
 "$PY" -m freshet.pipeline.embedder --brokers "$BROKERS" --group cx-emb --embedder "$EMBEDDER" --metrics-port 0 &
 EMB=$!

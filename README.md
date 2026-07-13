@@ -26,7 +26,7 @@ loads `.env.local`, so with `ANTHROPIC_API_KEY` set the answers are **LLM-writte
 grounded, and cited**; without a key it falls back to the keyless cited-template
 composer (still grounded, just extractive).
 
-### Autopilot (autonomous responder — sub-project ①)
+### Autopilot (autonomous responder)
 
 `make autopilot` runs a separate consumer that reacts to incident lifecycle
 events on Kafka: when the normalizer opens a new incident, autopilot debounces
@@ -46,6 +46,15 @@ breadth + duration + impact figures quoted in the source text) — an *indicator
 measured user impact. `make impact-eval` reports how well that heuristic recovers an
 authored severity-driven label on a dedicated synthetic benchmark (see
 [`RESULTS.md`](RESULTS.md)).
+
+The cause is cited as an actual **commit** when a GitHub push is ingested: `make
+connector` runs an HMAC-verified webhook receiver (a `push` becomes a `commit` event;
+a `deployment` becomes a deploy), and `make connector-demo` replays a GitHub push
+fixture plus a matching spike so the brief's cause reads `commit <sha>: <msg> (by
+<author>)`. This is demonstrated via **replayed webhook fixtures** (real payload shape
++ HMAC verification path), not a live repo wired to the public status feeds (those are
+other companies' services). With this the autonomous loop is complete end to end:
+**bad commit → runbook → impact → Slack brief → postmortem.**
 
 ## Results
 
