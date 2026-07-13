@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval live-demo autopilot autopilot-slack connector connector-demo
+.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval rootcause-facevalidity answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval live-demo autopilot autopilot-slack connector connector-demo
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -96,6 +96,11 @@ rootcause-demo:
 # Keyless completeness eval: hybrid vs hybrid+rerank on cause/fix capture (results/).
 rootcause-eval:
 	$(PYTHON) -m freshet.eval.rootcause
+
+# Real-data face validity: ingest the committed status-feed incidents and show the
+# cause selector abstains (symptom-only). Keyless. LIVE=1 polls the live feeds.
+rootcause-facevalidity:
+	bash scripts/run_rootcause_facevalidity.sh
 
 # Key-gated: extractive timeline vs LLM narrative on faithfulness + relevance (results/).
 answer-eval:
