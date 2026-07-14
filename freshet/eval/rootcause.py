@@ -165,7 +165,7 @@ def main() -> None:
                        for iid, svc in services.items()}
         retrieved = {iid: {h.event_id for h in hs} for iid, hs in hits_by_inc.items()}
         naive_sel = {iid: _naive_cause(hs) for iid, hs in hits_by_inc.items()}
-        aware_sel = {iid: (build_timeline(hs).cause.event_id if build_timeline(hs).cause
+        aware_sel = {iid: (tl.cause.event_id if (tl := build_timeline(hs)).cause
                            else None) for iid, hs in hits_by_inc.items()}
         ranked = {iid: _ranked_change_ids(hs) for iid, hs in hits_by_inc.items()}
         result["ladder"][arm] = {
