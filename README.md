@@ -1,14 +1,32 @@
 # Freshet — Real-Time Incident Intelligence
 
-A **freshness-first streaming-RAG system** for on-call engineers. During an
-incident, engineers waste most of their time reconstructing context — what
-changed, what's related, what fixed something similar before - from data
-scattered across many tools, under pressure. The information that matters most is
-the newest, which is exactly what a nightly-batch index misses. Freshet
-continuously ingests operational events (alerts, deploys, metrics, incident
-chat, postmortems) through Kafka, indexes them into a vector store within
-**seconds**, and answers questions like *"what's happening with scheduler-api?"*
-with cited, timestamped, recency-aware answers.
+**Streaming RAG for on-call engineers.** Freshet ingests operational events —
+deploys, alerts, metrics, incident chat, postmortems — through Kafka, indexes them
+into pgvector within **seconds**, and answers *"what's breaking, and why?"* with
+cited, recency-aware answers — then autonomously briefs the incident and drafts the
+postmortem.
+
+![Freshet: streaming is ~356x fresher than a nightly-batch baseline](results/streaming_vs_batch.png)
+<!-- swap for docs/live-demo.gif once recorded; see docs/live-demo-storyboard.md -->
+
+### Why it's different — measured, not claimed
+
+- **~356× fresher than a nightly-batch baseline** (5s vs 1778s mean data staleness) —
+  the comparison the system is built to make.
+- **Hybrid retrieval: recall@5 0.81 / nDCG@5 0.63** on a 160-query benchmark — dense
+  (`bge`) + lexical + RRF fusion + cross-encoder rerank + citation verification +
+  abstention, beating vector-only (0.80) and keyword-only (0.62).
+- **Autonomous incident loop** — on an alert it identifies the bad **commit**, pulls
+  the runbook, estimates impact, posts a **cited Slack brief**, and threads a
+  **postmortem** on resolution.
+- **Rigorously evaluated, honestly** — retrieval, root-cause (hardened decoy
+  benchmark), LLM-as-judge faithfulness, and agentic-vs-single-shot ladders — with
+  negative results reported, not hidden.
+
+### Run it in two commands (core path needs no API key)
+
+    make up      # Redpanda + Postgres/pgvector, waits until healthy
+    make demo    # ingest a scripted incident, then answer about it
 
 ## Live demo — real incidents, right now
 
@@ -17,8 +35,6 @@ OpenAI, Discord, Reddit), streams them through the full pipeline, and opens a UI
 `http://localhost:8000` where you can ask *"what's degraded right now?"* and get a
 grounded, **cited** answer over live incidents — with a streaming feed showing each
 incident's severity, status, and how many seconds ago it was ingested.
-
-![live demo](docs/live-demo.gif)
 
 Honest notes: the data is **real** but the corpus is small (a few companies' recent
 incidents); the demo runs the **full Kafka streaming stack locally**. `make live-demo`
