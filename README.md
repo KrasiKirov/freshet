@@ -6,8 +6,11 @@ into pgvector within **seconds**, and answers *"what's breaking, and why?"* with
 cited, recency-aware answers — then autonomously briefs the incident and drafts the
 postmortem.
 
-![Freshet: streaming is ~356x fresher than a nightly-batch baseline](results/streaming_vs_batch.png)
-<!-- swap for docs/live-demo.gif once recorded; see docs/live-demo-storyboard.md -->
+![Freshet keeps data ~5s fresh — ~356x fresher than an hourly batch index](docs/hero-freshness.png)
+<!-- swap for docs/live-demo.gif once recorded; see docs/live-demo-storyboard.md.
+     Regenerate this plot with: .venv/bin/python scripts/make_hero_plot.py -->
+
+*A live-UI demo GIF is the intended hero — see [`docs/live-demo-storyboard.md`](docs/live-demo-storyboard.md); this measured freshness chart stands in until it's recorded.*
 
 ### Why it's different — measured, not claimed
 
