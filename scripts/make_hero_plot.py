@@ -42,18 +42,18 @@ def main() -> None:
     ax.set_ylabel("data staleness (seconds, log) — lower is fresher", fontsize=12)
     ax.margins(x=0.01)
 
-    # Direct line labels (no legend to decode).
-    ax.text(2.0, 1.6, "streaming pipeline: always a few seconds old",
-            color=BLUE, fontsize=12, fontweight="bold", va="top")
+    # One label per line, each in its line's colour. The batch (orange) label sits
+    # in the clean strip above the peaks; the streaming (blue) callout carries the
+    # headline and its arrow points DOWN at OUR line — so "356x fresher" reads as
+    # a property of streaming, not of the batch curve.
     ax.text(0.05, 8000, f"hourly batch: data rots up to ~{peak_min:.0f} min before each refresh",
             color=ORANGE, fontsize=12, fontweight="bold", va="center")
 
-    # Headline callout in open space.
-    ax.annotate(f"~{ratio:.0f}× fresher\non average",
-                xy=(2.7, mean_b), xytext=(2.75, 40),
-                fontsize=17, fontweight="bold", color="#111", ha="center",
-                bbox=dict(boxstyle="round,pad=0.4", fc="#fff6e6", ec=ORANGE, lw=1.5),
-                arrowprops=dict(arrowstyle="->", color=ORANGE, lw=1.6))
+    ax.annotate(f"streaming: always ~{mean_s:.0f}s old\n— ~{ratio:.0f}× fresher on average",
+                xy=(2.5, mean_s + 1.5), xytext=(1.25, 220),
+                fontsize=13.5, fontweight="bold", color="#0b3d63", ha="left",
+                bbox=dict(boxstyle="round,pad=0.4", fc="#eaf3fb", ec=BLUE, lw=1.5),
+                arrowprops=dict(arrowstyle="->", color=BLUE, lw=1.9))
 
     ax.grid(True, which="major", axis="y", ls=":", alpha=0.4)
     fig.tight_layout()
