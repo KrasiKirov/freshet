@@ -49,11 +49,9 @@ def main() -> None:
     ax.text(0.05, 8000, f"hourly batch: data rots up to ~{peak_min:.0f} min before each refresh",
             color=ORANGE, fontsize=12, fontweight="bold", va="center")
 
-    ax.annotate(f"streaming: always ~{mean_s:.0f}s old\n— ~{ratio:.0f}× fresher on average",
-                xy=(2.5, mean_s + 1.5), xytext=(1.25, 220),
-                fontsize=13.5, fontweight="bold", color="#0b3d63", ha="left",
-                bbox=dict(boxstyle="round,pad=0.4", fc="#eaf3fb", ec=BLUE, lw=1.5),
-                arrowprops=dict(arrowstyle="->", color=BLUE, lw=1.9))
+    ax.text(1.25, 220, f"streaming: always ~{mean_s:.0f}s old\n— ~{ratio:.0f}× fresher on average",
+            fontsize=13.5, fontweight="bold", color="#0b3d63", ha="left", va="center",
+            bbox=dict(boxstyle="round,pad=0.4", fc="#eaf3fb", ec=BLUE, lw=1.5))
 
     ax.grid(True, which="major", axis="y", ls=":", alpha=0.4)
     fig.tight_layout()
