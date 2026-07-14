@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval rootcause-facevalidity answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval live-demo autopilot autopilot-slack connector connector-demo
+.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval rootcause-facevalidity answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval live-demo autopilot autopilot-slack connector connector-demo slack-demo
 
 # Bring the stack up and block until both containers report healthy.
 up:
@@ -138,3 +138,9 @@ connector:
 # Commit-signal demo (stack up): replay a GitHub push + spike -> brief cites the SHA.
 connector-demo:
 	bash scripts/run_connector_demo.sh
+
+# One-command Slack demo (stack up): drive one incident open -> resolve so the
+# autopilot posts a cited brief + threaded postmortem. DRY-RUN by default (renders
+# the payload, posts nothing, no token); REAL=1 make slack-demo posts for real.
+slack-demo:
+	bash scripts/run_slack_demo.sh

@@ -60,6 +60,22 @@ By default the brief prints to stdout. `make autopilot-slack` posts it to Slack
 `pip install -e ".[slack]"`); `--sink slack-dry-run` renders the Slack payload
 without posting.
 
+**`make slack-demo`** drives one incident open → resolve through the pipeline so the
+autopilot posts a **cited brief** and, on resolution, a **threaded postmortem** — the
+whole loop in one command. It is **safe by default**: it renders the Block Kit payload
+to your terminal and **posts nothing** (no token needed). To post to a real workspace,
+set it up once (your Slack app, nothing committed):
+
+1. Create a Slack app at <https://api.slack.com/apps> → *From scratch*.
+2. **OAuth & Permissions** → add the bot scope **`chat:write`** → *Install to workspace*.
+3. Invite the bot to a channel: `/invite @your-app`.
+4. In `.env.local` (gitignored) set `SLACK_BOT_TOKEN=xoxb-…` and `SLACK_CHANNEL=#your-channel`,
+   then `pip install -e ".[slack]"`.
+
+Then `REAL=1 make slack-demo` posts the brief + threaded postmortem for real. (Threading
+is exercised only on a real post; the dry-run renders both messages un-threaded, since no
+Slack message timestamp comes back to thread under.)
+
 Each brief/postmortem includes a derived **impact** line (Low/Medium/High from
 breadth + duration + impact figures quoted in the source text) — an *indicator*, not
 measured user impact. `make impact-eval` reports how well that heuristic recovers an
