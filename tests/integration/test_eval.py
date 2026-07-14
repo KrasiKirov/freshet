@@ -37,6 +37,31 @@ def test_run_eval_scores_modes_and_hybrid_is_competitive(conn):
     assert retrieval["hybrid"]["recall@5"] >= min(single)
 
 
+def test_retrieval_is_insensitive_to_corpus_insertion_order(conn):
+    """Ranking must not depend on physical heap order. The eval DELETEs and
+    re-INSERTs the corpus every run, so any ORDER BY that leaves ties to heap
+    position drifts run-to-run (the non-determinism this guards against). Indexing
+    the same corpus in two different orders must yield byte-identical rankings."""
+    pytest.importorskip("sentence_transformers")
+    from freshet.eval import modes, run_eval
+    from freshet.eval.labeled import build_labeled_queries
+    from freshet.pipeline.embedding import make_embedder
+
+    emb = make_embedder("bge")
+    corpus, truths = run_eval.build_benchmark(seed=1, n_incidents=8)
+    queries = build_labeled_queries(corpus, truths)
+
+    run_eval.index_corpus(conn, emb, corpus)
+    forward = {q.text: modes.keyword_only_event_ids(conn, q.text, run_eval.K)
+               for q in queries}
+
+    run_eval.index_corpus(conn, emb, list(reversed(corpus)))
+    reversed_order = {q.text: modes.keyword_only_event_ids(conn, q.text, run_eval.K)
+                      for q in queries}
+
+    assert forward == reversed_order
+
+
 def test_staleness_model_batch_is_staler():
     from freshet.eval import run_eval
 

@@ -28,17 +28,27 @@ instruction prefix included):
 
 | mode | recall@5 (MiniLM → bge) | nDCG@5 (MiniLM → bge) |
 |---|---|---|
-| keyword-only | 0.609 → 0.616 | 0.502 → 0.510 |
+| keyword-only | 0.609 → 0.584 | 0.502 → 0.490 |
 | vector-only | 0.672 → **0.803** (+0.13) | 0.517 → 0.567 |
-| **hybrid** | 0.697 → **0.812** (+0.12) | 0.535 → **0.631** (+0.10) |
+| **hybrid** | 0.697 → **0.797** (+0.10) | 0.535 → **0.624** (+0.09) |
 
 Honest read: bge is a large, real win on the embedding-dependent arms — hybrid
-recall@5 **0.70 → 0.81** and nDCG@5 **0.54 → 0.63**. Keyword-only barely moves
-(+0.006 ≈ one query of SQL tie-order noise); it uses no embeddings, so that is
-expected. The MiniLM column is a frozen snapshot of the prior committed run
-(`results/retrieval_metrics_minilm.json`) — the pgvector column is a fixed
-dimension, so 384-dim and 768-dim models cannot index into the same DB; only the
-bge "after" is run live. Reproduce: `make up && make embedding-compare`.
+recall@5 **0.70 → 0.80** and nDCG@5 **0.54 → 0.62**, vector recall@5 **0.67 →
+0.80**. Keyword-only uses no embeddings, so its recall is fixed by the corpus,
+the queries, and the tie-break — the MiniLM→bge delta there (0.609 → 0.584) is
+**not** an embedding effect but the SQL tie-order noise this benchmark used to
+carry: the keyword arm's `ts_rank` produces many ties, and until a deterministic
+`ORDER BY … , chunk_id` tiebreak was added they resolved by physical heap order,
+so each run (the eval DELETEs and re-INSERTs the corpus) drew a slightly
+different number. That is now pinned — re-running yields byte-identical JSON (see
+M12). On recall@5, hybrid (0.797) and vector (0.803) are a **statistical dead
+heat** — within one query of each other — but hybrid decisively wins **nDCG@5
+(0.624 vs 0.567)** and MRR (0.616 vs 0.541): it ranks the relevant events higher
+even when the retrieved set is comparable. The MiniLM column is a frozen snapshot
+of the prior committed run (`results/retrieval_metrics_minilm.json`), taken
+before the tiebreak fix; the pgvector column is a fixed dimension, so 384-dim and
+768-dim models cannot index into the same DB, and only the bge "after" is run
+live. Reproduce: `make up && make embedding-compare`.
 
 **Query transformation — LLM multi-query.** An LLM rewrites the question into
 paraphrases; each is retrieved and the results are RRF-fused. Measured single-vs-
@@ -106,8 +116,10 @@ archetypes** (deploy regression, config change, dependency outage, resource
 exhaustion, cert expiry, bad migration). Ground truth (each incident's spike,
 cause, and fix event) is authored *with the corpus*, and ~160 labeled retrieval
 queries are **auto-derived** from it — so the numbers are not hand-picked to
-flatter. Recency decay is disabled in eval (`tau≈∞`) so every figure is
-deterministic; re-running produces byte-identical JSON.
+flatter. Recency decay is disabled in eval (`tau≈∞`) and both retrieval arms
+break score ties on `chunk_id` (so tied rows never fall back to non-deterministic
+physical heap order), making every figure deterministic; re-running produces
+byte-identical JSON regardless of `PYTHONHASHSEED`.
 
 Reproduce: `make up && make eval && make rootcause-eval`.
 

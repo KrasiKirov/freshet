@@ -29,10 +29,13 @@ def _where(service: Optional[str], since: Optional[datetime]) -> str:
 
 
 def vector_sql(service: Optional[str], since: Optional[datetime]) -> str:
+    # chunk_id breaks distance ties deterministically: without it, tied rows come
+    # back in physical heap order, which shifts run-to-run (the eval DELETEs and
+    # re-INSERTs every run) and makes the benchmark non-reproducible.
     return (
         f"SELECT {_COLS}, 1 - (embedding <=> %(qvec)s::vector) AS similarity"
         " FROM vector_records" + _where(service, since) +
-        " ORDER BY embedding <=> %(qvec)s::vector LIMIT %(k)s"
+        " ORDER BY embedding <=> %(qvec)s::vector, chunk_id LIMIT %(k)s"
     )
 
 
@@ -51,11 +54,14 @@ def keyword_sql(service: Optional[str], since: Optional[datetime]) -> str:
     where = _where(service, since)
     match = f"text_tsv @@ {_OR_TSQUERY}"
     where = (where + " AND " + match) if where else (" WHERE " + match)
+    # ts_rank produces many ties across terse operational events, so rank alone
+    # leaves the order to physical heap position (non-reproducible run-to-run).
+    # chunk_id is the deterministic tiebreak that makes the benchmark byte-stable.
     return (
         f"SELECT {_COLS},"
         f" ts_rank(text_tsv, {_OR_TSQUERY}) AS rank"
         " FROM vector_records" + where +
-        " ORDER BY rank DESC LIMIT %(k)s"
+        " ORDER BY rank DESC, chunk_id LIMIT %(k)s"
     )
 
 
