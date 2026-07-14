@@ -3,16 +3,16 @@
   "n_incidents": 40,
   "ladder": {
     "keyword": {
-      "recall_at_k": 1.0,
-      "accuracy_naive": 0.325,
-      "accuracy_score_aware": 0.325,
-      "mrr_score_aware": 0.662
+      "recall_at_k": 0.625,
+      "accuracy_naive": 0.375,
+      "accuracy_score_aware": 0.375,
+      "mrr_score_aware": 0.446
     },
     "hybrid": {
-      "recall_at_k": 0.825,
-      "accuracy_naive": 0.4,
+      "recall_at_k": 0.575,
+      "accuracy_naive": 0.425,
       "accuracy_score_aware": 0.4,
-      "mrr_score_aware": 0.613
+      "mrr_score_aware": 0.483
     },
     "hybrid+rerank": {
       "recall_at_k": 0.65,

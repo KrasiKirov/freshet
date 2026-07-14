@@ -175,16 +175,22 @@ score-aware (retrieval-rank × spike-proximity) selection, 40 hard-tier incident
 
 | arm | recall@k | accuracy (naive) | accuracy (score-aware) | MRR (score-aware) |
 |---|---|---|---|---|
-| keyword | 1.000 | 0.325 | 0.325 | 0.662 |
-| hybrid | 0.825 | 0.400 | 0.400 | 0.613 |
+| keyword | 0.625 | 0.375 | 0.375 | 0.446 |
+| hybrid | 0.575 | 0.425 | 0.400 | 0.483 |
 | hybrid+rerank | 0.650 | 0.550 | 0.600 | 0.613 |
 
-Honest reading: the score-aware selector lifts cause accuracy only on the
-hybrid+rerank arm (0.55 → 0.60) — on keyword/hybrid the retrieval rank is uninformative
-(decoys and true causes aren't reliably separated by score), so the selector falls back
-to naive-equivalent recency and the two columns tie. Accuracy climbs with arm
-sophistication (0.325 → 0.40 → 0.55/0.60) while recall@k falls (1.00 → 0.825 → 0.65) —
-a genuine precision/recall trade-off from progressively tighter top-k, not a bug.
+Honest reading: the score-aware selector reliably helps only on the **hybrid+rerank**
+arm (0.55 → 0.60), where the cross-encoder gives it an informative ranking. On
+**keyword** the rank is uninformative, so it ties naive (0.375). On plain **hybrid** it
+is marginally *worse* than naive (0.400 vs 0.425 — a single incident): the first-stage
+fused rank can seat a benign decoy above the true cause and mislead the selector, and
+only reranking separates them cleanly enough to win. Cause accuracy still rises with arm
+sophistication (naive 0.375 → 0.425 → 0.55; score-aware 0.375 → 0.40 → 0.60). recall@k
+is non-monotonic (0.625 → 0.575 → 0.65) — plain hybrid's tighter top-k drops the true
+cause more often than keyword's looser match, and reranking pulls it back into the cut.
+These figures are byte-reproducible: a deterministic `chunk_id` tiebreak in the
+retrieval SQL (same branch) removes the heap-order non-determinism that previously
+inflated keyword recall to a spurious 1.0.
 
 Real-data face validity: over the committed real status-feed incidents (symptom-only,
 `make rootcause-facevalidity`), the cause selector abstains on **1/1 = 1.00** of
