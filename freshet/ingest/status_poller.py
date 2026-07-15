@@ -84,7 +84,13 @@ def fetch(url: str, timeout: float = 10.0) -> Optional[dict]:
         return None
 
 
-def poll_once(sources, producer, topic: str = "raw.events") -> int:
+def poll_once(sources, producer, topic: str = "raw.events",
+              seen: Optional[set] = None) -> int:
+    """Fetch each feed and produce new events. `seen` (a set of event_ids the
+    caller keeps across polls) suppresses re-producing updates already sent —
+    without it every poll replays the whole feed (harmless downstream thanks to
+    idempotent upserts, but wasteful). Bounded: statuspage feeds return the
+    recent window only, so the set stays small for a demo-length process."""
     n = 0
     for name, url in sources:
         data = fetch(url)
@@ -92,6 +98,10 @@ def poll_once(sources, producer, topic: str = "raw.events") -> int:
             continue
         for incident in data.get("incidents") or []:
             for ev in map_incident(name, incident):
+                if seen is not None:
+                    if ev.event_id in seen:
+                        continue
+                    seen.add(ev.event_id)
                 produce_sync(producer, topic, key=ev.service, value=ev.model_dump_json())
                 n += 1
     producer.flush()
@@ -110,8 +120,9 @@ def main() -> None:
     if a.once:
         print(f"produced {poll_once(SOURCES, producer, a.topic)} events")
         return
+    seen: set = set()
     while True:
-        print(f"produced {poll_once(SOURCES, producer, a.topic)} events")
+        print(f"produced {poll_once(SOURCES, producer, a.topic, seen=seen)} events")
         time.sleep(a.interval)
 
 
