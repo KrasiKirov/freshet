@@ -100,6 +100,45 @@ def test_hybrid_search_fuses_arms_and_flags_abstention():
     assert "e2" in ids                         # found by both -> survives fusion
 
 
+def test_hybrid_search_uses_embedder_min_similarity():
+    """The abstention floor defaults to the embedder's per-model attribute
+    (bge's compressed cosine range needs a higher floor than MiniLM's)."""
+    from datetime import datetime, timezone
+
+    from freshet.api.retrieval import hybrid_search
+    from freshet.pipeline.embedding import StubEmbedder
+
+    class HighFloorEmbedder(StubEmbedder):
+        min_similarity = 0.9
+
+    now = datetime.now(timezone.utc)
+    rows = [("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx spike", "alert_fired", 0.81)]
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            class _Cur:
+                def fetchall(self_inner):
+                    return rows if "embedding <=>" in sql else []
+
+            return _Cur()
+
+    # 0.81 clears StubEmbedder's default floor (0.3) but not the 0.9 attribute
+    assert hybrid_search(FakeConn(), StubEmbedder(), "q", k=5).abstained is False
+    assert hybrid_search(FakeConn(), HighFloorEmbedder(), "q", k=5).abstained is True
+    # an explicit argument still wins over the embedder attribute
+    assert hybrid_search(FakeConn(), HighFloorEmbedder(), "q", k=5,
+                         min_similarity=0.0).abstained is False
+
+
+def test_default_tau_env_override(monkeypatch):
+    from freshet.api.retrieval import DEFAULT_TAU_S, _default_tau_s
+
+    monkeypatch.delenv("FRESHET_TAU_S", raising=False)
+    assert _default_tau_s() == DEFAULT_TAU_S
+    monkeypatch.setenv("FRESHET_TAU_S", "86400")
+    assert _default_tau_s() == 86400.0
+
+
 def test_hybrid_search_abstains_when_similarity_weak():
     from datetime import datetime, timezone
 

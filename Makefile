@@ -72,7 +72,7 @@ demo:
 # change). Reads normalized.events from the beginning; idempotent upserts
 # overwrite rows in place. EMBEDDER=stub skips the model download.
 replay:
-	$(PYTHON) -m freshet.pipeline.embedder --brokers localhost:9092 --group reindex-$$(date +%s) --embedder $${EMBEDDER:-minilm} --metrics-port 0 --idle-timeout 10
+	$(PYTHON) -m freshet.pipeline.embedder --brokers localhost:9092 --group reindex-$$(date +%s) --embedder $${EMBEDDER:-bge} --metrics-port 0 --idle-timeout 10
 
 # Throughput demo: WORKERS=1 make scale-demo, then WORKERS=3 make scale-demo.
 scale-demo:
@@ -106,7 +106,8 @@ rootcause-facevalidity:
 answer-eval:
 	$(PYTHON) -m freshet.eval.answer_eval
 
-# Key-gated: agentic investigator vs single-shot baseline; scores lift in cause/fix recall (results/).
+# Agent vs single-shot vs fixed-two-step ablation (results/). The single-shot and
+# fixed-two-step arms are keyless + deterministic; the agent arm needs a key.
 agent-eval:
 	$(PYTHON) -m freshet.eval.agent_eval
 

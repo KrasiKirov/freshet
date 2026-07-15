@@ -10,10 +10,20 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import random
 from typing import Protocol
 
 EMBEDDING_DIM = 768  # BAAI/bge-base-en-v1.5 output size
+
+# Per-model abstention floors. Cosine-similarity distributions differ by model:
+# MiniLM spreads roughly 0..1 (0.3 was calibrated by eye on the synthetic
+# corpus), while bge compresses similarities upward (~0.5+ even for unrelated
+# pairs), so 0.3 would never abstain. The bge value is a literature-informed
+# default, not yet empirically calibrated — override with FRESHET_MIN_SIMILARITY
+# and revalidate via `make eval` when tuning.
+MIN_SIMILARITY_MINILM = 0.3
+MIN_SIMILARITY_BGE = 0.5
 
 
 class Embedder(Protocol):
@@ -23,6 +33,10 @@ class Embedder(Protocol):
 
 class StubEmbedder:
     """Deterministic fake embeddings: same text -> same unit vector."""
+
+    # random unit vectors follow no model distribution; keep the MiniLM floor so
+    # existing tests and keyless demos behave unchanged
+    min_similarity = MIN_SIMILARITY_MINILM
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [self._vec(t) for t in texts]
@@ -50,11 +64,13 @@ class SentenceTransformerEmbedder:
     query_instruction (if set) is prepended only to query-side encodes."""
 
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-                 query_instruction: str = ""):
+                 query_instruction: str = "",
+                 min_similarity: float = MIN_SIMILARITY_MINILM):
         from sentence_transformers import SentenceTransformer
 
         self.model = SentenceTransformer(model_name)
         self.query_instruction = query_instruction
+        self.min_similarity = min_similarity
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [
@@ -67,16 +83,23 @@ class SentenceTransformerEmbedder:
 
 
 def make_embedder(kind: str) -> Embedder:
+    emb: Embedder
     if kind == "stub":
-        return StubEmbedder()
-    if kind == "minilm":
-        return SentenceTransformerEmbedder()
-    if kind == "bge":
-        return SentenceTransformerEmbedder(
+        emb = StubEmbedder()
+    elif kind == "minilm":
+        emb = SentenceTransformerEmbedder()
+    elif kind == "bge":
+        emb = SentenceTransformerEmbedder(
             "BAAI/bge-base-en-v1.5",
             query_instruction="Represent this sentence for searching relevant passages:",
+            min_similarity=MIN_SIMILARITY_BGE,
         )
-    raise ValueError(f"unknown embedder: {kind!r} (expected 'stub', 'minilm', or 'bge')")
+    else:
+        raise ValueError(f"unknown embedder: {kind!r} (expected 'stub', 'minilm', or 'bge')")
+    override = os.environ.get("FRESHET_MIN_SIMILARITY")
+    if override:
+        emb.min_similarity = float(override)  # type: ignore[misc]
+    return emb
 
 
 def vec_literal(v: list[float]) -> str:

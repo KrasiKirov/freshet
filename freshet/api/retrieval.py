@@ -7,6 +7,7 @@ user value travels as a bound parameter.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
@@ -99,9 +100,25 @@ def should_abstain(similarities: list[float], min_similarity: float) -> bool:
 
 
 
-DEFAULT_TAU_S = 1800.0       # recency half-weight ~ 21 min; tuned to the demo's incident span
-DEFAULT_MIN_SIMILARITY = 0.3  # abstention floor calibrated by eye for MiniLM; not yet revalidated for bge.
+# Recency half-weight ~ 21 min — tuned to the scripted demo's incident span.
+# Real corpora (status feeds with incidents hours/days old) need a much larger
+# tau; override with FRESHET_TAU_S. Note the benchmark evals run recency-neutral
+# (tau≈∞), so this decay is a product default, not a benchmarked one.
+DEFAULT_TAU_S = 1800.0
+# Fallback abstention floor (MiniLM-calibrated). When the embedder carries a
+# per-model `min_similarity` attribute (see pipeline.embedding), that wins —
+# bge's compressed cosine distribution makes 0.3 effectively "never abstain".
+DEFAULT_MIN_SIMILARITY = 0.3
 ARM_K = 20                   # per-arm candidate depth before fusion
+
+
+def _default_tau_s() -> float:
+    override = os.environ.get("FRESHET_TAU_S")
+    return float(override) if override else DEFAULT_TAU_S
+
+
+def _default_min_similarity(embedder) -> float:
+    return float(getattr(embedder, "min_similarity", DEFAULT_MIN_SIMILARITY))
 
 
 @dataclass
@@ -165,12 +182,18 @@ def hybrid_search(
     k: int = 5,
     service: Optional[str] = None,
     since: Optional[datetime] = None,
-    tau_s: float = DEFAULT_TAU_S,
-    min_similarity: float = DEFAULT_MIN_SIMILARITY,
+    tau_s: Optional[float] = None,
+    min_similarity: Optional[float] = None,
     now: Optional[datetime] = None,
     reranker: Optional["Reranker"] = None,
     rerank_pool: int = 30,
 ) -> HybridResult:
+    # None -> resolve defaults: tau from FRESHET_TAU_S (else the demo-tuned
+    # constant), abstention floor from the embedder's per-model attribute.
+    if tau_s is None:
+        tau_s = _default_tau_s()
+    if min_similarity is None:
+        min_similarity = _default_min_similarity(embedder)
     [qvec] = embedder.encode_query([question])
     params: dict[str, Any] = {"qvec": vec_literal(qvec), "q": question, "k": ARM_K}
     if service is not None:
