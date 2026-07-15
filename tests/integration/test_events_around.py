@@ -1,7 +1,5 @@
 """events_around returns service-scoped temporal neighbours, deduped by event_id,
 time-ordered. Run via: make test-integration."""
-from datetime import timedelta
-
 import pytest
 
 pytestmark = pytest.mark.integration

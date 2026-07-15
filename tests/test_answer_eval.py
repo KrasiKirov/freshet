@@ -1,6 +1,3 @@
-import json
-from pathlib import Path
-
 from freshet.eval import answer_eval
 
 

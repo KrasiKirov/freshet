@@ -15,7 +15,7 @@ def test_change_and_remediation_sets_are_disjoint_and_typed():
     assert len(CHANGE_TYPES) == 6 and len(REMEDIATION_TYPES) == 6
 
 
-from freshet.generator.scenarios import Archetype, Step, ARCHETYPES
+from freshet.generator.scenarios import ARCHETYPES
 
 
 def test_six_archetypes_each_well_formed():

@@ -19,7 +19,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
-from freshet.common.schemas import Event, EventSource, EventType, Severity
+from freshet.common.schemas import Event, EventSource, EventType
 from dataclasses import dataclass
 
 from freshet.generator.scenarios import build_scenario, build_runbooks, ARCHETYPES

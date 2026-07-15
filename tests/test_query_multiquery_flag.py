@@ -35,7 +35,6 @@ def test_multi_query_requires_key(monkeypatch):
 
 
 def test_multi_query_uses_multi_query_search(monkeypatch):
-    import freshet.api.app as appmod
     client, _ = _client()
     monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
     called = {}
