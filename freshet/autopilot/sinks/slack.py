@@ -4,12 +4,27 @@ keyless core (and CI without the [slack] extra) never imports it."""
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from freshet.autopilot.brief import Findings, render_brief
 
 _EMOJI = {"open": "🔴", "investigating": "🔴", "identified": "🔴",
           "monitoring": "🟠", "resolved": "🟢", "postmortem": "🟢"}
+
+# The LLM narrative is standard Markdown, but Slack section blocks use *mrkdwn*,
+# where bold is single asterisks and there are no ATX headings — so `**bold**` and
+# `## Heading` render literally unless converted first.
+_MD_BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
+_MD_HEADING = re.compile(r"(?m)^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]*#*[ \t]*$")
+
+
+def _to_mrkdwn(text: str) -> str:
+    """Convert standard Markdown to Slack mrkdwn: `## H` -> `*H*`, `**b**` -> `*b*`.
+    Leaves single-asterisk bold and `[event_id @ ts]` citations untouched."""
+    text = _MD_HEADING.sub(r"*\1*", text)
+    text = _MD_BOLD.sub(r"*\1*", text)
+    return text
 
 
 def _emoji(status: str) -> str:
@@ -27,7 +42,7 @@ def slack_blocks(f: Findings) -> list[dict]:
         resolution = (f"*Resolution:* {f.fix_text} `{f.fix_cite}`" if f.fix_text
                       else "*Resolution:* not identified from retrieved evidence")
         body = f"{cause}\n{resolution}"
-    section = {"type": "section", "text": {"type": "mrkdwn", "text": body}}
+    section = {"type": "section", "text": {"type": "mrkdwn", "text": _to_mrkdwn(body)}}
     runbook = f"Runbook: {f.runbook}" if f.runbook else "Runbook: none found"
     parts = [runbook]
     if f.impact:
