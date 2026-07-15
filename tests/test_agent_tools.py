@@ -2,8 +2,6 @@
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 def test_tool_schemas_names():
     from freshet.api.agent import TOOL_SCHEMAS, SUBMIT_SCHEMA
@@ -42,6 +40,21 @@ def test_dispatch_search_routes_to_hybrid_search():
         result = dispatch("search", {"query": "error spike", "k": 5})
     mock_hs.assert_called_once()
     assert json.loads(result) == []
+
+
+def test_dispatch_search_applies_default_since_when_model_omits_it():
+    from datetime import datetime, timezone
+    from freshet.api.agent import make_dispatch
+
+    bound = datetime(2026, 6, 6, 6, 0, 0, tzinfo=timezone.utc)
+    with patch("freshet.api.agent.hybrid_search") as mock_hs:
+        mock_hs.return_value = MagicMock(hits=[])
+        dispatch = make_dispatch(MagicMock(), MagicMock(), default_since=bound)
+        dispatch("search", {"query": "error spike"})           # no since from the model
+        assert mock_hs.call_args.kwargs["since"] == bound
+        dispatch("search", {"query": "error spike",
+                            "since": "2026-06-06T08:00:00+00:00"})  # explicit wins
+        assert mock_hs.call_args.kwargs["since"].hour == 8
 
 
 def test_dispatch_get_events_around_routes():

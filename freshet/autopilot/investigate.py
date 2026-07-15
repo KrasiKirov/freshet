@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 from collections import namedtuple
+from datetime import timedelta
 from typing import Optional
 
 from freshet.autopilot.brief import (
@@ -41,13 +42,26 @@ def _impact_for(conn, incident_id: str, service: str, hits) -> str:
     return estimate_impact(services, opened_at, resolved_at, [h.text for h in hits])
 
 
+# Pre-incident buffer for scoping the agent: wide enough that the causal change
+# (deploy/config/migration) preceding the spike stays in range, narrow enough
+# that a previous incident on the same service does not.
+_INVESTIGATION_LOOKBACK = timedelta(hours=2)
+
+
+def _incident_since(conn, incident_id: str):
+    row = conn.execute("SELECT opened_at FROM incidents WHERE incident_id = %s",
+                       (incident_id,)).fetchone()
+    return (row[0] - _INVESTIGATION_LOOKBACK) if row and row[0] else None
+
+
 def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
                     *, client=None) -> Findings:
     runbook = fetch_runbook(conn, service)
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
             from freshet.api.agent import investigate
-            inv = investigate(conn, embedder, service, client=client)
+            since = _incident_since(conn, incident_id)
+            inv = investigate(conn, embedder, service, client=client, since=since)
             cause_hit = lookup_hit(conn, inv.cause_id) if inv.cause_id else None
             fix_hit = lookup_hit(conn, inv.fix_id) if inv.fix_id else None
             f = findings_from_investigation(inv, service, status, cause_hit, fix_hit, runbook)

@@ -15,8 +15,13 @@ from freshet.pipeline.lifecycle import LifecycleEvent
 
 _CLAIM_SQL = ("UPDATE incidents SET briefed_at = now()"
               " WHERE incident_id = %s AND briefed_at IS NULL RETURNING incident_id")
+# A postmortem is only posted for an incident we actually briefed (briefed_at
+# set). Without this guard, the first live-demo poll — which replays every
+# historical, already-resolved status-feed incident — would flood the sink with
+# postmortems for incidents that never got a brief.
 _POSTMORTEM_CLAIM_SQL = ("UPDATE incidents SET postmortem_at = now()"
-                         " WHERE incident_id = %s AND postmortem_at IS NULL RETURNING incident_id")
+                         " WHERE incident_id = %s AND postmortem_at IS NULL"
+                         " AND briefed_at IS NOT NULL RETURNING incident_id")
 _SET_SLACK_TS_SQL = "UPDATE incidents SET slack_ts = %s WHERE incident_id = %s"
 _GET_SLACK_TS_SQL = "SELECT slack_ts FROM incidents WHERE incident_id = %s"
 
@@ -46,7 +51,7 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
 
     if ev.type == "resolved":
         if not claim_postmortem(conn, ev.incident_id):
-            print(f"[autopilot] {ev.incident_id} postmortem already posted — skipping")
+            print(f"[autopilot] {ev.incident_id} postmortem already posted or never briefed — skipping")
             return
         row = conn.execute(_GET_SLACK_TS_SQL, (ev.incident_id,)).fetchone()
         slack_ts = row[0] if row else None

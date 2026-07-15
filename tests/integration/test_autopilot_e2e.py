@@ -63,11 +63,13 @@ def test_resolve_posts_postmortem_once(conn, monkeypatch, capsys):
     index_corpus(conn, emb, corpus)
     truth = truths[0]
 
+    # briefed_at set: the incident went through the normal opened→brief flow
+    # before resolving (the postmortem claim requires it).
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     conn.execute(
-        "INSERT INTO incidents (incident_id, title, services, opened_at, resolved_at,"
-        " resolution_summary) VALUES (%s, %s, ARRAY[%s], now() - interval '30 minutes',"
-        " now(), %s)",
+        "INSERT INTO incidents (incident_id, title, services, opened_at, briefed_at,"
+        " resolved_at, resolution_summary) VALUES (%s, %s, ARRAY[%s],"
+        " now() - interval '30 minutes', now() - interval '29 minutes', now(), %s)",
         (iid, f"{truth.service}: resolved", truth.service, "rolled back"),
     )
     raw = LifecycleEvent("resolved", iid, truth.service, "2026-07-01T00:00:00+00:00").to_json()
@@ -80,3 +82,27 @@ def test_resolve_posts_postmortem_once(conn, monkeypatch, capsys):
     handle_lifecycle(conn, emb, raw, window_s=0, sink=StdoutSink(), sleep=lambda s: None)
     out2 = capsys.readouterr().out
     assert "already" in out2.lower() and "POSTMORTEM" not in out2
+
+
+def test_resolve_without_brief_skips_postmortem(conn, monkeypatch, capsys):
+    """A resolved incident that was never briefed (e.g. a historical incident
+    replayed on the first status-feed poll) must not trigger a postmortem."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    from freshet.pipeline.embedding import make_embedder
+    from freshet.pipeline.lifecycle import LifecycleEvent
+    from freshet.autopilot.consumer import handle_lifecycle
+    from freshet.autopilot.sinks.stdout import StdoutSink
+
+    emb = make_embedder("bge")
+    iid = f"INC_{uuid.uuid4().hex[:12]}"
+    conn.execute(
+        "INSERT INTO incidents (incident_id, title, services, opened_at, resolved_at,"
+        " resolution_summary) VALUES (%s, %s, ARRAY['api'],"
+        " now() - interval '30 minutes', now(), %s)",
+        (iid, "api: resolved", "rolled back"),
+    )
+    raw = LifecycleEvent("resolved", iid, "api", "2026-07-01T00:00:00+00:00").to_json()
+
+    handle_lifecycle(conn, emb, raw, window_s=0, sink=StdoutSink(), sleep=lambda s: None)
+    out = capsys.readouterr().out
+    assert "never briefed" in out and "POSTMORTEM" not in out

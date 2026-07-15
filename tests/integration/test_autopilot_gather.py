@@ -1,7 +1,5 @@
 """Integration: keyless gather_findings recovers the true cause for a seeded
 incident (mirrors the completeness eval's service-scoped setup)."""
-import os
-
 import pytest
 
 pytestmark = pytest.mark.integration
