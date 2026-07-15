@@ -199,6 +199,12 @@ runs with deterministic fake embeddings and no download. Optional extras:
 `.[llm]` (Anthropic-composed answers — set `ANTHROPIC_API_KEY`, pick the model
 with `FRESHET_LLM_MODEL`), `.[eval]` (the evaluation harness + plots).
 
+Retrieval tuning via env: `FRESHET_TAU_S` sets the recency-decay constant (the
+default half-weight of ~21 min is tuned to the scripted demo; raise it for real
+status-feed corpora where incidents are hours old), and `FRESHET_MIN_SIMILARITY`
+overrides the abstention floor (defaults are per-embedder: 0.3 for MiniLM/stub,
+0.5 for bge, whose cosine range is compressed upward).
+
 ### Other commands
 
     make up-obs           # stack + Prometheus (:9090) + Grafana (:3000 dashboard)
@@ -302,7 +308,10 @@ single-shot baseline finds only ~1-in-6 causes. A sample run is committed at
 [`results/agent_transcript.md`](results/agent_transcript.md) so a keyless clone can
 read it step by step. **Honest framing:** the win is the **temporal-lookup tool**,
 not the LLM agency — a fixed two-step pipeline using the same tool would likely
-match this; that ablation is open. Caveats: the run is **non-deterministic** (one
+match this. That ablation is now implemented as a keyless, deterministic arm of
+`make agent-eval` (`fixed-two-step`: same search, then anchor on the top spike hit
+and call the temporal lookup — no LLM); re-run the eval to compare all three arms.
+Caveats: the run is **non-deterministic** (one
 committed run; the baseline is keyless and deterministic), the sample is small (12)
 by design, and the path needs a key — the keyless core and CI are untouched.
 

@@ -74,7 +74,9 @@ default, key-gated).
 > gap that single-shot semantic retrieval cannot — *not* that the LLM agency adds
 > measurable value over a fixed pipeline. A deterministic two-step pipeline using
 > the same temporal tool would likely match the numbers below; that ablation is
-> open. The win is the **retrieval capability**, not the agent loop.
+> now implemented as the keyless `fixed-two-step` arm of `make agent-eval`
+> (numbers pending a re-run against the committed benchmark). The win is the
+> **retrieval capability**, not the agent loop.
 
 M12 measured a sharp gap: at **whole-corpus scale** (no service hint), single-shot
 retrieval scored **0.0 cause-recall** under the old MiniLM retriever — a terse
