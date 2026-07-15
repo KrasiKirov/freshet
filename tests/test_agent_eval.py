@@ -108,6 +108,48 @@ def test_single_shot_returns_cause_and_fix_ids():
     assert result["fix_id"] == "f1"
 
 
+def test_fixed_two_step_anchors_on_spike_and_uses_temporal_lookup():
+    from datetime import datetime, timedelta, timezone
+    from freshet.eval.agent_eval import _fixed_two_step
+
+    t0 = datetime(2026, 6, 6, 8, 0, 0, tzinfo=timezone.utc)
+    spike_hit = SimpleNamespace(event_id="s1", type="error_spike",
+                                service="svc-00", ts=t0)
+    neighbors = [
+        SimpleNamespace(event_id="c1", ts=t0 - timedelta(minutes=5),
+                        type="deploy_started", text="deploy v2"),
+        SimpleNamespace(event_id="d1", ts=t0 - timedelta(minutes=20),
+                        type="deploy_started", text="older deploy"),
+        SimpleNamespace(event_id="f1", ts=t0 + timedelta(minutes=10),
+                        type="rollback", text="rolled back"),
+    ]
+    truth = _truth("INC-0001", "deploy_regression", cause_id="c1", fix_id="f1",
+                   service="svc-00")
+    with patch("freshet.eval.agent_eval.hybrid_search") as mock_hs, \
+         patch("freshet.eval.agent_eval.events_around") as mock_ea:
+        mock_hs.return_value = MagicMock(hits=[spike_hit])
+        mock_ea.return_value = neighbors
+        result = _fixed_two_step(MagicMock(), MagicMock(), truth)
+
+    # latest change before the spike wins (not the older deploy); first
+    # remediation after the spike is the fix
+    assert result["cause_id"] == "c1"
+    assert result["fix_id"] == "f1"
+
+
+def test_fixed_two_step_abstains_without_a_spike():
+    from freshet.eval.agent_eval import _fixed_two_step
+
+    truth = _truth("INC-0001", "deploy_regression", service="svc-00")
+    with patch("freshet.eval.agent_eval.hybrid_search") as mock_hs, \
+         patch("freshet.eval.agent_eval.events_around") as mock_ea:
+        mock_hs.return_value = MagicMock(hits=[])
+        result = _fixed_two_step(MagicMock(), MagicMock(), truth)
+
+    assert result == {"cause_id": None, "fix_id": None}
+    mock_ea.assert_not_called()
+
+
 def test_single_shot_returns_none_when_timeline_empty():
     from freshet.eval.agent_eval import _single_shot
 
