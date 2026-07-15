@@ -3,15 +3,18 @@
 M4 scope: rule-based correlation suited to the synthetic stream. An event with
 an explicit incident_id is recorded against it. A severe event (error/latency
 spike, rollback, or SEV1/SEV2) without one joins the open incident on its
-service, or opens a new one. A healthy event resolves its incident; an RCA
-event records the resolution summary. All writes are idempotent (guarded array
+service, or opens a new one. A healthy event — or a status-feed terminal
+status ("resolved"/"postmortem", see RESOLUTION_TYPES) — resolves its
+incident; an RCA event records the resolution summary. All writes are
+idempotent (guarded array
 appends, COALESCE on resolution fields) so at-least-once redelivery cannot
 duplicate or regress state.
 
-Single-writer assumption: the find-or-create in correlate() is not atomic, so
-correctness requires exactly one normalizer instance (or a partial unique
-index on open incidents per service) — scale embedders, not normalizers,
-until that guard exists.
+Find-or-create is atomic: correlator-opened incidents claim a partial unique
+index (one open auto incident per service) via INSERT ... ON CONFLICT, so
+concurrent normalizer instances can race safely — the loser of the claim finds
+the winner's incident and joins it. Explicit-id incidents (generator, status
+feeds) are exempt from the constraint and go through the idempotent upsert.
 """
 
 from __future__ import annotations
@@ -27,6 +30,17 @@ SEVERE_TYPES = {
     EventType.LATENCY_SPIKE.value,
     EventType.ROLLBACK.value,
 }
+
+# Event types that resolve an incident. "healthy" is the synthetic generator's
+# recovery event; "resolved"/"postmortem" are Statuspage terminal statuses that
+# the status poller passes through as the event type — without them, real
+# status-feed incidents would stay open forever (and FIND_OPEN_SQL would glue
+# every future severe event onto the oldest stale incident for the service).
+RESOLUTION_TYPES = frozenset({
+    EventType.HEALTHY.value,
+    "resolved",
+    "postmortem",
+})
 
 
 @dataclass
@@ -76,6 +90,41 @@ FIND_OPEN_SQL = (
     " ORDER BY opened_at LIMIT 1"
 )
 
+# Atomic open-incident claim for stray severe events (no explicit incident_id).
+# The partial unique index (one open auto incident per primary_service) makes
+# this race-safe under concurrent normalizers: exactly one INSERT wins, losers
+# get no row back and re-run FIND_OPEN to join the winner.
+CLAIM_OPEN_SQL = """
+INSERT INTO incidents
+    (incident_id, title, services, primary_service, auto_opened, opened_at, event_ids)
+VALUES (%(id)s, %(title)s, ARRAY[%(service)s], %(service)s, TRUE, %(ts)s, ARRAY[%(event_id)s])
+ON CONFLICT (primary_service) WHERE resolved_at IS NULL AND auto_opened DO NOTHING
+RETURNING incident_id
+"""
+
+
+def _find_or_open(conn, ev: Event) -> tuple[str, bool]:
+    """Return (incident_id, opened): join the open incident on ev's service, or
+    atomically open a new one. Retries the find once after a lost claim race."""
+    params = {
+        "id": _new_incident_id(),
+        "title": incident_title(ev),
+        "service": ev.service,
+        "ts": ev.ts,
+        "event_id": ev.event_id,
+    }
+    for _ in range(2):
+        row = conn.execute(FIND_OPEN_SQL, {"service": ev.service}).fetchone()
+        if row:
+            return row[0], False
+        claimed = conn.execute(CLAIM_OPEN_SQL, params).fetchone()
+        if claimed:
+            return claimed[0], True
+        # lost the claim race — loop once to find the winner's incident
+    # winner resolved in the window between claim and find: fall back to a
+    # plain create through the idempotent upsert (transition comes from it)
+    return _new_incident_id(), False
+
 
 def correlate(conn, ev: Event) -> CorrelationResult:
     """Record ev against its incident; report the incident_id and transition.
@@ -84,9 +133,9 @@ def correlate(conn, ev: Event) -> CorrelationResult:
     a routine 'healthy' noise event must not close an open incident.
     """
     incident_id = ev.incident_id
+    opened_by_claim = False
     if incident_id is None and is_severe(ev):
-        row = conn.execute(FIND_OPEN_SQL, {"service": ev.service}).fetchone()
-        incident_id = row[0] if row else _new_incident_id()
+        incident_id, opened_by_claim = _find_or_open(conn, ev)
     if incident_id is None:
         return CorrelationResult(None, None)
     inserted = conn.execute(
@@ -99,8 +148,10 @@ def correlate(conn, ev: Event) -> CorrelationResult:
             "event_id": ev.event_id,
         },
     ).fetchone()[0]
-    transition = "opened" if inserted else None
-    if ev.incident_id is not None and ev.type == EventType.HEALTHY.value:
+    # a claim-created row makes the follow-up upsert a no-op (inserted=False),
+    # so the claim itself carries the "opened" transition
+    transition = "opened" if (inserted or opened_by_claim) else None
+    if ev.incident_id is not None and ev.type in RESOLUTION_TYPES:
         if conn.execute(RESOLVE_SQL, {"ts": ev.ts, "id": incident_id}).fetchone():
             transition = "resolved"
     elif ev.incident_id is not None and ev.type == EventType.RCA.value:

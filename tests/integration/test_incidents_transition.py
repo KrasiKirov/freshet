@@ -24,6 +24,22 @@ def _ev(iid, **kw):
     return Event(**base)
 
 
+def test_statuspage_style_incident_resolves(conn):
+    """Real status-feed events carry the raw Statuspage status as their type;
+    a 'resolved' update must close the incident (not just 'healthy')."""
+    iid = f"cloudflare:inc_{uuid.uuid4().hex[:8]}"
+    r1 = correlate(conn, _ev(iid, service="cloudflare", type="investigating",
+                             severity=Severity.SEV2))
+    assert r1.transition == "opened"
+    r2 = correlate(conn, _ev(iid, service="cloudflare", type="resolved",
+                             severity=Severity.SEV2))
+    assert r2.transition == "resolved"
+    # redelivered 'resolved' update is a no-op
+    r3 = correlate(conn, _ev(iid, service="cloudflare", type="resolved",
+                             severity=Severity.SEV2))
+    assert r3.transition is None
+
+
 def test_open_then_resolve_transitions_fire_once(conn):
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     # first severe event opens the incident
