@@ -35,6 +35,38 @@ def produce_sync(producer, topic: str, value, key: Optional[str] = None) -> None
         raise RuntimeError(f"produce to {topic} failed: {errors[0]}")
 
 
+class BufferedProducer:
+    """Producer that batches: produce() enqueues with a delivery callback,
+    flush_checked() flushes and raises on any failed delivery. Callers that
+    commit consumer offsets must call flush_checked() first (see consume_loop's
+    pre_commit hook) so a failed produce can never be silently committed past.
+    Compared to produce_sync's per-message flush, this amortises the delivery
+    wait over a whole commit batch — the normalizer's measured ~100 ev/s
+    ceiling was exactly this flush-per-event cost."""
+
+    def __init__(self, brokers: str):
+        self._p = make_producer(brokers)
+        self._errors: list = []
+
+    def _cb(self, err, msg) -> None:
+        if err is not None:
+            self._errors.append(err)
+
+    def produce(self, topic: str, value, key: Optional[str] = None) -> None:
+        self._p.produce(topic, key=key, value=value, on_delivery=self._cb)
+        self._p.poll(0)  # serve delivery callbacks without blocking
+
+    def flush_checked(self) -> None:
+        self._p.flush()
+        if self._errors:
+            err = self._errors[0]
+            self._errors.clear()
+            raise RuntimeError(f"batched produce failed: {err}")
+
+    def flush(self) -> None:
+        self._p.flush()
+
+
 def make_consumer(brokers: str, group_id: str, topics: list[str], auto_commit: bool = True):
     from confluent_kafka import Consumer
 
@@ -59,20 +91,45 @@ def consume_loop(
     auto_commit: bool = True,
     stop: Optional[threading.Event] = None,
     idle_timeout_s: Optional[float] = None,
+    commit_every: int = 1,
+    pre_commit: Optional[Callable[[], None]] = None,
 ) -> int:
     """Run a simple consume loop, calling handler(value_str) per message.
 
     With auto_commit=False the offset is committed synchronously after the
     handler returns, so an unprocessed message is redelivered after a crash
-    (at-least-once). `stop` lets a signal handler end the loop cleanly — the
-    consumer then leaves its group on close(), so a restart is not stalled by
-    a session timeout. `idle_timeout_s` ends the loop after that many seconds
-    without a message (used by replay). Returns the number of messages
-    processed; `max_messages` bounds the loop for tests.
+    (at-least-once). `commit_every` batches those commits: offsets are committed
+    every N messages (and on clean loop exit), so a crash redelivers at most the
+    current batch — still at-least-once, downstream idempotency absorbs the
+    duplicates. `pre_commit` runs immediately before every offset commit; a
+    producing handler passes its BufferedProducer.flush_checked here so no
+    offset is ever committed past an unacknowledged produce. If pre_commit or
+    the handler raises, pending offsets are NOT committed (redelivery, never
+    loss). `stop` lets a signal handler end the loop cleanly — the consumer then
+    leaves its group on close(), so a restart is not stalled by a session
+    timeout. `idle_timeout_s` ends the loop after that many seconds without a
+    message (used by replay). Returns the number of messages processed;
+    `max_messages` bounds the loop for tests.
     """
     c = make_consumer(brokers, group_id, topics, auto_commit=auto_commit)
     n = 0
+    # newest handled-but-uncommitted message per (topic, partition) — committing
+    # only the single newest message would starve other partitions in the batch
+    pending: dict[tuple[str, int], object] = {}
+    since_commit = 0
     last_msg = time.monotonic()
+
+    def _commit_pending() -> None:
+        nonlocal since_commit
+        if not pending:
+            return
+        if pre_commit is not None:
+            pre_commit()
+        for m in pending.values():
+            c.commit(message=m, asynchronous=False)
+        pending.clear()
+        since_commit = 0
+
     try:
         while max_messages is None or n < max_messages:
             if stop is not None and stop.is_set():
@@ -89,8 +146,13 @@ def consume_loop(
             last_msg = time.monotonic()
             handler(msg.value().decode("utf-8"))
             if not auto_commit:
-                c.commit(message=msg, asynchronous=False)
+                pending[(msg.topic(), msg.partition())] = msg
+                since_commit += 1
+                if since_commit >= max(1, commit_every):
+                    _commit_pending()
             n += 1
+        if not auto_commit:
+            _commit_pending()   # clean exit: commit the tail of the batch
     finally:
         c.close()
     return n

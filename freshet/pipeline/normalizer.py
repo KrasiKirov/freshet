@@ -3,8 +3,12 @@
 Validates each payload against the canonical Event schema, stamps ingested_at,
 attaches the event to an incident (state in Postgres), and republishes keyed
 by service. Invalid payloads go to the dead-letter topic, never silently
-dropped. The produce is flushed before the consumer offset commits, so a crash
-can only cause redelivery (at-least-once), not loss.
+dropped. Produces are batched (BufferedProducer) and flush-checked before the
+consumer offsets commit (consume_loop's pre_commit hook), so a crash or failed
+produce can only cause redelivery of the current batch (at-least-once), never
+loss — downstream idempotent upserts absorb the duplicates. `--commit-every`
+sets the batch size; the old flush-per-event behavior (the measured ~100 ev/s
+ceiling) is `--commit-every 1`.
 
 Run (stack up first):
     python -m freshet.pipeline.normalizer --brokers localhost:9092
@@ -59,14 +63,15 @@ def run(
     metrics_port: int = 0,
     dsn: Optional[str] = None,
     stop: Optional[threading.Event] = None,
+    commit_every: int = 1,
 ) -> int:
     start_metrics_server(metrics_port)
     from freshet.common.db import connect
-    from freshet.common.kafka_io import consume_loop, make_producer, produce_sync
+    from freshet.common.kafka_io import BufferedProducer, consume_loop
     from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC, LifecycleEvent
 
     conn = connect(dsn)
-    producer = make_producer(brokers)
+    producer = BufferedProducer(brokers)
     skipped = 0
 
     def handle(value: str) -> None:
@@ -74,7 +79,7 @@ def run(
         ev = normalize(value)
         if ev is None:
             skipped += 1
-            produce_sync(producer, deadletter_topic, build_deadletter("validation failed", value, raw_topic))
+            producer.produce(deadletter_topic, build_deadletter("validation failed", value, raw_topic))
             DEADLETTER_EVENTS.inc()
             print(f"[normalizer] dead-lettered invalid payload ({skipped} so far)")
             return
@@ -89,15 +94,18 @@ def run(
                 service=ev.service,
                 ts=ev.ts.isoformat(),
             )
-            produce_sync(producer, LIFECYCLE_TOPIC, life.to_json(), key=ev.service)
-        # key by service to preserve per-service ordering downstream
-        # delivery-checked produce before the loop commits this offset: a crash
-        # or failed produce can only cause redelivery, never silent loss
-        produce_sync(producer, normalized_topic, ev.model_dump_json(), key=ev.service)
+            producer.produce(LIFECYCLE_TOPIC, life.to_json(), key=ev.service)
+        # key by service to preserve per-service ordering downstream. Produces
+        # are buffered; consume_loop's pre_commit flush-checks the whole batch
+        # before offsets commit, so a failed produce can never be committed past.
+        producer.produce(normalized_topic, ev.model_dump_json(), key=ev.service)
         observe_normalized(ev)
 
     try:
-        n = consume_loop(brokers, group, [raw_topic], handle, max_messages, auto_commit=False, stop=stop)
+        n = consume_loop(brokers, group, [raw_topic], handle, max_messages,
+                         auto_commit=False, stop=stop,
+                         commit_every=commit_every,
+                         pre_commit=producer.flush_checked)
     finally:
         producer.flush()
         conn.close()
@@ -111,11 +119,14 @@ def main() -> None:
     p.add_argument("--max", type=int, default=None)
     p.add_argument("--metrics-port", type=int, default=8001, help="Prometheus /metrics port (0 disables)")
     p.add_argument("--dsn", default=None)
+    p.add_argument("--commit-every", type=int, default=100,
+                   help="commit offsets every N messages (batched produce+commit; 1 = legacy per-message)")
     a = p.parse_args()
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
-    n = run(a.brokers, group=a.group, max_messages=a.max, metrics_port=a.metrics_port, dsn=a.dsn, stop=stop)
+    n = run(a.brokers, group=a.group, max_messages=a.max, metrics_port=a.metrics_port, dsn=a.dsn, stop=stop,
+            commit_every=a.commit_every)
     print(f"[normalizer] processed {n} messages")
 
 
