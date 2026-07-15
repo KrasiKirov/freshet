@@ -6,11 +6,9 @@ into pgvector within **seconds**, and answers *"what's breaking, and why?"* with
 cited, recency-aware answers — then autonomously briefs the incident and drafts the
 postmortem.
 
-![Freshet keeps data ~5s fresh — ~356x fresher than an hourly batch index](docs/hero-freshness.png)
-<!-- swap for docs/live-demo.gif once recorded; see docs/live-demo-storyboard.md.
-     Regenerate this plot with: .venv/bin/python scripts/make_hero_plot.py -->
+![Freshet — the live incident wire: real public status-feed incidents, answered with cited, recency-aware answers](docs/live-demo.gif)
 
-*A live-UI demo GIF is the intended hero — see [`docs/live-demo-storyboard.md`](docs/live-demo-storyboard.md); this measured freshness chart stands in until it's recorded.*
+*The live UI over **real** Cloudflare/GitHub/OpenAI/Discord/Reddit status incidents (`make up && make live-demo`). Every answer is grounded with `[source @ timestamp]` citations.*
 
 ### Why it's different — measured, not claimed
 
@@ -126,6 +124,10 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
 - **Streaming is ~356× fresher than a batch baseline** (5s vs 1778s mean data
   staleness at an hourly batch cadence; ~4 orders of magnitude at a real nightly
   cadence) — the comparison the project is built to make.
+
+  ![Streaming keeps data ~5s fresh vs an hourly batch letting it rot ~59 min — ~356× fresher](docs/hero-freshness.png)
+
+
 - **Event-to-queryable freshness p50 ≈ 2–4s**, watched live on Grafana.
 - **Resilient**: no data loss when a worker is killed mid-stream, durable replay
   re-indexes the corpus after a model change, and a 10× burst drains without loss

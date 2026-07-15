@@ -211,6 +211,13 @@
     setInterval(()=>{const now=Date.now();for(const r of rows.values())r.agoEl.textContent=ago(r.ts,now);},1000);
 
     // ── ask ──
+    // The composer answer is Markdown; the panel is plain text. Escape first (the
+    // answer can quote untrusted incident text), then render **bold** / ## headings.
+    function mdInline(s){
+      const esc=s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      return esc.replace(/^\s{0,3}#{1,6}\s+(.*)$/gm,"<strong>$1</strong>")
+                .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");
+    }
     let busy=false;
     async function ask(){
       const question=$("question").value.trim(); if(!question||busy)return;
@@ -219,7 +226,7 @@
       try{
         const d=await(await fetch("/query",{method:"POST",headers:{"content-type":"application/json"},
           body:JSON.stringify({question,k:6})})).json();
-        const b=document.createElement("div");b.className="body"+(d.abstained?" abstain":"");b.textContent=d.answer;
+        const b=document.createElement("div");b.className="body"+(d.abstained?" abstain":"");b.innerHTML=mdInline(d.answer);
         $("answer").innerHTML="";$("answer").appendChild(b);
         if(d.hits&&d.hits.length){
           const s=$("sources");s.hidden=false;const h=document.createElement("h4");h.textContent="Sources";s.appendChild(h);
