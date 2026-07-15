@@ -4,14 +4,17 @@ a grounded-answer composer (keyless template default, optional Anthropic).
 
 Run:
     uvicorn freshet.api.app:app --port 8000
-Config via env: FRESHET_DSN, FRESHET_EMBEDDER (minilm|stub),
-FRESHET_COMPOSER (auto|template|anthropic), FRESHET_LLM_MODEL, ANTHROPIC_API_KEY.
+Config via env: FRESHET_DSN, FRESHET_EMBEDDER (bge|minilm|stub),
+FRESHET_COMPOSER (auto|template|anthropic), FRESHET_LLM_MODEL, ANTHROPIC_API_KEY,
+FRESHET_TAU_S (recency decay; default is demo-tuned ~21 min half-weight),
+FRESHET_MIN_SIMILARITY (abstention floor; default is per-embedder).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -78,6 +81,7 @@ class Hit(BaseModel):
     indexed_at: datetime
     source: str
     text: str
+    type: str = ""
     similarity: float
     score: float
 
@@ -107,18 +111,22 @@ class IncidentSummary(BaseModel):
 _conn = None
 _embedder: Optional[Embedder] = None
 _composer: Optional[Composer] = None
+_deps_lock = threading.Lock()
 
 
 def get_deps():
+    # FastAPI runs sync endpoints in a threadpool: guard the lazy init so two
+    # concurrent first requests can't race and build duplicate embedders/conns.
     global _conn, _embedder, _composer
-    if _embedder is None:
-        _embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
-    if _composer is None:
-        _composer = make_composer(os.environ.get("FRESHET_COMPOSER", "auto"))
-    if _conn is None:
-        from freshet.common.db import connect
+    with _deps_lock:
+        if _embedder is None:
+            _embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
+        if _composer is None:
+            _composer = make_composer(os.environ.get("FRESHET_COMPOSER", "auto"))
+        if _conn is None:
+            from freshet.common.db import connect
 
-        _conn = connect()
+            _conn = connect()
     return _conn, _embedder, _composer
 
 
@@ -128,7 +136,7 @@ app = FastAPI(title="Freshet query API")
 def _to_hit(h: RetrievedHit) -> Hit:
     return Hit(
         chunk_id=h.chunk_id, event_id=h.event_id, service=h.service, ts=h.ts,
-        indexed_at=h.indexed_at, source=h.source, text=h.text,
+        indexed_at=h.indexed_at, source=h.source, text=h.text, type=h.type,
         similarity=h.similarity, score=h.score,
     )
 
