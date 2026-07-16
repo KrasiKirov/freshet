@@ -9,7 +9,8 @@ WORKERS="${WORKERS:-3}"
 COUNT="${COUNT:-1000}"          # noise events; total = COUNT + 9 scripted
 SPACING="${SPACING:-0}"         # 0 = instantaneous burst, so embedding (not
                                 # generation) is the measured bottleneck
-EMBEDDER="${EMBEDDER:-minilm}"
+# bge matches the vector(768) schema; minilm (384-dim) no longer fits it.
+EMBEDDER="${EMBEDDER:-bge}"
 BROKERS="${BROKERS:-localhost:9092}"
 SEED="${SEED:-$(date +%s)}"
 TOTAL=$((COUNT + 9))
