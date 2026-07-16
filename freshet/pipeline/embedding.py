@@ -17,13 +17,14 @@ from typing import Protocol
 EMBEDDING_DIM = 768  # BAAI/bge-base-en-v1.5 output size
 
 # Per-model abstention floors. Cosine-similarity distributions differ by model:
-# MiniLM spreads roughly 0..1 (0.3 was calibrated by eye on the synthetic
-# corpus), while bge compresses similarities upward (~0.5+ even for unrelated
-# pairs), so 0.3 would never abstain. The bge value is a literature-informed
-# default, not yet empirically calibrated — override with FRESHET_MIN_SIMILARITY
-# and revalidate via `make eval` when tuning.
+# MiniLM spreads roughly 0..1, while bge compresses similarities upward (~0.5+
+# even for unrelated pairs), so a shared floor cannot work. Both values are
+# calibrated with scripts/calibrate_abstention.py on the benchmark corpus: bge
+# separates cleanly (on-corpus ≥ 0.735 vs hardest off-corpus negative 0.662;
+# 0.7 is the gap midpoint). Override with FRESHET_MIN_SIMILARITY; recalibrate
+# when the corpus or model changes.
 MIN_SIMILARITY_MINILM = 0.3
-MIN_SIMILARITY_BGE = 0.5
+MIN_SIMILARITY_BGE = 0.7
 
 
 class Embedder(Protocol):
