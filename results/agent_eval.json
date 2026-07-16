@@ -5,6 +5,11 @@
       "fix_recall": 0.417,
       "n": 12
     },
+    "fixed-two-step": {
+      "cause_recall": 1.0,
+      "fix_recall": 1.0,
+      "n": 12
+    },
     "agent": {
       "cause_recall": 1.0,
       "fix_recall": 1.0,
@@ -12,9 +17,11 @@
     }
   },
   "lift": {
-    "cause_recall": 0.833,
-    "fix_recall": 0.583
+    "fixed_vs_single_cause_recall": 0.833,
+    "fixed_vs_single_fix_recall": 0.583,
+    "agent_vs_fixed_cause_recall": 0.0,
+    "agent_vs_fixed_fix_recall": 0.0
   },
   "n_incidents": 12,
-  "note": "agent runs are indicative and non-deterministic"
+  "note": "single-shot and fixed-two-step are keyless and deterministic; fixed-two-step is the ablation for the agent's temporal-lookup win; agent runs are indicative and non-deterministic"
 }

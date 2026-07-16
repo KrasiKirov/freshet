@@ -68,15 +68,15 @@ default, key-gated).
 
 ## M11 — multi-step retrieval vs single-shot baseline
 
-> **Framing note (revised in M14):** this was previously sold as "agentic RAG."
-> The honest read is narrower. What it shows is that a **non-semantic temporal
-> lookup** (`get_events_around`, "what happened just before the spike?") closes a
-> gap that single-shot semantic retrieval cannot — *not* that the LLM agency adds
-> measurable value over a fixed pipeline. A deterministic two-step pipeline using
-> the same temporal tool would likely match the numbers below; that ablation is
-> now implemented as the keyless `fixed-two-step` arm of `make agent-eval`
-> (numbers pending a re-run against the committed benchmark). The win is the
-> **retrieval capability**, not the agent loop.
+> **Framing note (revised in M14, ablation run 2026-07-15):** this was previously
+> sold as "agentic RAG." The honest read is narrower. What it shows is that a
+> **non-semantic temporal lookup** (`get_events_around`, "what happened just
+> before the spike?") closes a gap that single-shot semantic retrieval cannot —
+> *not* that the LLM agency adds measurable value over a fixed pipeline. The
+> ablation now confirms this: a keyless, deterministic `fixed-two-step` arm
+> (identical whole-corpus search, then `events_around` anchored on the top spike
+> hit) **exactly matches the agent** at 1.000/1.000. The win is the **retrieval
+> capability**, not the agent loop.
 
 M12 measured a sharp gap: at **whole-corpus scale** (no service hint), single-shot
 retrieval scored **0.0 cause-recall** under the old MiniLM retriever — a terse
@@ -85,28 +85,32 @@ incident?". The stronger bge retriever (M14) lifts the baseline but does **not**
 close the gap; the multi-step investigator re-retrieves with the temporal lookup to
 recover the rest.
 
-Measured head-to-head on **12 sampled incidents (2 per archetype)**, both at
-whole-corpus scale, under the bge retriever (agent paraphrases by
-`claude-sonnet-4-6`):
+Measured head-to-head on **12 sampled incidents (2 per archetype)**, all three
+arms at whole-corpus scale, under the bge retriever (agent runs on
+`claude-sonnet-4-6`; run 2026-07-15):
 
 | config | cause_recall | fix_recall |
 |---|---|---|
 | single-shot (keyless baseline) | 0.167 | 0.417 |
-| **multi-step + temporal lookup** | **1.000** | **1.000** |
-| **lift** | **+0.833** | **+0.583** |
+| **fixed-two-step (keyless ablation)** | **1.000** | **1.000** |
+| agent (LLM tool loop) | 1.000 | 1.000 |
 
-Honest read: the multi-step path recovers the true cause and fix on **all 12
-incidents across all six archetypes**. The bge upgrade raised the single-shot
+Honest read: the temporal lookup recovers the true cause and fix on **all 12
+incidents across all six archetypes** — and the deterministic `fixed-two-step`
+arm does it **without an LLM**. The agent adds exactly nothing on this benchmark
+(+0.000/+0.000 over the ablation); the entire +0.833/+0.583 lift over single-shot
+belongs to the retrieval capability. The bge upgrade raised the single-shot
 baseline from 0.0/0.25 (MiniLM) to 0.17/0.42 — a better retriever genuinely helps —
 but it still misses most causes, which the temporal lookup recovers. Caveats kept
-in front: (1) the LLM run is **indicative and non-deterministic**, so the committed
-JSON is one run; the baseline is keyless and
-deterministic. (2) The sample is small (12) by design. (3) The lift is attributable
-to the temporal **tool**, not proven to require the agent loop — see the framing
-note above.
+in front: (1) the agent arm is **indicative and non-deterministic**; the other two
+arms are keyless and deterministic. (2) The sample is small (12) by design. (3) On
+messier real corpora, where the fixed anchor-on-top-spike heuristic can pick the
+wrong anchor, the agent loop may re-earn its keep — the synthetic benchmark
+cannot show that either way.
 
-Reproduce (needs a key): `make up && make agent-eval`. A sample investigation
-transcript a keyless clone can read is committed at
+Reproduce: `make up && make agent-eval` — keyless runs score the single-shot and
+fixed-two-step arms (both deterministic); the agent arm needs `ANTHROPIC_API_KEY`.
+A sample investigation transcript a keyless clone can read is committed at
 [`results/agent_transcript.md`](results/agent_transcript.md), and
 `make agent-demo` regenerates it.
 
@@ -245,25 +249,35 @@ minus newest queryable event.
 Resilience drills (worker kill/recovery, replay re-index, burst backpressure)
 with evidence graphs: see [`DRILLS.md`](DRILLS.md).
 
-## M4 — consumer-group scaling (embedder, all-MiniLM-L6-v2)
+## M4 — consumer-group scaling (embedder)
 
 1,009 live events produced as an instantaneous burst into 3-partition topics,
 time measured from burst start to all events queryable in pgvector
-(`make scale-demo`, 2026-06-12):
+(`make scale-demo`).
 
-| embedder instances | drain time | throughput |
-|---|---|---|
-| 1 | 15s | 67 ev/s |
-| 3 | 10s | 100 ev/s |
+**Re-run 2026-07-15, after producer batching** (`BufferedProducer` + batched
+offset commits replaced the normalizer's per-message flushed produce), on the
+bge embedder (the current 768-dim schema default):
 
-Honest read: the 1.5× speedup is embedder scaling working until the *next*
-bottleneck appears — at 3 instances the single normalizer caps the pipeline at
-~100 ev/s, because it does a delivery-checked (per-message flushed) produce per
-event. A lighter burst (309 events) shows no speedup at all: one embedder
-already keeps up, so there is nothing to parallelize. Scaling consumers moves
-bottlenecks; it does not delete them.
+| embedder instances | drain time | throughput | scaling |
+|---|---|---|---|
+| 1 | 38s | 26 ev/s | — |
+| 3 | 12s | 84 ev/s | **3.2×** |
 
-Reproduce: `make down && make up && WORKERS=1 make scale-demo` (then WORKERS=3).
+A stub-embedder run (5,009-event burst, model cost removed) measures the
+non-embedding pipeline — generator → normalizer → DB upserts — at **834 ev/s**,
+the stage that previously capped at ~100 ev/s.
+
+Honest read: embedder scaling is now near-linear (3.2× with 3 workers) because
+the normalizer no longer caps the pipeline. bge is a heavier model than the old
+MiniLM (26 vs 67 ev/s per worker), so absolute throughput at 1 worker dropped
+while headroom rose: the next ceiling is now ~8× further out. The original run
+(2026-06-12, MiniLM, pre-batching) scaled only 67→100 ev/s (1.5×) — at 3
+instances the single normalizer's delivery-checked produce-per-event was the
+bottleneck. Scaling consumers moves bottlenecks; batching moved this one.
+
+Reproduce: `make up && WORKERS=1 make scale-demo` (then WORKERS=3) — topics need
+their 3 partitions, so start from `make up`, not a single-partition dev stack.
 
 ## M2 — event-to-queryable freshness (slice demo, real embedder)
 
