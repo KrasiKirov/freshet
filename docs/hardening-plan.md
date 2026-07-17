@@ -78,10 +78,13 @@ a new test locks in the guard (resolved-but-never-briefed → no postmortem).
 
 ## Still deferred (ordered by value)
 
-1. **Real-data validation set.** The benchmark is co-designed with the
-   generator; the synthesis eval saturates at 1.0. A small hand-labeled corpus
-   (20–30 real incidents from public postmortems or replayed status-feed
-   timelines) is the single highest-value addition. Needs curation, not code.
+1. ~~**Real-data validation set.**~~ Done 2026-07-17 (RESULTS.md M15). 225 real
+   Statuspage incidents snapshotted (`scripts/fetch_real_incidents.py` →
+   `freshet/eval/fixtures/real/`), 13 hand-labeled with a stated cause (the
+   other 212 name no machine-readable cause — a finding in itself), scored by
+   `make real-eval`: recall@5 0.923, top-1 citation 0.385, and the
+   synthetic-calibrated bge floor cleanly separates real on/off-corpus queries
+   (0/13 vs 8/8). Labels are `curated: draft` pending user review.
 2. ~~**Run the new evals.**~~ Done 2026-07-15: three-arm table in RESULTS.md
    (item 8), bge floor calibrated to 0.7 (item 4), scale-demo re-run (item 10).
 3. **Incident↔service join table.** The arrays (`services`, `event_ids`) still
