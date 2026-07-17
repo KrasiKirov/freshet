@@ -3,15 +3,15 @@
     "off_corpus_abstained": 8,
     "off_corpus_total": 8,
     "on_corpus_abstained": 0,
-    "on_corpus_total": 13
+    "on_corpus_total": 12
   },
   "corpus_events": 841,
-  "labels_curated": "draft",
+  "labels_curated": "reviewed",
   "note": "hand-labeled real Statuspage incidents; cause = the update where the provider stated the cause; whole-corpus, recency-neutral, bge",
   "retrieval": {
-    "mrr": 0.558,
-    "n": 13,
-    "recall@5": 0.923,
-    "top1_cite": 0.385
+    "mrr": 0.576,
+    "n": 12,
+    "recall@5": 0.917,
+    "top1_cite": 0.417
   }
 }

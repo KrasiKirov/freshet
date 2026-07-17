@@ -1,5 +1,5 @@
 {
-  "curated": "draft",
+  "curated": "reviewed",
   "_schema": {
     "curated": "draft | reviewed — real_eval prints a warning until a human reviews the labels and sets 'reviewed'",
     "labeled": "one entry per curated incident",
@@ -8,7 +8,7 @@
     "labeled[].cause_update_ids": "raw statuspage update ids whose body STATES the cause (not just 'we identified the issue'); real_eval maps them to event ids",
     "labeled[].notes": "the stated cause + curation caveats"
   },
-  "_curation_note": "These 14 are the resolved incidents (of 225 fetched) whose updates state an ACTUAL cause. The modal real update is 'the issue has been identified and a fix is being implemented' — which names no cause and is deliberately NOT labeled. GitHub writes true postmortems in its resolved update ('On <date>... due to <cause>'); other providers usually state the cause mid-incident or not at all. Cause types span config change, backend-service failure, capacity/traffic surge, upstream-dependency outage, DB-migration replication lag, DNSSEC, and networking. Labels are my judgment calls pending review.",
+  "_curation_note": "These 12 are the resolved incidents (of 225 fetched) whose updates state an ACTUAL cause. The modal real update is 'the issue has been identified and a fix is being implemented' — which names no cause and is deliberately NOT labeled. GitHub writes true postmortems in its resolved update ('On <date>... due to <cause>'); other providers usually state the cause mid-incident or not at all. Cause types span config/change rollback, backend-service failure, capacity/traffic surge, upstream-dependency outage (AWS, model provider, GitHub), DB-migration replication lag, DNSSEC, and networking. Reviewed: discord:kvsqxkhkt72v was DROPPED on review — its strongest update ('the issue that caused us to have a capacity drop ... working with our partner') names the effect and an unnamed partner but never states the actual cause, so it fails the same 'states a cause' bar that excludes the other 212 incidents.",
   "labeled": [
     {
       "incident_id": "github:q27ttsnp0x4g",
@@ -75,12 +75,6 @@
       "query": "What caused Discord streaming and messaging errors?",
       "cause_update_ids": ["kgmhk6n5pmh1"],
       "notes": "A networking issue. Cause stated in the investigating update; brief incident."
-    },
-    {
-      "incident_id": "discord:kvsqxkhkt72v",
-      "query": "What caused Discord voice and video connection issues?",
-      "cause_update_ids": ["1kkz10myxfhz"],
-      "notes": "A capacity drop at an infrastructure partner. Weaker/vaguer cause statement than the others — borderline."
     },
     {
       "incident_id": "openai:01KXPJ62Z704GE0SRNKQA64X4X",

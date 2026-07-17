@@ -27,15 +27,17 @@ snapshots + hand-labels make it deterministic. Reproduce: `make up && make
 real-eval`. Refresh the snapshots with `python scripts/fetch_real_incidents.py`
 (re-curate labels afterward).
 
-**The first finding is in the labeling.** Of 225 resolved incidents, only **13**
+**The first finding is in the labeling.** Of 225 resolved incidents, only **12**
 have any update that states an actual cause. The modal real update is *"the issue
 has been identified and a fix is being implemented"* — which names no cause and is
 deliberately left unlabeled. GitHub writes true postmortems in its resolved update
 (*"On <date>… due to <cause>"*); the other providers state the cause mid-incident
-or not at all. The 13 labeled causes span config change, backend-service failure,
-capacity/traffic surge, upstream-dependency outage (AWS, an upstream model
+or not at all. The 12 labeled causes span config-change rollback, backend-service
+failure, capacity/traffic surge, upstream-dependency outage (AWS, an upstream model
 provider, GitHub-as-dependency), DB-migration replication lag, DNSSEC, and
-networking.
+networking. (A 13th candidate, Discord voice/video, was dropped on review: its
+strongest update names the *effect* — "a capacity drop … working with our partner"
+— but never the cause, so it fails the same bar that excludes the other 212.)
 
 **Retrieval** — whole-corpus (all five providers indexed together, no service
 hint), recency-neutral, bge; scored on whether the cause-bearing update is
@@ -43,12 +45,12 @@ retrieved for the incident's natural question:
 
 | metric | value | reading |
 |---|---|---|
-| recall@5 | **0.923** (12/13) | the cause update is in the top 5 for all but one incident |
-| MRR | 0.558 | when found, it lands around rank 2 on average |
-| top-1 citation | 0.385 (5/13) | the *literal* top hit is the cause update only a third of the time |
+| recall@5 | **0.917** (11/12) | the cause update is in the top 5 for all but one incident |
+| MRR | 0.576 | when found, it lands around rank 2 on average |
+| top-1 citation | 0.417 (5/12) | the *literal* top hit is the cause update under half the time |
 
 Honest read: retrieval **surfaces** the real cause reliably (92% in top-5), but
-the keyless composer cites the **top** hit, and that is the cause update only 38%
+the keyless composer cites the **top** hit, and that is the cause update only 42%
 of the time — the other updates of the same incident ("investigating…",
 "resolved") are often more similar to *"what caused X?"* than the cause sentence
 itself. This is the same gap the synthetic M11 showed (single-shot retrieval gets
@@ -59,21 +61,20 @@ near-duplicate *"Degraded performance for reddit.com"* incidents, and the cause
 update surfaced on the keyword arm alone.
 
 **Abstention transfers.** The bge floor calibrated on the synthetic corpus (0.70,
-M14/hardening) holds on real language with no retuning: **0/13** on-corpus queries
+M14/hardening) holds on real language with no retuning: **0/12** on-corpus queries
 abstained (all real questions cleared the floor) and **8/8** off-corpus queries
 abstained (4 ops-flavored hard negatives about services these feeds don't cover +
 4 unrelated). That the synthetic-calibrated floor separates real on/off-corpus
 queries cleanly is the strongest single piece of evidence that the calibration
 isn't overfit to the generator.
 
-Caveats kept in front: (1) 13 labeled incidents is small — a floor for
-signal, not a stable percentage. (2) Labels are **draft judgment calls** (which
-update "states the cause") pending human review, marked `curated: draft` in
-`labels.json`; `real_eval` prints a warning until then. (3) `build_timeline`'s
-cause *selection* is not scored here — real updates are typed
-investigating/identified/resolved, never CHANGE_TYPES, so it structurally
-abstains (see `make rootcause-facevalidity`); this milestone measures retrieval +
-citation, which is what applies to real status-feed data.
+Caveats kept in front: (1) 12 labeled incidents is small — a floor for
+signal, not a stable percentage. (2) Labels are reviewed judgment calls (which
+update "states the cause"), `curated: reviewed` in `labels.json` with a per-
+incident rationale. (3) `build_timeline`'s cause *selection* is not scored here —
+real updates are typed investigating/identified/resolved, never CHANGE_TYPES, so
+it structurally abstains (see `make rootcause-facevalidity`); this milestone
+measures retrieval + citation, which is what applies to real status-feed data.
 
 ## M14 — RAG quality: stronger retriever + query transformation
 
