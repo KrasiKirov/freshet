@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-EMBEDDER="${EMBEDDER:-minilm}"
+EMBEDDER="${EMBEDDER:-bge}"
 echo "==> Streaming the scripted incident through the live pipeline..."
 EMBEDDER="$EMBEDDER" COUNT=60 SPACING=0.05 bash scripts/run_slice.sh
 

@@ -150,7 +150,7 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
                                         │
                                         ▼
                     embedding workers (consumer group, scalable)
-                          · chunk long text, embed (local MiniLM)
+                          · chunk long text, embed (local bge)
                           · stamp indexed_at
                           · idempotent upsert → pgvector
                                         │
@@ -194,7 +194,7 @@ incident timelines are joins on ids/timestamps, not vector search).
     make down                  # tear down (drops the Postgres volume)
 
 The core path needs **no API key**. `make demo` and `make slice` use the local
-MiniLM model (`pip install -e ".[embed]"`, ~90 MB on first use); `EMBEDDER=stub`
+bge model (`pip install -e ".[embed]"`, ~440 MB on first use); `EMBEDDER=stub`
 runs with deterministic fake embeddings and no download. Optional extras:
 `.[llm]` (Anthropic-composed answers — set `ANTHROPIC_API_KEY`, pick the model
 with `FRESHET_LLM_MODEL`), `.[eval]` (the evaluation harness + plots).
@@ -202,8 +202,9 @@ with `FRESHET_LLM_MODEL`), `.[eval]` (the evaluation harness + plots).
 Retrieval tuning via env: `FRESHET_TAU_S` sets the recency-decay constant (the
 default half-weight of ~21 min is tuned to the scripted demo; raise it for real
 status-feed corpora where incidents are hours old), and `FRESHET_MIN_SIMILARITY`
-overrides the abstention floor (defaults are per-embedder: 0.3 for MiniLM/stub,
-0.5 for bge, whose cosine range is compressed upward).
+overrides the abstention floor (defaults are per-embedder: 0.3 for stub,
+0.7 for bge — calibrated with `scripts/calibrate_abstention.py`; bge's cosine range
+is compressed upward, so the floors are not comparable across models).
 
 ### Other commands
 

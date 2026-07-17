@@ -88,7 +88,14 @@ def make_embedder(kind: str) -> Embedder:
     if kind == "stub":
         emb = StubEmbedder()
     elif kind == "minilm":
-        emb = SentenceTransformerEmbedder()
+        # Retired from live use: MiniLM's 384-dim vectors cannot index into the
+        # vector(768) schema, so every DB path would fail deep in psycopg. Its
+        # benchmark numbers survive as the frozen baseline
+        # (results/retrieval_metrics_minilm.json); for off-DB experiments,
+        # construct SentenceTransformerEmbedder() directly.
+        raise ValueError(
+            "minilm (384-dim) no longer fits the vector(768) schema — use 'bge' "
+            "(or 'stub' for keyless runs)")
     elif kind == "bge":
         emb = SentenceTransformerEmbedder(
             "BAAI/bge-base-en-v1.5",
@@ -96,7 +103,7 @@ def make_embedder(kind: str) -> Embedder:
             min_similarity=MIN_SIMILARITY_BGE,
         )
     else:
-        raise ValueError(f"unknown embedder: {kind!r} (expected 'stub', 'minilm', or 'bge')")
+        raise ValueError(f"unknown embedder: {kind!r} (expected 'stub' or 'bge')")
     override = os.environ.get("FRESHET_MIN_SIMILARITY")
     if override:
         emb.min_similarity = float(override)  # type: ignore[misc]

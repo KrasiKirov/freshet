@@ -135,7 +135,7 @@ def main() -> None:
     p.add_argument("--brokers", default="localhost:9092")
     p.add_argument("--group", default="embedder")
     p.add_argument("--max", type=int, default=None)
-    p.add_argument("--embedder", choices=["minilm", "stub", "bge"], default="bge")
+    p.add_argument("--embedder", choices=["stub", "bge"], default="bge")
     p.add_argument("--dsn", default=None)
     p.add_argument("--metrics-port", type=int, default=8002, help="Prometheus /metrics port (0 disables)")
     p.add_argument("--idle-timeout", type=float, default=None, help="exit after N seconds without messages (replay)")

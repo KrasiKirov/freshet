@@ -4,7 +4,7 @@ a grounded-answer composer (keyless template default, optional Anthropic).
 
 Run:
     uvicorn freshet.api.app:app --port 8000
-Config via env: FRESHET_DSN, FRESHET_EMBEDDER (bge|minilm|stub),
+Config via env: FRESHET_DSN, FRESHET_EMBEDDER (bge|stub),
 FRESHET_COMPOSER (auto|template|anthropic), FRESHET_LLM_MODEL, ANTHROPIC_API_KEY,
 FRESHET_TAU_S (recency decay; default is demo-tuned ~21 min half-weight),
 FRESHET_MIN_SIMILARITY (abstention floor; default is per-embedder).

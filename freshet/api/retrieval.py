@@ -91,9 +91,8 @@ def recency_weight(age_s: float, tau_s: float) -> float:
 def should_abstain(similarities: list[float], min_similarity: float) -> bool:
     """Abstain when nothing is retrieved or the best cosine similarity is below
     the threshold. Similarity (interpretable, 0..1) is a better abstention
-    signal than the rank-based fused score. The default threshold is calibrated
-    by eye for all-MiniLM-L6-v2 on the synthetic corpus and is approximate —
-    M6's eval will revisit it."""
+    signal than the rank-based fused score. Thresholds are per-embedder,
+    calibrated with scripts/calibrate_abstention.py (see pipeline.embedding)."""
     if not similarities:
         return True
     return max(similarities) < min_similarity

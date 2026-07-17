@@ -85,7 +85,7 @@ def staleness_curves(
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Freshet evaluation harness")
-    p.add_argument("--embedder", choices=["minilm", "stub", "bge"], default="bge")
+    p.add_argument("--embedder", choices=["stub", "bge"], default="bge")
     p.add_argument("--streaming-freshness-s", type=float, default=3.0,
                    help="measured streaming p50 freshness (see RESULTS.md)")
     p.add_argument("--batch-interval-s", type=float, default=3600.0,

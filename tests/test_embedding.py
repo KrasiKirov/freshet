@@ -29,5 +29,12 @@ def test_make_embedder():
         make_embedder("nope")
 
 
+def test_minilm_is_retired():
+    # 384-dim MiniLM cannot index into the vector(768) schema; fail fast with
+    # a clear message instead of deep in psycopg.
+    with pytest.raises(ValueError, match="vector\\(768\\)"):
+        make_embedder("minilm")
+
+
 def test_vec_literal_format():
     assert vec_literal([1.0, -0.5]) == "[1.0,-0.5]"
