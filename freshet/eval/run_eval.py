@@ -15,7 +15,7 @@ import os
 from datetime import datetime, timezone
 
 from freshet.common.db import connect
-from freshet.eval import batch_baseline, metrics, modes, plots
+from freshet.eval import batch_baseline, metrics, modes
 from freshet.eval.labeled import build_labeled_queries, relevant_event_ids
 from freshet.generator.generator import build_benchmark
 from freshet.pipeline.embedder import records_for_event, upsert_record
@@ -124,6 +124,9 @@ def main() -> None:
 
     with open(os.path.join(a.out, "retrieval_metrics.json"), "w") as f:
         json.dump(summary, f, indent=2, sort_keys=True)
+    # lazy: matplotlib is the .[eval] extra; importing run_eval for its helpers
+    # (index_corpus, build_benchmark) must not require it
+    from freshet.eval import plots
     plots.plot_retrieval_quality(retrieval, os.path.join(a.out, "retrieval_quality.png"))
     plots.plot_streaming_vs_batch(
         samples, streaming, batch,
