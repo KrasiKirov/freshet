@@ -90,12 +90,21 @@ a new test locks in the guard (resolved-but-never-briefed → no postmortem).
 4. **API connection pool.** The resilient wrapper fixes the bricking failure
    mode; a `psycopg_pool` would additionally remove request serialization under
    concurrency. Demo-scale priority: low.
-5. **Embed-failure dead-lettering.** Transient DB errors now retry (item 11),
-   but a poison message that repeatedly fails embedding still crash-loops;
-   dead-letter after N handler failures.
-6. **CI integration job.** docker compose works in GitHub Actions; run the
-   integration suite with the stub embedder to keep it fast. Also consider
-   widening ruff and adding mypy.
+5. ~~**Embed-failure dead-lettering.**~~ Done 2026-07-17: `make_handler` retries
+   encode 3× inline, then dead-letters the message; upsert failures still
+   propagate (infrastructure, not poison — dead-lettering during a DB outage
+   would drain the stream into the DLQ).
+6. ~~**CI integration job.**~~ Done 2026-07-17: a second CI job brings up the
+   compose stack and runs the integration suite under the stub embedder
+   (`FRESHET_TEST_EMBEDDER`); embedding-semantics tests skip via
+   `importorskip("sentence_transformers")`. Verified in a CI-simulated venv
+   (`.[test]` only) — which also caught `run_eval` importing matplotlib at
+   module scope (now lazy). Widening ruff / adding mypy still open.
+
+Also done 2026-07-17: **minilm retired from live paths** — its 384-dim vectors
+cannot index into the `vector(768)` schema, so `make_embedder("minilm")` now
+fails fast with a clear message (frozen baseline JSON + RESULTS history remain);
+`run_demo.sh` no longer defaults to it (the item-3 bug class, fourth instance).
 
 ## Migration note
 
