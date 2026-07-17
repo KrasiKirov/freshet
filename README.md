@@ -1,5 +1,7 @@
 # Freshet — Real-Time Incident Intelligence
 
+[![CI](https://github.com/KrasiKirov/freshet/actions/workflows/ci.yml/badge.svg)](https://github.com/KrasiKirov/freshet/actions/workflows/ci.yml)
+
 **Streaming RAG for on-call engineers.** Freshet ingests operational events —
 deploys, alerts, metrics, incident chat, postmortems — through Kafka, indexes them
 into pgvector within **seconds**, and answers *"what's breaking, and why?"* with
@@ -20,9 +22,14 @@ postmortem.
 - **Autonomous incident loop** — on an alert it identifies the bad **commit**, pulls
   the runbook, estimates impact, posts a **cited Slack brief**, and threads a
   **postmortem** on resolution.
+- **Validated on real data it didn't generate** — 225 real public-status-feed
+  incidents, hand-labeled: retrieval surfaces the cause-stating update in the top 5
+  **92%** of the time, and the abstention floor tuned on synthetic data transfers to
+  real language unchanged (`make real-eval`).
 - **Rigorously evaluated, honestly** — retrieval, root-cause (hardened decoy
-  benchmark), LLM-as-judge faithfulness, and agentic-vs-single-shot ladders — with
-  negative results reported, not hidden.
+  benchmark), LLM-as-judge faithfulness, and a three-arm agentic ladder whose
+  **ablation shows the LLM agency adds nothing** over a deterministic retrieval
+  pipeline — negative results reported, not hidden.
 
 ### Run it in two commands (core path needs no API key)
 
@@ -114,13 +121,20 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
 - **Root-cause synthesis recovers the true cause and fix for all 40 incidents
   across all six archetypes** (deploy / config / dependency / resource / cert /
   migration) — the generalized timeline, validated service-scoped.
-- **Multi-step retrieval closes the hard whole-corpus gap**: with no service hint,
-  single-shot retrieval reaches only 0.17 cause-recall / 0.42 fix-recall even with
-  the bge retriever; adding a **non-semantic temporal lookup** ("what changed just
-  before the spike?") reaches **1.0 / 1.0** over 12 incidents. The win is the
-  retrieval capability, not LLM agency (the fixed-pipeline ablation is open and
-  named as such) — indicative,
-  key-gated.
+- **A non-semantic temporal lookup closes the hard whole-corpus gap**: with no
+  service hint, single-shot retrieval reaches only 0.17 cause-recall / 0.42
+  fix-recall even with the bge retriever; adding a **"what changed just before the
+  spike?"** lookup reaches **1.0 / 1.0** over 12 incidents. The ablation is now run:
+  a keyless, deterministic `fixed-two-step` pipeline using the same lookup **also
+  scores 1.0 / 1.0 — identical to the LLM agent**, so the win is the retrieval
+  capability, not agency.
+- **Validated on real incidents (`make real-eval`)** — 225 incidents (841 updates)
+  from five public status feeds, run through the same pipeline. Finding #1 is in the
+  data: only **12 of 225** state a machine-readable cause (the rest say "we've
+  identified the issue" and stop). On those 12, retrieval hits **recall@5 0.92** but
+  cites the exact cause update only **42%** of the time — the same single-shot gap,
+  now confirmed on real language — and the synthetic-tuned abstention floor separates
+  real on/off-topic queries **0/12 vs 8/8** with no retuning.
 - **Streaming is ~356× fresher than a batch baseline** (5s vs 1778s mean data
   staleness at an hourly batch cadence; ~4 orders of magnitude at a real nightly
   cadence) — the comparison the project is built to make.
@@ -216,8 +230,9 @@ is compressed upward, so the floors are not comparable across models).
     make rootcause-demo   # stream the corpus, print a cited root-cause timeline
     make rootcause-eval   # completeness: did retrieval surface the true cause/fix?
     make answer-eval      # LLM-judge: extractive timeline vs LLM narrative (needs a key)
-    make agent-eval       # multi-step vs single-shot root-cause retrieval (needs a key)
+    make agent-eval       # single-shot vs fixed-two-step vs agent ablation (agent arm needs a key)
     make agent-demo       # investigate one incident, save the transcript (needs a key)
+    make real-eval        # validate retrieval on real public status-feed incidents
     make embedding-compare # deterministic MiniLM-vs-bge retrieval before/after
     make multiquery-eval  # single-query vs LLM multi-query retrieval (needs a key)
     make replay           # re-index the corpus under a fresh consumer group
@@ -297,24 +312,56 @@ that returns whatever happened within a window of a timestamp, regardless of
 wording. It ends with a `submit_findings` terminal tool, and cited event-ids are
 validated against ids it actually saw (unseen ids dropped, keeping it grounded).
 
-Measured head-to-head on 12 incidents (2 per archetype), both whole-corpus:
+Measured head-to-head on 12 incidents (2 per archetype), all whole-corpus:
 
 | config | cause_recall | fix_recall |
 |---|---|---|
 | single-shot baseline (bge) | 0.17 | 0.42 |
-| **multi-step + temporal lookup** | **1.00** | **1.00** |
+| **fixed-two-step (keyless ablation)** | **1.00** | **1.00** |
+| agent (LLM tool loop) | 1.00 | 1.00 |
 
-It recovers cause and fix on every incident across every archetype, where the
-single-shot baseline finds only ~1-in-6 causes. A sample run is committed at
-[`results/agent_transcript.md`](results/agent_transcript.md) so a keyless clone can
-read it step by step. **Honest framing:** the win is the **temporal-lookup tool**,
-not the LLM agency — a fixed two-step pipeline using the same tool would likely
-match this. That ablation is now implemented as a keyless, deterministic arm of
-`make agent-eval` (`fixed-two-step`: same search, then anchor on the top spike hit
-and call the temporal lookup — no LLM); re-run the eval to compare all three arms.
-Caveats: the run is **non-deterministic** (one
-committed run; the baseline is keyless and deterministic), the sample is small (12)
-by design, and the path needs a key — the keyless core and CI are untouched.
+The temporal lookup recovers cause and fix on every incident across every archetype,
+where the single-shot baseline finds only ~1-in-6 causes. A sample agent run is
+committed at [`results/agent_transcript.md`](results/agent_transcript.md) so a
+keyless clone can read it step by step. **The ablation settles the honest question:**
+the `fixed-two-step` arm — the same search, then anchor on the top spike hit and call
+the temporal lookup, **with no LLM** — scores identically to the agent (1.00 / 1.00).
+So the entire lift over single-shot is the **retrieval capability**, and the LLM
+agency adds nothing measurable on this benchmark. Caveats: the agent arm is
+**non-deterministic** (one committed run); the single-shot and fixed-two-step arms
+are keyless and deterministic; the sample is small (12) by design; on messier real
+corpora the fixed anchor heuristic could pick the wrong anchor, where the agent loop
+might re-earn its keep — the synthetic benchmark can't show that either way (see the
+real-data section below).
+
+## Real-data validation — off the synthetic benchmark (M15)
+
+Every number above is measured on the generator's own corpus, which the system was
+built against. `make real-eval` is the first measurement on data the project did
+**not** author: 225 real incidents (841 status updates) snapshotted from the five
+public feeds the live demo already polls (Cloudflare, GitHub, Reddit, Discord,
+OpenAI), run through the **same** `map_incident` code path, with hand-reviewed labels
+marking the update that states each cause. Committed snapshots make it deterministic
+(`scripts/fetch_real_incidents.py` refreshes them).
+
+**The first finding is in the labeling.** Of 225 resolved incidents, only **12** have
+an update that states an actual cause — the modal real update is *"the issue has been
+identified and a fix is being implemented,"* which names none. GitHub is the exception
+(it writes true postmortems). That gap between tidy synthetic incidents and vague real
+ones is itself worth knowing.
+
+| metric | value | reading |
+|---|---|---|
+| recall@5 | **0.92** (11/12) | the cause update is in the top 5 for all but one |
+| top-1 citation | 0.42 (5/12) | the *literal* top hit is the cause update under half the time |
+| abstention | **0/12 on-topic, 8/8 off-topic** | the bge floor (0.70), calibrated on synthetic data, transfers to real language with no retuning |
+
+Honest read: retrieval **surfaces** the real cause reliably, but the keyless composer
+cites the *top* hit, which is the cause update only 42% of the time — the same
+single-shot gap the M11 ablation shows, now confirmed on real language rather than the
+generator's. That the synthetic-tuned abstention floor cleanly separates real
+on/off-topic queries is the strongest evidence it isn't overfit to the generator. Full
+write-up and the per-incident labels in [`RESULTS.md`](RESULTS.md) (M15).
 
 ## Layout
 
