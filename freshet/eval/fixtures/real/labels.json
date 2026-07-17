@@ -1,0 +1,92 @@
+{
+  "curated": "draft",
+  "_schema": {
+    "curated": "draft | reviewed — real_eval prints a warning until a human reviews the labels and sets 'reviewed'",
+    "labeled": "one entry per curated incident",
+    "labeled[].incident_id": "provider:statuspage_incident_id (matches Event.incident_id from map_incident)",
+    "labeled[].query": "the natural on-call question for this incident",
+    "labeled[].cause_update_ids": "raw statuspage update ids whose body STATES the cause (not just 'we identified the issue'); real_eval maps them to event ids",
+    "labeled[].notes": "the stated cause + curation caveats"
+  },
+  "_curation_note": "These 14 are the resolved incidents (of 225 fetched) whose updates state an ACTUAL cause. The modal real update is 'the issue has been identified and a fix is being implemented' — which names no cause and is deliberately NOT labeled. GitHub writes true postmortems in its resolved update ('On <date>... due to <cause>'); other providers usually state the cause mid-incident or not at all. Cause types span config change, backend-service failure, capacity/traffic surge, upstream-dependency outage, DB-migration replication lag, DNSSEC, and networking. Labels are my judgment calls pending review.",
+  "labeled": [
+    {
+      "incident_id": "github:q27ttsnp0x4g",
+      "query": "What caused GitHub Actions runs to fail to start?",
+      "cause_update_ids": ["r7tq6xmbtq3c"],
+      "notes": "Postmortem: triggered by a configuration change in an internal service."
+    },
+    {
+      "incident_id": "github:cstx3v63mklm",
+      "query": "Why were GitHub Actions job starts delayed on hosted runners?",
+      "cause_update_ids": ["3f436ls8br7w"],
+      "notes": "Postmortem: an unhealthy state in a backend data service that provisions hosted runners."
+    },
+    {
+      "incident_id": "github:fz9sdc2q008p",
+      "query": "What caused the Actions and Codespaces REST API 500 errors?",
+      "cause_update_ids": ["04snmsszt9t6"],
+      "notes": "Cause stated in the resolved postmortem update (the mid-incident updates only say 'likely cause identified')."
+    },
+    {
+      "incident_id": "github:5bnwwg9tzd4q",
+      "query": "Why were GitHub Pages deployments delayed?",
+      "cause_update_ids": ["pv62xk0yvpmx"],
+      "notes": "Postmortem: a surge in demand that exceeded available processing capacity."
+    },
+    {
+      "incident_id": "github:71hv2q6tk693",
+      "query": "What caused degraded availability of the Claude Opus model in Copilot?",
+      "cause_update_ids": ["r0fv7w022g35", "ngbxsj7qhm8n", "0rwfmm15v67f"],
+      "notes": "Cause stated both mid-incident ('due to an issue with an upstream model provider') and in the postmortem ('upstream provider issue ... rate limiting on secondary failover'). Multiple updates carry it."
+    },
+    {
+      "incident_id": "github:z3jhyg3l0dvx",
+      "query": "What caused delays in CodeQL, webhooks, and notifications?",
+      "cause_update_ids": ["b03227nhjrpr", "9y6vgw3h21kk"],
+      "notes": "Mid-incident names 'a queuing service'; postmortem gives the true cause: replication lag due to an internal database migration."
+    },
+    {
+      "incident_id": "reddit:k9ycmsw7k868",
+      "query": "What caused the degradation across Reddit services?",
+      "cause_update_ids": ["wqfdllzgpsdk", "kvxprt6sq35y"],
+      "notes": "AWS us-east-1 outage. Notably the cause is in the FIRST (investigating) update, not 'identified' — an upstream-dependency incident."
+    },
+    {
+      "incident_id": "reddit:wdhk0802p7sc",
+      "query": "Why were newly posted Reddit comments delayed?",
+      "cause_update_ids": ["3zxlqspd97y0"],
+      "notes": "A large spike in traffic caused scaling issues that delayed comment display. Cause is a late 'identified' update."
+    },
+    {
+      "incident_id": "cloudflare:q7nbm42dpxdp",
+      "query": "What caused elevated network errors for customers reaching Newark, NJ?",
+      "cause_update_ids": ["nqpmlzpqq4bf"],
+      "notes": "Network congestion in the EWR (Newark) region. Single resolved update states the cause."
+    },
+    {
+      "incident_id": "cloudflare:64d6d3l2h1lt",
+      "query": "Why are .AL domain name resolutions failing?",
+      "cause_update_ids": ["gtjh6zd07xmm"],
+      "notes": "DNSSEC issues at the .AL TLD. Cause in the first 'identified' update."
+    },
+    {
+      "incident_id": "discord:hm33xk31dk46",
+      "query": "What caused Discord streaming and messaging errors?",
+      "cause_update_ids": ["kgmhk6n5pmh1"],
+      "notes": "A networking issue. Cause stated in the investigating update; brief incident."
+    },
+    {
+      "incident_id": "discord:kvsqxkhkt72v",
+      "query": "What caused Discord voice and video connection issues?",
+      "cause_update_ids": ["1kkz10myxfhz"],
+      "notes": "A capacity drop at an infrastructure partner. Weaker/vaguer cause statement than the others — borderline."
+    },
+    {
+      "incident_id": "openai:01KXPJ62Z704GE0SRNKQA64X4X",
+      "query": "What caused elevated errors for the OpenAI GitHub connector?",
+      "cause_update_ids": ["01KXPK7TAZ8T337TSAHFPRNZN3"],
+      "notes": "GitHub's system-wide service-availability issues — an upstream-dependency incident. OpenAI's other incidents state no machine-readable cause."
+    }
+  ]
+}
