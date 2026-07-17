@@ -18,12 +18,11 @@ def conn():
     c.close()
 
 
-def test_brief_cause_cites_commit_sha(conn, monkeypatch):
+def test_brief_cause_cites_commit_sha(conn, emb, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     from freshet.common.schemas import Event, EventSource, Severity
     from freshet.connectors.github import GitHubConnector
     from freshet.eval.run_eval import index_corpus
-    from freshet.pipeline.embedding import make_embedder
     from freshet.api.retrieval import hybrid_search
     from freshet.api.synthesis import build_timeline
 
@@ -38,8 +37,8 @@ def test_brief_cause_cites_commit_sha(conn, monkeypatch):
                   type="error_spike", severity=Severity.SEV2,
                   text=f"5xx error rate on {svc} crossed 5% (now 20%)")
 
-    index_corpus(conn, make_embedder("bge"), [commit_ev, spike])
-    res = hybrid_search(conn, make_embedder("bge"),
+    index_corpus(conn, emb, [commit_ev, spike])
+    res = hybrid_search(conn, emb,
                         f"what caused the {svc} incident?", k=12, service=svc)
     tl = build_timeline(res.hits)
     assert tl.cause is not None

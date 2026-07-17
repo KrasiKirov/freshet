@@ -15,16 +15,14 @@ def conn():
     c.close()
 
 
-def test_gather_postmortem_sets_impact(conn, monkeypatch):
+def test_gather_postmortem_sets_impact(conn, emb, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.pipeline.embedding import make_embedder
     from freshet.autopilot.investigate import gather_postmortem
     from freshet.autopilot.brief import render_brief
     from freshet.generator.generator import build_benchmark
     from freshet.eval.run_eval import index_corpus
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
-    emb = make_embedder("bge")
     index_corpus(conn, emb, corpus)
     truth = truths[0]
 
@@ -40,15 +38,13 @@ def test_gather_postmortem_sets_impact(conn, monkeypatch):
     assert "Impact:" in out and "estimation pending" not in out
 
 
-def test_gather_findings_sets_impact_ongoing(conn, monkeypatch):
+def test_gather_findings_sets_impact_ongoing(conn, emb, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.pipeline.embedding import make_embedder
     from freshet.autopilot.investigate import gather_findings
     from freshet.generator.generator import build_benchmark
     from freshet.eval.run_eval import index_corpus
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
-    emb = make_embedder("bge")
     index_corpus(conn, emb, corpus)
     truth = truths[0]
 

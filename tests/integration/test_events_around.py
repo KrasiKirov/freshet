@@ -14,7 +14,6 @@ def conn():
 
 
 def test_events_around_returns_service_time_window(conn):
-    pytest.importorskip("sentence_transformers")
     from freshet.api.retrieval import events_around
     from freshet.eval.rootcause import _index_corpus
     from freshet.generator.generator import build_benchmark

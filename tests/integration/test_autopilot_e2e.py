@@ -15,9 +15,8 @@ def conn():
     c.close()
 
 
-def test_open_incident_briefs_once(conn, monkeypatch, capsys):
+def test_open_incident_briefs_once(conn, emb, monkeypatch, capsys):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.pipeline.embedding import make_embedder
     from freshet.pipeline.lifecycle import LifecycleEvent
     from freshet.autopilot.consumer import handle_lifecycle
     from freshet.autopilot.sinks.stdout import StdoutSink
@@ -25,7 +24,6 @@ def test_open_incident_briefs_once(conn, monkeypatch, capsys):
     from freshet.eval.run_eval import index_corpus
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
-    emb = make_embedder("bge")
     index_corpus(conn, emb, corpus)
     truth = truths[0]
 
@@ -49,9 +47,8 @@ def test_open_incident_briefs_once(conn, monkeypatch, capsys):
     assert "already briefed" in out2.lower() and "INCIDENT BRIEF" not in out2
 
 
-def test_resolve_posts_postmortem_once(conn, monkeypatch, capsys):
+def test_resolve_posts_postmortem_once(conn, emb, monkeypatch, capsys):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.pipeline.embedding import make_embedder
     from freshet.pipeline.lifecycle import LifecycleEvent
     from freshet.autopilot.consumer import handle_lifecycle
     from freshet.autopilot.sinks.stdout import StdoutSink
@@ -59,7 +56,6 @@ def test_resolve_posts_postmortem_once(conn, monkeypatch, capsys):
     from freshet.eval.run_eval import index_corpus
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
-    emb = make_embedder("bge")
     index_corpus(conn, emb, corpus)
     truth = truths[0]
 
@@ -84,16 +80,14 @@ def test_resolve_posts_postmortem_once(conn, monkeypatch, capsys):
     assert "already" in out2.lower() and "POSTMORTEM" not in out2
 
 
-def test_resolve_without_brief_skips_postmortem(conn, monkeypatch, capsys):
+def test_resolve_without_brief_skips_postmortem(conn, emb, monkeypatch, capsys):
     """A resolved incident that was never briefed (e.g. a historical incident
     replayed on the first status-feed poll) must not trigger a postmortem."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.pipeline.embedding import make_embedder
     from freshet.pipeline.lifecycle import LifecycleEvent
     from freshet.autopilot.consumer import handle_lifecycle
     from freshet.autopilot.sinks.stdout import StdoutSink
 
-    emb = make_embedder("bge")
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     conn.execute(
         "INSERT INTO incidents (incident_id, title, services, opened_at, resolved_at,"

@@ -15,15 +15,13 @@ def conn():
     c.close()
 
 
-def test_gather_postmortem_keyless(conn, monkeypatch):
+def test_gather_postmortem_keyless(conn, emb, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.pipeline.embedding import make_embedder
     from freshet.autopilot.investigate import gather_postmortem
     from freshet.generator.generator import build_benchmark
     from freshet.eval.run_eval import index_corpus
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
-    emb = make_embedder("bge")
     index_corpus(conn, emb, corpus)
     truth = truths[0]
 
