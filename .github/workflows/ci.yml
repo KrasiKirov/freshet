@@ -19,3 +19,24 @@ jobs:
         run: ruff check --select E9,F freshet tests scripts
       - name: Run unit tests
         run: pytest -q
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package and test deps
+        run: pip install -e ".[test]"
+      - name: Start stack (Redpanda + pgvector) and wait for health
+        run: make up
+      - name: Apply schema
+        run: make db-init
+      # Stub embedder: flow tests run without the 440 MB model download;
+      # embedding-semantics tests skip via importorskip("sentence_transformers").
+      - name: Run integration tests (stub embedder)
+        run: FRESHET_TEST_EMBEDDER=stub pytest -q -m integration
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --tail 100
