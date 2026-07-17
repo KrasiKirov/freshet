@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import signal
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -84,6 +85,58 @@ def observe_indexed(rec: VectorRecord) -> None:
     FRESHNESS.observe((rec.indexed_at - rec.ts).total_seconds())
 
 
+# Encode failures retry this many times inline before the message dead-letters,
+# so one poison event cannot crash-loop the worker (crash → redelivery → crash).
+EMBED_ATTEMPTS = 3
+
+
+def make_handler(conn, emb: Embedder, producer, *,
+                 topic: str = NORMALIZED_TOPIC,
+                 deadletter_topic: str = DEADLETTER_TOPIC,
+                 attempts: int = EMBED_ATTEMPTS,
+                 sleep=time.sleep):
+    """Build the per-message handler: parse → embed (with retry) → upsert.
+
+    Parse failures and repeated embed failures dead-letter the message.
+    Upsert failures propagate: they are infrastructure problems, not message
+    poison (the resilient connection has already retried reconnects), and
+    dead-lettering them during a DB outage would drain the stream into the DLQ.
+    """
+    from freshet.common.kafka_io import produce_sync
+
+    def _dead_letter(error: str, value: str) -> None:
+        produce_sync(producer, deadletter_topic, build_deadletter(error, value, topic))
+        DEADLETTER_EVENTS.inc()
+
+    def handle(value: str) -> None:
+        try:
+            ev = Event.model_validate_json(value)
+        except Exception as e:
+            _dead_letter(str(e), value)
+            return
+        records = records_for_event(ev)
+        if not records:
+            return
+        for attempt in range(1, attempts + 1):
+            try:
+                vectors = emb.encode([r.text for r in records])
+                break
+            except Exception as e:
+                if attempt == attempts:
+                    _dead_letter(f"embed failed after {attempts} attempts: {e}", value)
+                    return
+                sleep(0.2 * attempt)
+        if len(vectors) != len(records):
+            # zip would silently truncate; a miscounting embedder is a code
+            # bug, not message poison — fail loudly
+            raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
+        for rec, vector in zip(records, vectors):
+            upsert_record(conn, rec, vector)
+            observe_indexed(rec)
+
+    return handle
+
+
 def run(
     brokers: str,
     group: str = "embedder",
@@ -98,29 +151,12 @@ def run(
 ) -> int:
     start_metrics_server(metrics_port)
     from freshet.common.db import connect
-    from freshet.common.kafka_io import consume_loop, make_producer, produce_sync
+    from freshet.common.kafka_io import consume_loop, make_producer
 
     emb = embedder or make_embedder("bge")
     conn = connect(dsn)
     producer = make_producer(brokers)
-
-    def handle(value: str) -> None:
-        try:
-            ev = Event.model_validate_json(value)
-        except Exception as e:
-            produce_sync(producer, deadletter_topic, build_deadletter(str(e), value, topic))
-            DEADLETTER_EVENTS.inc()
-            return
-        records = records_for_event(ev)
-        if not records:
-            return
-        vectors = emb.encode([r.text for r in records])
-        if len(vectors) != len(records):
-            # zip would silently truncate; a miscounting embedder must fail loudly
-            raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
-        for rec, vector in zip(records, vectors):
-            upsert_record(conn, rec, vector)
-            observe_indexed(rec)
+    handle = make_handler(conn, emb, producer, topic=topic, deadletter_topic=deadletter_topic)
 
     try:
         n = consume_loop(brokers, group, [topic], handle, max_messages, auto_commit=False, stop=stop, idle_timeout_s=idle_timeout_s)

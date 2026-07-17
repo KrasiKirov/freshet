@@ -54,3 +54,94 @@ def test_observe_indexed_records_freshness():
 
     assert REGISTRY.get_sample_value("freshet_embedder_events_total") == events_before + 1
     assert abs(REGISTRY.get_sample_value("freshet_freshness_seconds_sum") - sum_before - 2.5) < 1e-6
+
+
+class _FakeProducer:
+    """Collects (topic, value) pairs; compatible with produce_sync."""
+
+    def __init__(self):
+        self.messages = []
+
+    def produce(self, topic, key=None, value=None, on_delivery=None):
+        self.messages.append((topic, value))
+        if on_delivery:
+            on_delivery(None, None)
+
+    def poll(self, timeout=0):
+        return 0
+
+    def flush(self, timeout=None):
+        return 0
+
+
+class _FakeConn:
+    def __init__(self):
+        self.executed = []
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+
+
+class _FlakyEmbedder:
+    """Fails the first n encode calls, then behaves like the stub."""
+
+    def __init__(self, failures):
+        self.failures = failures
+        self.calls = 0
+
+    def encode(self, texts):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise RuntimeError("model exploded")
+        from freshet.pipeline.embedding import StubEmbedder
+        return StubEmbedder().encode(texts)
+
+
+def _event_json():
+    ev = Event(service="s", source=EventSource.ALERT, type="error_spike", text="5xx spike")
+    return ev.model_dump_json()
+
+
+def test_poison_message_dead_letters_after_retries():
+    from freshet.pipeline.embedder import make_handler
+
+    producer, conn = _FakeProducer(), _FakeConn()
+    naps = []
+    handle = make_handler(conn, _FlakyEmbedder(failures=99), producer,
+                          attempts=3, sleep=naps.append)
+    handle(_event_json())  # must not raise: the message dead-letters instead
+    assert len(producer.messages) == 1
+    topic, value = producer.messages[0]
+    assert topic == "deadletter.events" and "3 attempts" in value
+    assert conn.executed == []          # nothing indexed
+    assert len(naps) == 2               # slept between attempts, not after the last
+
+
+def test_transient_embed_failure_recovers_without_deadletter():
+    from freshet.pipeline.embedder import make_handler
+
+    producer, conn = _FakeProducer(), _FakeConn()
+    handle = make_handler(conn, _FlakyEmbedder(failures=1), producer,
+                          attempts=3, sleep=lambda s: None)
+    handle(_event_json())
+    assert producer.messages == []      # no dead-letter
+    assert len(conn.executed) == 1      # the chunk was upserted
+
+
+def test_db_failure_still_propagates():
+    """Upsert failures are infrastructure, not message poison: dead-lettering
+    them during a DB outage would drain the stream into the DLQ."""
+    import pytest
+
+    from freshet.pipeline.embedder import make_handler
+
+    class _BrokenConn(_FakeConn):
+        def execute(self, sql, params=None):
+            raise RuntimeError("db down")
+
+    producer = _FakeProducer()
+    handle = make_handler(_BrokenConn(), _FlakyEmbedder(failures=0), producer,
+                          attempts=3, sleep=lambda s: None)
+    with pytest.raises(RuntimeError, match="db down"):
+        handle(_event_json())
+    assert producer.messages == []
