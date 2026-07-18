@@ -119,7 +119,7 @@ def main() -> None:
     conn = connect()
     corpus = load_corpus()
     print(f"Real corpus: {len(corpus)} update events across "
-          f"{len(set(e.incident_id for e in corpus))} incidents; indexing…")
+          f"{len({e.incident_id for e in corpus})} incidents; indexing…")
     index_corpus(conn, embedder, corpus)
 
     records = []

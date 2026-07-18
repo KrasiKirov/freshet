@@ -1,5 +1,5 @@
 from freshet.common.schemas import CHANGE_TYPES, REMEDIATION_TYPES, EventSource
-from freshet.generator.generator import build_benchmark, SERVICES
+from freshet.generator.generator import SERVICES, build_benchmark
 
 
 def test_benchmark_has_n_incidents_across_archetypes():

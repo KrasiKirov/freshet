@@ -3,7 +3,7 @@ from freshet.pipeline.incidents import RESOLUTION_TYPES, correlate, incident_tit
 
 
 def _ev(**kw) -> Event:
-    base = dict(service="scheduler-api", source=EventSource.ALERT, type="error_spike", text="x")
+    base = {"service": "scheduler-api", "source": EventSource.ALERT, "type": "error_spike", "text": "x"}
     base.update(kw)
     return Event(**base)
 
@@ -30,10 +30,9 @@ class _FakeConn:
             row = (self.inserted,)
         elif "SELECT incident_id FROM incidents" in sql:  # FIND_OPEN
             row = (self.open_incident,) if self.open_incident else None
-        elif "SET resolved_at" in sql:
-            if self.resolves:
-                self.resolved.append(params["id"])
-                row = (params["id"],)
+        elif "SET resolved_at" in sql and self.resolves:
+            self.resolved.append(params["id"])
+            row = (params["id"],)
 
         class _R:
             def __init__(self, r):

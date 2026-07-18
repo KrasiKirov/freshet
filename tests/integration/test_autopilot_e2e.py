@@ -17,11 +17,11 @@ def conn():
 
 def test_open_incident_briefs_once(conn, emb, monkeypatch, capsys):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.pipeline.lifecycle import LifecycleEvent
     from freshet.autopilot.consumer import handle_lifecycle
     from freshet.autopilot.sinks.stdout import StdoutSink
-    from freshet.generator.generator import build_benchmark
     from freshet.eval.run_eval import index_corpus
+    from freshet.generator.generator import build_benchmark
+    from freshet.pipeline.lifecycle import LifecycleEvent
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
     index_corpus(conn, emb, corpus)
@@ -49,11 +49,11 @@ def test_open_incident_briefs_once(conn, emb, monkeypatch, capsys):
 
 def test_resolve_posts_postmortem_once(conn, emb, monkeypatch, capsys):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.pipeline.lifecycle import LifecycleEvent
     from freshet.autopilot.consumer import handle_lifecycle
     from freshet.autopilot.sinks.stdout import StdoutSink
-    from freshet.generator.generator import build_benchmark
     from freshet.eval.run_eval import index_corpus
+    from freshet.generator.generator import build_benchmark
+    from freshet.pipeline.lifecycle import LifecycleEvent
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
     index_corpus(conn, emb, corpus)
@@ -84,9 +84,9 @@ def test_resolve_without_brief_skips_postmortem(conn, emb, monkeypatch, capsys):
     """A resolved incident that was never briefed (e.g. a historical incident
     replayed on the first status-feed poll) must not trigger a postmortem."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.pipeline.lifecycle import LifecycleEvent
     from freshet.autopilot.consumer import handle_lifecycle
     from freshet.autopilot.sinks.stdout import StdoutSink
+    from freshet.pipeline.lifecycle import LifecycleEvent
 
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     conn.execute(

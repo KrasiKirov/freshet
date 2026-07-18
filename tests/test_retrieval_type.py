@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from freshet.api.retrieval import RetrievedHit, hybrid_search
 from freshet.pipeline.embedding import EMBEDDING_DIM
@@ -6,8 +6,8 @@ from freshet.pipeline.embedding import EMBEDDING_DIM
 
 def test_retrieved_hit_has_type():
     h = RetrievedHit(chunk_id="c", event_id="e", service="s",
-                     ts=datetime(2026, 6, 6, tzinfo=timezone.utc),
-                     indexed_at=datetime(2026, 6, 6, tzinfo=timezone.utc),
+                     ts=datetime(2026, 6, 6, tzinfo=UTC),
+                     indexed_at=datetime(2026, 6, 6, tzinfo=UTC),
                      source="deploy", text="t", type="rollback",
                      similarity=0.1, score=0.2)
     assert h.type == "rollback"
@@ -37,7 +37,7 @@ class _ReverseReranker:
 
 
 def _rows():
-    ts = datetime(2026, 6, 6, 12, tzinfo=timezone.utc)
+    ts = datetime(2026, 6, 6, 12, tzinfo=UTC)
     # chunk_id, event_id, service, ts, indexed_at, source, text, type, score
     return [
         ("c1", "e1", "s", ts, ts, "deploy", "deploy started", "deploy_started", 0.9),

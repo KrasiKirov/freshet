@@ -12,12 +12,12 @@ import os
 import signal
 import threading
 
+from freshet.autopilot.consumer import handle_lifecycle
+from freshet.autopilot.sinks.factory import make_sink
 from freshet.common.db import connect
 from freshet.common.kafka_io import consume_loop
 from freshet.pipeline.embedding import make_embedder
 from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC
-from freshet.autopilot.consumer import handle_lifecycle
-from freshet.autopilot.sinks.factory import make_sink
 
 
 def main() -> None:

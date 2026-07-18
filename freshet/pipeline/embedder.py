@@ -14,22 +14,26 @@ import argparse
 import signal
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from freshet.common.schemas import Event, VectorRecord
 from freshet.pipeline.chunking import chunk_text
 from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
 from freshet.pipeline.embedding import Embedder, make_embedder, vec_literal
-from freshet.pipeline.metrics import DEADLETTER_EVENTS, FRESHNESS, INDEXED_EVENTS, start_metrics_server
+from freshet.pipeline.metrics import (
+    DEADLETTER_EVENTS,
+    FRESHNESS,
+    INDEXED_EVENTS,
+    start_metrics_server,
+)
 from freshet.pipeline.normalizer import NORMALIZED_TOPIC
 
 
-def records_for_event(ev: Event, now: Optional[datetime] = None) -> list[VectorRecord]:
+def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorRecord]:
     """One record per text chunk. chunk_id derives from event_id + index, so
     redelivery and replay overwrite the same rows (idempotent). Blank text
     yields no records."""
-    stamp = now or datetime.now(timezone.utc)
+    stamp = now or datetime.now(UTC)
     return [
         VectorRecord(
             chunk_id=f"chk_{ev.event_id}_{i}",
@@ -130,7 +134,7 @@ def make_handler(conn, emb: Embedder, producer, *,
             # zip would silently truncate; a miscounting embedder is a code
             # bug, not message poison — fail loudly
             raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
-        for rec, vector in zip(records, vectors):
+        for rec, vector in zip(records, vectors, strict=True):
             upsert_record(conn, rec, vector)
             observe_indexed(rec)
 
@@ -140,14 +144,14 @@ def make_handler(conn, emb: Embedder, producer, *,
 def run(
     brokers: str,
     group: str = "embedder",
-    max_messages: Optional[int] = None,
+    max_messages: int | None = None,
     topic: str = NORMALIZED_TOPIC,
-    embedder: Optional[Embedder] = None,
-    dsn: Optional[str] = None,
+    embedder: Embedder | None = None,
+    dsn: str | None = None,
     deadletter_topic: str = DEADLETTER_TOPIC,
     metrics_port: int = 0,
-    stop: Optional[threading.Event] = None,
-    idle_timeout_s: Optional[float] = None,
+    stop: threading.Event | None = None,
+    idle_timeout_s: float | None = None,
 ) -> int:
     start_metrics_server(metrics_port)
     from freshet.common.db import connect

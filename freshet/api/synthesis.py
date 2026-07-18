@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Optional
 
 from freshet.api.retrieval import RetrievedHit
 from freshet.common.schemas import CHANGE_TYPES, REMEDIATION_TYPES
@@ -44,10 +43,10 @@ class TimelineEntry:
 
 @dataclass
 class Timeline:
-    service: Optional[str]
+    service: str | None
     entries: list[TimelineEntry] = field(default_factory=list)
-    cause: Optional[RetrievedHit] = None
-    fix: Optional[RetrievedHit] = None
+    cause: RetrievedHit | None = None
+    fix: RetrievedHit | None = None
 
     def render(self) -> str:
         if not self.entries:
@@ -68,7 +67,7 @@ class Timeline:
 
 
 def _select_cause(candidates: list[RetrievedHit], hits: list[RetrievedHit],
-                  first_spike_ts) -> Optional[RetrievedHit]:
+                  first_spike_ts) -> RetrievedHit | None:
     """Pick the cause among candidate changes at/before the spike. Blends retrieval
     RANK (position in `hits`, which reranking reorders — lower is better) with temporal
     proximity to the spike. Falls back to recency (latest) when rank is uninformative,
@@ -127,14 +126,14 @@ _NARRATIVE_SYSTEM = (
 )
 
 
-def _timeline_evidence(timeline: "Timeline") -> str:
+def _timeline_evidence(timeline: Timeline) -> str:
     return "\n".join(
         f"[{e.hit.event_id} @ {e.hit.ts:%Y-%m-%d %H:%M:%S}] ({e.role}) {e.hit.text}"
         for e in timeline.entries
     )
 
 
-def synthesize_narrative(timeline: "Timeline", client=None, model=None) -> str:
+def synthesize_narrative(timeline: Timeline, client=None, model=None) -> str:
     """Optional, key-gated: write a grounded causal narrative over the timeline.
     An empty timeline abstains with no LLM call (keyless-safe). `client` is an
     Anthropic-style client (injected in tests); if None it is built lazily and

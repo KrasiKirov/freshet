@@ -33,3 +33,23 @@ markers = [
     "integration: requires the docker-compose stack (broker + Postgres)",
 ]
 addopts = "-m 'not integration'"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# E9,F stay the CI gate (syntax, undefined names, unused). The rest add value
+# without style churn: bugbear (real bug patterns), import order, comprehension
+# and simplification cleanups, and pyupgrade modernization. E501 is intentionally
+# off — many long lines are SQL and docstrings where wrapping hurts readability.
+select = ["E4", "E7", "E9", "F", "W", "I", "B", "C4", "SIM", "UP"]
+# E501: long lines are intentional in SQL/docstrings. B008: `Depends(...)` in a
+# default is the FastAPI idiom, not a bug. UP042: the schema enums are
+# deliberately `(str, Enum)` — `StrEnum` changes `__str__`/JSON output.
+ignore = ["E501", "B008", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+# Scripts and eval entrypoints prepend to sys.path or lazy-import behind a
+# runtime guard before importing freshet — E402 is expected there.
+"scripts/*" = ["E402"]
+"freshet/eval/real_eval.py" = ["E402"]

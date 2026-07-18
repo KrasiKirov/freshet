@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from freshet.common.schemas import Event, EventSource, Severity, VectorRecord
 
@@ -30,7 +30,7 @@ def test_event_json_round_trip():
 
 
 def test_freshness_math():
-    t0 = datetime(2026, 6, 6, 8, 0, 0, tzinfo=timezone.utc)
+    t0 = datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC)
     e = Event(
         service="s",
         source=EventSource.METRIC,
@@ -47,7 +47,7 @@ def test_vector_record_requires_core_fields():
     vr = VectorRecord(
         event_id="evt_1",
         service="s",
-        ts=datetime.now(timezone.utc),
+        ts=datetime.now(UTC),
         text="chunk",
         source=EventSource.POSTMORTEM,
     )

@@ -1,5 +1,5 @@
 import types
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -8,7 +8,7 @@ from freshet.eval import judge
 
 
 def _hit(eid, text):
-    ts = datetime(2026, 6, 6, 12, tzinfo=timezone.utc)
+    ts = datetime(2026, 6, 6, 12, tzinfo=UTC)
     return RetrievedHit(chunk_id=eid, event_id=eid, service="s", ts=ts, indexed_at=ts,
                         source="deploy", text=text, type="rollback", similarity=0.5, score=1.0)
 

@@ -1,6 +1,9 @@
 """Unit tests for the embedding interface: dim, query-instruction prefixing."""
 from freshet.pipeline.embedding import (
-    EMBEDDING_DIM, StubEmbedder, _apply_query_instruction, make_embedder,
+    EMBEDDING_DIM,
+    StubEmbedder,
+    _apply_query_instruction,
+    make_embedder,
 )
 
 

@@ -3,9 +3,9 @@ from freshet.autopilot.sinks.slack import slack_blocks
 
 
 def _f(**kw):
-    base = dict(service="api", status="open", cause_text="bad deploy",
-                cause_cite="[ev1 @ 2026-07-01 00:00:00]", fix_text=None, fix_cite=None,
-                runbook="restart the worker", narrative=None)
+    base = {"service": "api", "status": "open", "cause_text": "bad deploy",
+            "cause_cite": "[ev1 @ 2026-07-01 00:00:00]", "fix_text": None, "fix_cite": None,
+            "runbook": "restart the worker", "narrative": None}
     base.update(kw)
     return Findings(**base)
 

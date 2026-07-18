@@ -7,10 +7,11 @@ from __future__ import annotations
 import os
 from collections import namedtuple
 from datetime import timedelta
-from typing import Optional
 
 from freshet.autopilot.brief import (
-    Findings, findings_from_investigation, findings_from_timeline,
+    Findings,
+    findings_from_investigation,
+    findings_from_timeline,
 )
 from freshet.autopilot.impact import estimate_impact
 
@@ -25,12 +26,12 @@ _INCIDENT_IMPACT_SQL = ("SELECT services, opened_at, resolved_at"
                         " FROM incidents WHERE incident_id = %s")
 
 
-def fetch_runbook(conn, service: str) -> Optional[str]:
+def fetch_runbook(conn, service: str) -> str | None:
     row = conn.execute(_RUNBOOK_SQL, (service,)).fetchone()
     return row[0] if row else None
 
 
-def lookup_hit(conn, event_id: str) -> Optional[_Hit]:
+def lookup_hit(conn, event_id: str) -> _Hit | None:
     row = conn.execute(_LOOKUP_SQL, (event_id,)).fetchone()
     return _Hit(event_id=row[0], ts=row[1], text=row[2]) if row else None
 
@@ -84,7 +85,7 @@ _INCIDENT_ROW_SQL = ("SELECT opened_at, resolved_at, resolution_summary"
                      " FROM incidents WHERE incident_id = %s")
 
 
-def _format_duration(opened_at, resolved_at) -> Optional[str]:
+def _format_duration(opened_at, resolved_at) -> str | None:
     if not opened_at or not resolved_at:
         return None
     secs = int((resolved_at - opened_at).total_seconds())

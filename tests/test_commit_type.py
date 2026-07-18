@@ -1,4 +1,4 @@
-from freshet.common.schemas import EventType, CHANGE_TYPES
+from freshet.common.schemas import CHANGE_TYPES, EventType
 
 
 def test_commit_event_type_exists():

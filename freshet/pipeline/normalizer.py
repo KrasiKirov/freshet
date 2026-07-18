@@ -19,30 +19,29 @@ from __future__ import annotations
 import argparse
 import signal
 import threading
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from freshet.common.schemas import Event
 from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
+from freshet.pipeline.incidents import correlate
 from freshet.pipeline.metrics import (
     DEADLETTER_EVENTS,
     INGEST_LAG,
     NORMALIZED_EVENTS,
     start_metrics_server,
 )
-from freshet.pipeline.incidents import correlate
 
 RAW_TOPIC = "raw.events"
 NORMALIZED_TOPIC = "normalized.events"
 
 
-def normalize(value: str, now: Optional[datetime] = None) -> Optional[Event]:
+def normalize(value: str, now: datetime | None = None) -> Event | None:
     """Parse and validate one raw payload; stamp ingested_at. None if invalid."""
     try:
         ev = Event.model_validate_json(value)
     except Exception:
         return None
-    ev.ingested_at = now or datetime.now(timezone.utc)
+    ev.ingested_at = now or datetime.now(UTC)
     return ev
 
 
@@ -56,13 +55,13 @@ def observe_normalized(ev: Event) -> None:
 def run(
     brokers: str,
     group: str = "normalizer",
-    max_messages: Optional[int] = None,
+    max_messages: int | None = None,
     raw_topic: str = RAW_TOPIC,
     normalized_topic: str = NORMALIZED_TOPIC,
     deadletter_topic: str = DEADLETTER_TOPIC,
     metrics_port: int = 0,
-    dsn: Optional[str] = None,
-    stop: Optional[threading.Event] = None,
+    dsn: str | None = None,
+    stop: threading.Event | None = None,
     commit_every: int = 1,
 ) -> int:
     start_metrics_server(metrics_port)

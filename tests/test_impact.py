@@ -1,8 +1,8 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from freshet.autopilot.impact import classify_impact, estimate_impact, max_stated_pct
 
-T0 = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
 
 
 def _span(minutes):

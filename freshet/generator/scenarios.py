@@ -8,9 +8,9 @@ relevant to which questions — that is the ground truth the eval harness uses.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Callable, Optional
 
 from freshet.common.schemas import Event, EventSource, EventType, Severity
 
@@ -95,7 +95,7 @@ class Step:
     type: str
     role: str
     text: str
-    severity: Optional[Severity] = None
+    severity: Severity | None = None
 
 
 @dataclass(frozen=True)
@@ -128,7 +128,8 @@ def _archetype(name, change, fix, queries) -> Archetype:
     ])
 
 
-_Q = lambda *pairs: [(t, frozenset(types)) for t, types in pairs]
+def _Q(*pairs):
+    return [(t, frozenset(types)) for t, types in pairs]
 
 ARCHETYPES: list[Archetype] = [
     _archetype("deploy_regression",

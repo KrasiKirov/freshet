@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from freshet.common.schemas import EventSource
-from freshet.generator.scenarios import build_runbooks
+from freshet.common.schemas import EventSource, EventType
+from freshet.generator.scenarios import build_runbooks, build_scenario
 
 
 def test_runbook_source_exists():
@@ -9,7 +9,7 @@ def test_runbook_source_exists():
 
 
 def test_build_runbooks_one_per_service():
-    start = datetime(2026, 6, 6, 8, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 6, 6, 8, 0, tzinfo=UTC)
     svcs = ["scheduler-api", "task-queue"]
     docs = build_runbooks(start, svcs)
     assert [d.service for d in docs] == svcs
@@ -17,13 +17,9 @@ def test_build_runbooks_one_per_service():
     assert all(d.ts == start and d.text for d in docs)
 
 
-from freshet.generator.scenarios import build_scenario
-from freshet.common.schemas import EventType
-
-
 def test_build_scenario_parameterized_service():
-    from datetime import datetime, timezone
-    start = datetime(2026, 6, 6, 8, 0, tzinfo=timezone.utc)
+    from datetime import datetime
+    start = datetime(2026, 6, 6, 8, 0, tzinfo=UTC)
     evs = build_scenario(start, "INC-0007", service="billing-api")
     assert all(e.service == "billing-api" for e in evs)
     assert all(e.incident_id == "INC-0007" for e in evs)

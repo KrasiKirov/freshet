@@ -1,10 +1,10 @@
 import types
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from freshet.api.retrieval import RetrievedHit
 from freshet.api.synthesis import build_timeline, synthesize_narrative
 
-T0 = datetime(2026, 6, 6, 12, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 6, 6, 12, 0, tzinfo=UTC)
 
 
 def _hit(eid, off, source, type_, text):

@@ -1,11 +1,11 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from freshet.api.composer import TemplateComposer, make_composer
 from freshet.api.retrieval import RetrievedHit
 
 
 def _hit(event_id="e1", text="5xx error spike on scheduler-api") -> RetrievedHit:
-    now = datetime(2026, 6, 13, 9, 30, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 13, 9, 30, 0, tzinfo=UTC)
     return RetrievedHit(
         chunk_id=f"chk_{event_id}_0", event_id=event_id, service="scheduler-api",
         ts=now, indexed_at=now, source="alert", text=text, type="alert_fired",

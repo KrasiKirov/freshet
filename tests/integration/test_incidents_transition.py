@@ -18,8 +18,8 @@ def conn():
 
 
 def _ev(iid, **kw):
-    base = dict(service="scheduler-api", source=EventSource.ALERT, type="error_spike",
-                text="x", incident_id=iid)
+    base = {"service": "scheduler-api", "source": EventSource.ALERT, "type": "error_spike",
+            "text": "x", "incident_id": iid}
     base.update(kw)
     return Event(**base)
 

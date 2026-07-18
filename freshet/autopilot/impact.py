@@ -6,23 +6,22 @@ contained (no imports from investigate) to avoid an import cycle."""
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 _PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 
 
-def max_stated_pct(hit_texts: list[str]) -> Optional[float]:
+def max_stated_pct(hit_texts: list[str]) -> float | None:
     vals = [float(m) for t in hit_texts for m in _PCT_RE.findall(t)]
     return max(vals) if vals else None
 
 
-def _duration_min(opened_at, resolved_at) -> Optional[float]:
+def _duration_min(opened_at, resolved_at) -> float | None:
     if not opened_at or not resolved_at:
         return None
     return (resolved_at - opened_at).total_seconds() / 60.0
 
 
-def _duration_display(mins: Optional[float]) -> str:
+def _duration_display(mins: float | None) -> str:
     if mins is None:
         return "ongoing"
     secs = int(mins * 60)

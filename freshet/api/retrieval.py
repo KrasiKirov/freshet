@@ -9,8 +9,8 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from freshet.api.rerank import Reranker
@@ -20,7 +20,7 @@ from freshet.pipeline.embedding import Embedder, vec_literal
 _COLS = "chunk_id, event_id, service, ts, indexed_at, source, text, type"
 
 
-def _where(service: Optional[str], since: Optional[datetime]) -> str:
+def _where(service: str | None, since: datetime | None) -> str:
     clauses = []
     if service is not None:
         clauses.append("service = %(service)s")
@@ -29,7 +29,7 @@ def _where(service: Optional[str], since: Optional[datetime]) -> str:
     return (" WHERE " + " AND ".join(clauses)) if clauses else ""
 
 
-def vector_sql(service: Optional[str], since: Optional[datetime]) -> str:
+def vector_sql(service: str | None, since: datetime | None) -> str:
     # chunk_id breaks distance ties deterministically: without it, tied rows come
     # back in physical heap order, which shifts run-to-run (the eval DELETEs and
     # re-INSERTs every run) and makes the benchmark non-reproducible.
@@ -51,7 +51,7 @@ def vector_sql(service: Optional[str], since: Optional[datetime]) -> str:
 _OR_TSQUERY = "replace(websearch_to_tsquery('english', %(q)s)::text, '&', '|')::tsquery"
 
 
-def keyword_sql(service: Optional[str], since: Optional[datetime]) -> str:
+def keyword_sql(service: str | None, since: datetime | None) -> str:
     where = _where(service, since)
     match = f"text_tsv @@ {_OR_TSQUERY}"
     where = (where + " AND " + match) if where else (" WHERE " + match)
@@ -179,12 +179,12 @@ def hybrid_search(
     embedder: Embedder,
     question: str,
     k: int = 5,
-    service: Optional[str] = None,
-    since: Optional[datetime] = None,
-    tau_s: Optional[float] = None,
-    min_similarity: Optional[float] = None,
-    now: Optional[datetime] = None,
-    reranker: Optional["Reranker"] = None,
+    service: str | None = None,
+    since: datetime | None = None,
+    tau_s: float | None = None,
+    min_similarity: float | None = None,
+    now: datetime | None = None,
+    reranker: Reranker | None = None,
     rerank_pool: int = 30,
 ) -> HybridResult:
     # None -> resolve defaults: tau from FRESHET_TAU_S (else the demo-tuned
@@ -207,7 +207,7 @@ def hybrid_search(
     kw_map = _rows_to_map(kw_rows, 8)     # rank is now column index 8
     fused = reciprocal_rank_fusion([[r[0] for r in vec_rows], [r[0] for r in kw_rows]])
 
-    stamp = now or datetime.now(timezone.utc)
+    stamp = now or datetime.now(UTC)
     hits: list[RetrievedHit] = []
     for chunk_id, rrf_score in fused:
         row, _ = vec_map.get(chunk_id) or kw_map[chunk_id]

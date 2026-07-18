@@ -10,8 +10,7 @@ import json
 import logging
 import time
 import urllib.request
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from freshet.common.kafka_io import make_producer, produce_sync
 from freshet.common.schemas import Event, EventSource, Severity
@@ -36,14 +35,14 @@ def _d(value: object) -> dict:
 
 def _ts(value: str | None) -> datetime:
     if not value:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
-def _severity(impact: object) -> Optional[Severity]:
+def _severity(impact: object) -> Severity | None:
     return _IMPACT_TO_SEV.get(impact) if isinstance(impact, str) else None
 
 
@@ -74,7 +73,7 @@ def map_incident(source: str, incident: dict) -> list[Event]:
     return out
 
 
-def fetch(url: str, timeout: float = 10.0) -> Optional[dict]:
+def fetch(url: str, timeout: float = 10.0) -> dict | None:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -85,7 +84,7 @@ def fetch(url: str, timeout: float = 10.0) -> Optional[dict]:
 
 
 def poll_once(sources, producer, topic: str = "raw.events",
-              seen: Optional[set] = None) -> int:
+              seen: set | None = None) -> int:
     """Fetch each feed and produce new events. `seen` (a set of event_ids the
     caller keeps across polls) suppresses re-producing updates already sent —
     without it every poll replays the whole feed (harmless downstream thanks to

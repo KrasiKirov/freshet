@@ -1,11 +1,11 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from freshet.api.retrieval import RetrievedHit
 from freshet.api.synthesis import build_timeline
 
 
 def _hit(eid, ts_min, type_, text):
-    ts = datetime(2026, 7, 1, 12, ts_min, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 7, 1, 12, ts_min, 0, tzinfo=UTC)
     return RetrievedHit(chunk_id=eid + "#0", event_id=eid, service="api", ts=ts,
                         indexed_at=ts, source="deploy", text=text, type=type_,
                         similarity=1.0, score=1.0)

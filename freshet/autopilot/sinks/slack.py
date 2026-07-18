@@ -5,7 +5,6 @@ keyless core (and CI without the [slack] extra) never imports it."""
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from freshet.autopilot.brief import Findings, render_brief
 
@@ -64,7 +63,7 @@ class SlackSink:
     def dry_run(self) -> bool:
         return self._dry_run
 
-    def deliver(self, findings: Findings, *, thread: Optional[str] = None) -> Optional[str]:
+    def deliver(self, findings: Findings, *, thread: str | None = None) -> str | None:
         blocks = slack_blocks(findings)
         text = render_brief(findings)  # plain-text notification fallback
         if self._dry_run:

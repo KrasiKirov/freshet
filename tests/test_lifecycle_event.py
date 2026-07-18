@@ -1,4 +1,4 @@
-from freshet.pipeline.lifecycle import LifecycleEvent, LIFECYCLE_TOPIC
+from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC, LifecycleEvent
 
 
 def test_topic_name():

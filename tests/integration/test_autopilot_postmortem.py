@@ -18,8 +18,8 @@ def conn():
 def test_gather_postmortem_keyless(conn, emb, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     from freshet.autopilot.investigate import gather_postmortem
-    from freshet.generator.generator import build_benchmark
     from freshet.eval.run_eval import index_corpus
+    from freshet.generator.generator import build_benchmark
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
     index_corpus(conn, emb, corpus)

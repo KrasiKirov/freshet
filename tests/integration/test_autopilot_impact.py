@@ -17,10 +17,10 @@ def conn():
 
 def test_gather_postmortem_sets_impact(conn, emb, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from freshet.autopilot.investigate import gather_postmortem
     from freshet.autopilot.brief import render_brief
-    from freshet.generator.generator import build_benchmark
+    from freshet.autopilot.investigate import gather_postmortem
     from freshet.eval.run_eval import index_corpus
+    from freshet.generator.generator import build_benchmark
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
     index_corpus(conn, emb, corpus)
@@ -41,8 +41,8 @@ def test_gather_postmortem_sets_impact(conn, emb, monkeypatch):
 def test_gather_findings_sets_impact_ongoing(conn, emb, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     from freshet.autopilot.investigate import gather_findings
-    from freshet.generator.generator import build_benchmark
     from freshet.eval.run_eval import index_corpus
+    from freshet.generator.generator import build_benchmark
 
     corpus, truths = build_benchmark(seed=1, n_incidents=40)
     index_corpus(conn, emb, corpus)

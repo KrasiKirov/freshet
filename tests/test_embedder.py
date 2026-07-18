@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from freshet.common.schemas import Event, EventSource
 from freshet.pipeline.embedder import records_for_event
@@ -6,7 +6,7 @@ from freshet.pipeline.embedder import records_for_event
 
 def test_records_have_deterministic_chunk_ids():
     ev = Event(service="s", source=EventSource.ALERT, type="error_spike", text="5xx spike", incident_id="INC-1")
-    now = datetime(2026, 6, 12, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 12, 12, 0, 0, tzinfo=UTC)
     [a] = records_for_event(ev, now=now)
     [b] = records_for_event(ev, now=now)
     # reprocessing the same event must target the same row (idempotent upsert)
@@ -16,7 +16,7 @@ def test_records_have_deterministic_chunk_ids():
 def test_long_text_yields_multiple_records():
     text = " ".join(f"word{i}" for i in range(300))
     ev = Event(service="s", source=EventSource.POSTMORTEM, type="rca", text=text)
-    now = datetime(2026, 6, 12, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 12, 12, 0, 0, tzinfo=UTC)
     records = records_for_event(ev, now=now)
     assert len(records) > 1
     assert [r.chunk_id for r in records] == [f"chk_{ev.event_id}_{i}" for i in range(len(records))]
@@ -26,7 +26,7 @@ def test_long_text_yields_multiple_records():
 
 def test_records_copy_fields_and_blank_text_is_empty():
     ev = Event(service="s", source=EventSource.CHAT, type="message", text="hello")
-    now = datetime(2026, 6, 12, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 6, 12, 12, 0, 0, tzinfo=UTC)
     [rec] = records_for_event(ev, now=now)
     assert rec.event_id == ev.event_id
     assert rec.service == "s"

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
-from typing import Optional
 
 from freshet.api.retrieval import HybridResult, hybrid_search, reciprocal_rank_fusion
 from freshet.eval import modes
@@ -42,8 +41,8 @@ def paraphrase(question: str, client=None, n: int = 2) -> list[str]:
 
 
 def multi_query_event_ids(conn, embedder, question: str, k: int, client=None,
-                          service: Optional[str] = None,
-                          since: Optional[datetime] = None) -> list[str]:
+                          service: str | None = None,
+                          since: datetime | None = None) -> list[str]:
     variants = paraphrase(question, client)
     ranked = [modes.hybrid_event_ids(conn, embedder, v, k, service=service, since=since)
               for v in variants]
@@ -52,8 +51,8 @@ def multi_query_event_ids(conn, embedder, question: str, k: int, client=None,
 
 
 def multi_query_search(conn, embedder, question: str, k: int, client=None,
-                       service: Optional[str] = None,
-                       since: Optional[datetime] = None) -> HybridResult:
+                       service: str | None = None,
+                       since: datetime | None = None) -> HybridResult:
     variants = paraphrase(question, client)
     per = [hybrid_search(conn, embedder, v, k=k, service=service, since=since)
            for v in variants]

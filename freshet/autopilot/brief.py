@@ -6,28 +6,27 @@ heuristic (freshet/autopilot/impact.py) and rendered here when present."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class Findings:
     service: str
     status: str
-    cause_text: Optional[str]
-    cause_cite: Optional[str]
-    fix_text: Optional[str]
-    fix_cite: Optional[str]
-    runbook: Optional[str]
-    narrative: Optional[str]
-    meta: Optional[str] = None
-    impact: Optional[str] = None
+    cause_text: str | None
+    cause_cite: str | None
+    fix_text: str | None
+    fix_cite: str | None
+    runbook: str | None
+    narrative: str | None
+    meta: str | None = None
+    impact: str | None = None
 
 
 def cite_hit(hit) -> str:
     return f"[{hit.event_id} @ {hit.ts:%Y-%m-%d %H:%M:%S}]"
 
 
-def findings_from_timeline(tl, status: str, runbook: Optional[str]) -> Findings:
+def findings_from_timeline(tl, status: str, runbook: str | None) -> Findings:
     return Findings(
         service=tl.service or "incident",
         status=status,
@@ -41,7 +40,7 @@ def findings_from_timeline(tl, status: str, runbook: Optional[str]) -> Findings:
 
 
 def findings_from_investigation(inv, service: str, status: str,
-                                cause_hit, fix_hit, runbook: Optional[str]) -> Findings:
+                                cause_hit, fix_hit, runbook: str | None) -> Findings:
     return Findings(
         service=service,
         status=status,

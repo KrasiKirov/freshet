@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from freshet.common.schemas import Event, EventSource, EventType, Severity
 
@@ -47,7 +47,7 @@ def _event(eid, ts, iid, svc, source, type_, text, severity=None) -> Event:
 
 def build_impact_benchmark(seed: int = 1) -> tuple[list[Event], list[ImpactTruth]]:
     rng = random.Random(seed)
-    start = datetime(2026, 7, 1, 8, 0, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 7, 1, 8, 0, 0, tzinfo=UTC)
 
     def mint() -> str:
         return f"imp_{rng.getrandbits(48):012x}"

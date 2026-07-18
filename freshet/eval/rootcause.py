@@ -145,11 +145,11 @@ def _ranked_change_ids(hits):
 
 
 def main() -> None:
+    from freshet.api.rerank import CrossEncoderReranker
+    from freshet.api.synthesis import build_timeline
     from freshet.common.db import connect
     from freshet.generator.generator import build_hard_benchmark
     from freshet.pipeline.embedding import make_embedder
-    from freshet.api.rerank import CrossEncoderReranker
-    from freshet.api.synthesis import build_timeline
 
     embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
     conn = connect()
@@ -200,10 +200,14 @@ def _plot_ladder(ladder) -> None:
            label="naive selector")
     ax.bar(x + width / 2, [ladder[a]["accuracy_score_aware"] for a in arms], width,
            label="score-aware selector")
-    ax.set_xticks(x); ax.set_xticklabels(arms, rotation=10)
-    ax.set_ylim(0, 1); ax.set_ylabel("cause accuracy@1")
+    ax.set_xticks(x)
+    ax.set_xticklabels(arms, rotation=10)
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("cause accuracy@1")
     ax.set_title("Root-cause (hard tier): naive vs score-aware, per arm")
-    ax.legend(); fig.tight_layout(); fig.savefig(PLOT, dpi=120)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(PLOT, dpi=120)
     print(f"wrote {PLOT}")
 
 

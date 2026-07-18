@@ -1,10 +1,11 @@
 """Unit tests for agent.py tool schemas, base_service(), and dispatch routing."""
 import json
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 
 def test_tool_schemas_names():
-    from freshet.api.agent import TOOL_SCHEMAS, SUBMIT_SCHEMA
+    from freshet.api.agent import SUBMIT_SCHEMA, TOOL_SCHEMAS
 
     names = {s["name"] for s in TOOL_SCHEMAS}
     assert names == {"search", "get_events_around", "get_runbook"}
@@ -43,10 +44,11 @@ def test_dispatch_search_routes_to_hybrid_search():
 
 
 def test_dispatch_search_applies_default_since_when_model_omits_it():
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from freshet.api.agent import make_dispatch
 
-    bound = datetime(2026, 6, 6, 6, 0, 0, tzinfo=timezone.utc)
+    bound = datetime(2026, 6, 6, 6, 0, 0, tzinfo=UTC)
     with patch("freshet.api.agent.hybrid_search") as mock_hs:
         mock_hs.return_value = MagicMock(hits=[])
         dispatch = make_dispatch(MagicMock(), MagicMock(), default_since=bound)

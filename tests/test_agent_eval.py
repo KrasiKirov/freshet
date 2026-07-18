@@ -1,4 +1,5 @@
 """Unit tests for agent_eval: sample_incidents, aggregate, _single_shot (mocked)."""
+from datetime import UTC
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -109,10 +110,11 @@ def test_single_shot_returns_cause_and_fix_ids():
 
 
 def test_fixed_two_step_anchors_on_spike_and_uses_temporal_lookup():
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
+
     from freshet.eval.agent_eval import _fixed_two_step
 
-    t0 = datetime(2026, 6, 6, 8, 0, 0, tzinfo=timezone.utc)
+    t0 = datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC)
     spike_hit = SimpleNamespace(event_id="s1", type="error_spike",
                                 service="svc-00", ts=t0)
     neighbors = [

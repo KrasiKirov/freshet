@@ -15,8 +15,8 @@ jobs:
           python-version: "3.12"
       - name: Install package and test deps
         run: pip install -e ".[test]" ruff
-      - name: Lint (errors only — syntax, undefined names, unused imports)
-        run: ruff check --select E9,F freshet tests scripts
+      - name: Lint (ruff — config in pyproject.toml)
+        run: ruff check freshet tests scripts
       - name: Run unit tests
         run: pytest -q
 

@@ -122,7 +122,9 @@ def worker_recovery(count: int = 400) -> None:
             times.append(t)
             lags.append(lag)
             if t > 8 and not killed:
-                emb.terminate(); emb.wait(); killed = True
+                emb.terminate()
+                emb.wait()
+                killed = True
                 markers.append((t, "embedder killed"))
             elif t > 25 and not restarted:
                 emb = _spawn("freshet.pipeline.embedder", "drill-emb")
@@ -161,7 +163,8 @@ def replay_reindex(count: int = 100) -> None:
         before = conn.execute(
             "SELECT count(*), max(indexed_at) FROM vector_records"
         ).fetchone()
-        emb.terminate(); emb.wait()
+        emb.terminate()
+        emb.wait()
         # 'model change' -> replay the whole corpus under a fresh group
         subprocess.run(
             [sys.executable, "-m", "freshet.pipeline.embedder", "--brokers", BROKERS,
@@ -201,7 +204,9 @@ def burst_backpressure(count: int = 2000) -> None:
         while True:
             t = time.monotonic() - t0
             lag = _lag("drill-emb3", "normalized.events")
-            times.append(t); lags.append(lag); peak = max(peak, lag)
+            times.append(t)
+            lags.append(lag)
+            peak = max(peak, lag)
             if lag == 0 and _count(conn) >= total:
                 break
             if t > 180:

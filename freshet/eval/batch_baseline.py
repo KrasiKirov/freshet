@@ -11,7 +11,6 @@ night)."""
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 
 def batch_queryable_at(event_ts: list[float], interval_s: float, t0: float) -> list[float]:
@@ -28,11 +27,11 @@ def streaming_queryable_at(event_ts: list[float], freshness_s: float) -> list[fl
     return [ts + freshness_s for ts in event_ts]
 
 
-def staleness_at(t: float, event_ts: list[float], queryable_at: list[float]) -> Optional[float]:
+def staleness_at(t: float, event_ts: list[float], queryable_at: list[float]) -> float | None:
     """t minus the newest event-ts whose data is queryable by t; None if nothing
     is queryable yet."""
     newest = None
-    for ts, q in zip(event_ts, queryable_at):
+    for ts, q in zip(event_ts, queryable_at, strict=True):
         if q <= t and (newest is None or ts > newest):
             newest = ts
     return None if newest is None else t - newest
@@ -40,5 +39,5 @@ def staleness_at(t: float, event_ts: list[float], queryable_at: list[float]) -> 
 
 def staleness_series(
     event_ts: list[float], queryable_at: list[float], sample_times: list[float]
-) -> list[Optional[float]]:
+) -> list[float | None]:
     return [staleness_at(t, event_ts, queryable_at) for t in sample_times]

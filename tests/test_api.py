@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
@@ -13,7 +13,7 @@ class FakeComposer:
 
 
 def _hit(event_id="evt1"):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return RetrievedHit(
         chunk_id=f"chk_{event_id}_0", event_id=event_id, service="scheduler-api",
         ts=now, indexed_at=now, source="alert", text="5xx spike", type="alert_fired",

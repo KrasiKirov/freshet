@@ -1,11 +1,11 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from freshet.eval.modes import keyword_only_event_ids, vector_only_event_ids
 from freshet.pipeline.embedding import StubEmbedder
 
 
 def _rows(*ids):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # (chunk_id, event_id, service, ts, indexed_at, source, text, score)
     return [(f"chk_{e}_0", e, "s", now, now, "alert", "t", 0.9 - i * 0.1)
             for i, e in enumerate(ids)]

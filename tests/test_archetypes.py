@@ -1,4 +1,5 @@
-from freshet.common.schemas import EventType, CHANGE_TYPES, REMEDIATION_TYPES
+from freshet.common.schemas import CHANGE_TYPES, REMEDIATION_TYPES, EventType
+from freshet.generator.scenarios import ARCHETYPES
 
 
 def test_archetype_event_types_exist():
@@ -13,9 +14,6 @@ def test_change_and_remediation_sets_are_disjoint_and_typed():
     assert "deploy_started" in CHANGE_TYPES and "rollback" in REMEDIATION_TYPES
     assert "config_changed" in CHANGE_TYPES and "config_reverted" in REMEDIATION_TYPES
     assert len(CHANGE_TYPES) == 6 and len(REMEDIATION_TYPES) == 6
-
-
-from freshet.generator.scenarios import ARCHETYPES
 
 
 def test_six_archetypes_each_well_formed():

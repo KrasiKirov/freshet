@@ -2,7 +2,7 @@
 through retrieval + the timeline, yields a cause that cites the commit SHA. Keyless."""
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,16 +20,16 @@ def conn():
 
 def test_brief_cause_cites_commit_sha(conn, emb, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    from freshet.api.retrieval import hybrid_search
+    from freshet.api.synthesis import build_timeline
     from freshet.common.schemas import Event, EventSource, Severity
     from freshet.connectors.github import GitHubConnector
     from freshet.eval.run_eval import index_corpus
-    from freshet.api.retrieval import hybrid_search
-    from freshet.api.synthesis import build_timeline
 
     svc = f"svc-{uuid.uuid4().hex[:8]}"
     push = json.loads((Path("freshet/connectors/fixtures/github/push.json")).read_text())
     push["repository"]["name"] = svc
-    t0 = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    t0 = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
     push["head_commit"]["timestamp"] = t0.isoformat()
 
     commit_ev = GitHubConnector().parse("push", push)[0]

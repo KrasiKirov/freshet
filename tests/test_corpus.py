@@ -1,5 +1,5 @@
 from freshet.common.schemas import EventSource, EventType
-from freshet.generator.generator import build_corpus_events, incident_ground_truth, SERVICES
+from freshet.generator.generator import SERVICES, build_corpus_events, incident_ground_truth
 
 
 def test_corpus_has_runbooks_and_n_incidents():

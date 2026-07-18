@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from freshet.common.db import connect
 from freshet.eval import batch_baseline, metrics, modes
@@ -27,13 +27,13 @@ K = 5
 
 def index_corpus(conn, embedder, corpus) -> None:
     conn.execute("DELETE FROM vector_records")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for ev in corpus:
         recs = records_for_event(ev, now=now)
         if not recs:
             continue
         vectors = embedder.encode([r.text for r in recs])
-        for rec, vec in zip(recs, vectors):
+        for rec, vec in zip(recs, vectors, strict=True):
             upsert_record(conn, rec, vec)
 
 

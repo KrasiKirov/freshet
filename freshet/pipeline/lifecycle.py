@@ -21,7 +21,7 @@ class LifecycleEvent:
         return json.dumps(asdict(self))
 
     @classmethod
-    def from_json(cls, raw: str) -> "LifecycleEvent":
+    def from_json(cls, raw: str) -> LifecycleEvent:
         d = json.loads(raw)
         return cls(type=d["type"], incident_id=d["incident_id"],
                    service=d["service"], ts=d["ts"])

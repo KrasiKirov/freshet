@@ -8,6 +8,7 @@ plain eval artifact that `make eval` regenerates) so the annotated hero is durab
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -51,7 +52,7 @@ def main() -> None:
 
     ax.text(1.25, 220, f"streaming: always ~{mean_s:.0f}s old\n— ~{ratio:.0f}× fresher on average",
             fontsize=13.5, fontweight="bold", color="#0b3d63", ha="left", va="center",
-            bbox=dict(boxstyle="round,pad=0.4", fc="#eaf3fb", ec=BLUE, lw=1.5))
+            bbox={"boxstyle": "round,pad=0.4", "fc": "#eaf3fb", "ec": BLUE, "lw": 1.5})
 
     ax.grid(True, which="major", axis="y", ls=":", alpha=0.4)
     fig.tight_layout()

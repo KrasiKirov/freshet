@@ -1,6 +1,6 @@
 """/incidents returns recent ingested incidents grouped by incident_id (keyless,
 dependency-overridden conn — no DB)."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 def test_incidents_endpoint_shape():
     from freshet.api import app as appmod
 
-    ts = datetime(2026, 6, 29, 10, 40, tzinfo=timezone.utc)
+    ts = datetime(2026, 6, 29, 10, 40, tzinfo=UTC)
 
     class _Cur:
         def fetchall(self):

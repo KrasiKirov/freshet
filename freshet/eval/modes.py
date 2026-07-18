@@ -5,7 +5,7 @@ fusion so the eval scores the real system, not a reimplementation."""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from freshet.api.retrieval import hybrid_search, keyword_sql, vector_sql
 from freshet.pipeline.embedding import Embedder, vec_literal
@@ -25,7 +25,7 @@ def _dedupe(event_ids: list[str], k: int) -> list[str]:
 
 def vector_only_event_ids(
     conn, embedder: Embedder, question: str, k: int,
-    service: Optional[str] = None, since: Optional[datetime] = None,
+    service: str | None = None, since: datetime | None = None,
 ) -> list[str]:
     [qvec] = embedder.encode_query([question])
     params: dict[str, Any] = {"qvec": vec_literal(qvec), "k": _CAND}
@@ -39,7 +39,7 @@ def vector_only_event_ids(
 
 def keyword_only_event_ids(
     conn, question: str, k: int,
-    service: Optional[str] = None, since: Optional[datetime] = None,
+    service: str | None = None, since: datetime | None = None,
 ) -> list[str]:
     params: dict[str, Any] = {"q": question, "k": _CAND}
     if service is not None:
@@ -52,8 +52,8 @@ def keyword_only_event_ids(
 
 def hybrid_event_ids(
     conn, embedder: Embedder, question: str, k: int,
-    service: Optional[str] = None, since: Optional[datetime] = None,
-    tau_s: Optional[float] = None,
+    service: str | None = None, since: datetime | None = None,
+    tau_s: float | None = None,
 ) -> list[str]:
     kwargs = {"min_similarity": 0.0}  # eval measures ranking; abstention gated elsewhere
     if tau_s is not None:

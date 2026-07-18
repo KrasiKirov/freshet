@@ -13,10 +13,11 @@ import hashlib
 import hmac
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Mapping
+from collections.abc import Mapping
+from datetime import UTC, datetime
 
 from freshet.common.schemas import Event, EventSource
+from freshet.connectors.base import register
 
 log = logging.getLogger(__name__)
 _warned_no_secret = False
@@ -33,11 +34,11 @@ def _d(value: object) -> dict:
 
 def _ts(value: str | None) -> datetime:
     if not value:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 class GitHubConnector:
@@ -103,7 +104,5 @@ class GitHubConnector:
             structured={"sha": dep.get("sha"), "environment": env},
         )]
 
-
-from freshet.connectors.base import register
 
 register(GitHubConnector())

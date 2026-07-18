@@ -9,15 +9,15 @@ freshness metric in the eval harness — do not remove them.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _new_id(prefix: str = "evt") -> str:
@@ -85,31 +85,31 @@ class Event(BaseModel):
 
     # --- the three timestamps freshness is computed from ---
     ts: datetime = Field(default_factory=_utcnow, description="When the event occurred")
-    ingested_at: Optional[datetime] = Field(
+    ingested_at: datetime | None = Field(
         default=None, description="When the pipeline received it"
     )
-    indexed_at: Optional[datetime] = Field(
+    indexed_at: datetime | None = Field(
         default=None, description="When it became retrievable"
     )
 
     service: str
     source: EventSource
     type: str  # usually an EventType value; kept str for an open vocabulary
-    severity: Optional[Severity] = None
-    incident_id: Optional[str] = None
+    severity: Severity | None = None
+    incident_id: str | None = None
 
     text: str = ""
     structured: dict[str, Any] = Field(default_factory=dict)
     refs: list[str] = Field(default_factory=list)
 
     # --- freshness helpers ---
-    def end_to_end_latency_s(self) -> Optional[float]:
+    def end_to_end_latency_s(self) -> float | None:
         """Seconds from the event happening to becoming queryable."""
         if self.indexed_at is None:
             return None
         return (self.indexed_at - self.ts).total_seconds()
 
-    def pipeline_latency_s(self) -> Optional[float]:
+    def pipeline_latency_s(self) -> float | None:
         """Seconds the pipeline itself added (ingest -> indexed)."""
         if self.indexed_at is None or self.ingested_at is None:
             return None
@@ -121,11 +121,11 @@ class VectorRecord(BaseModel):
 
     chunk_id: str = Field(default_factory=lambda: _new_id("chk"))
     event_id: str
-    incident_id: Optional[str] = None
+    incident_id: str | None = None
     service: str
     ts: datetime
     indexed_at: datetime = Field(default_factory=_utcnow)
     text: str
     source: EventSource
-    severity: Optional[Severity] = None
+    severity: Severity | None = None
     type: str = ""

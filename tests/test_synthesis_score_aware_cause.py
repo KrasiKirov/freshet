@@ -1,11 +1,11 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from freshet.api.retrieval import RetrievedHit
 from freshet.api.synthesis import build_timeline
 
 
 def _hit(eid, ts_min, type_, text, rank):
-    ts = datetime(2026, 7, 1, 12, ts_min, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 7, 1, 12, ts_min, 0, tzinfo=UTC)
     # `score` is deliberately uniform: the selector must use LIST ORDER (rank),
     # which is what reranking changes, not the RRF score.
     return RetrievedHit(chunk_id=eid + "#0", event_id=eid, service="api", ts=ts,

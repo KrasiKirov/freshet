@@ -16,13 +16,12 @@ from __future__ import annotations
 import argparse
 import random
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Iterator
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from freshet.common.schemas import Event, EventSource, EventType
-from dataclasses import dataclass
-
-from freshet.generator.scenarios import build_scenario, build_runbooks, ARCHETYPES
+from freshet.generator.scenarios import ARCHETYPES, build_runbooks, build_scenario
 
 SERVICES = [
     "scheduler-api",
@@ -62,7 +61,7 @@ def build_corpus_events(seed: int = 1, n_incidents: int = 5, noise_between: int 
     rotating services, each preceded by background noise. Deterministic under seed;
     event ids minted from the seeded RNG so the whole corpus is byte-reproducible."""
     rng = random.Random(seed)
-    start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=timezone.utc)
+    start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC)
 
     def mint() -> str:
         return f"evt_{rng.getrandbits(48):012x}"
@@ -114,12 +113,12 @@ class IncidentTruth:
 
 def build_benchmark(seed: int = 1, n_incidents: int = 40, noise_between: int = 6,
                     start: datetime | None = None, spacing_s: float = 5.0
-                    ) -> tuple[list[Event], list["IncidentTruth"]]:
+                    ) -> tuple[list[Event], list[IncidentTruth]]:
     """A varied, benchmark-scale corpus: one runbook per service, then N incidents
     rotating across the archetype registry and services, each preceded by noise.
     Deterministic under seed; records per-incident cause/fix/spike ids as it builds."""
     rng = random.Random(seed)
-    start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=timezone.utc)
+    start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC)
 
     def mint() -> str:
         return f"evt_{rng.getrandbits(48):012x}"
@@ -171,7 +170,7 @@ def build_benchmark(seed: int = 1, n_incidents: int = 40, noise_between: int = 6
 
 def build_hard_benchmark(seed: int = 1, n_incidents: int = 40, n_volume: int = 10,
                          start: datetime | None = None
-                         ) -> tuple[list[Event], list["IncidentTruth"]]:
+                         ) -> tuple[list[Event], list[IncidentTruth]]:
     """The `hard` benchmark tier: like build_benchmark but each incident carries
     decoy causes (benign same-service changes for retrieval volume, plus a benign
     change interposed between the true cause and the spike). Ground truth records the
@@ -180,7 +179,7 @@ def build_hard_benchmark(seed: int = 1, n_incidents: int = 40, n_volume: int = 1
     from freshet.generator.scenarios import hard_incident_events
 
     rng = random.Random(seed)
-    start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=timezone.utc)
+    start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC)
 
     def mint() -> str:
         return f"evt_{rng.getrandbits(48):012x}"
@@ -220,7 +219,7 @@ class EventGenerator:
         incident_id: str = "INC-DEMO-0001",
     ):
         self.rng = random.Random(seed)
-        self.start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=timezone.utc)
+        self.start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC)
         self.spacing_s = spacing_s
         self.incident_after = incident_after
         self.incident_id = incident_id
@@ -262,7 +261,7 @@ def live_stream(gen: EventGenerator, count: int, spacing_s: float) -> Iterator[E
     demos and the slice run use this wrapper.
     """
     for ev in gen.stream(count):
-        ev.ts = datetime.now(timezone.utc)
+        ev.ts = datetime.now(UTC)
         yield ev
         if spacing_s > 0:
             time.sleep(spacing_s)
@@ -274,7 +273,7 @@ def live_stream(gen: EventGenerator, count: int, spacing_s: float) -> Iterator[E
 class JsonlSink:
     def __init__(self, path: str):
         self.path = path
-        self._fh = open(path, "w")
+        self._fh = open(path, "w")  # noqa: SIM115 — handle owned for the sink's lifetime; close() below
 
     def write(self, event: Event) -> None:
         self._fh.write(event.model_dump_json() + "\n")

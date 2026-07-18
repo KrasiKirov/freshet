@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable, Optional
+from collections.abc import Callable
 
 
 def make_producer(brokers: str):
@@ -19,7 +19,7 @@ def make_producer(brokers: str):
     return Producer({"bootstrap.servers": brokers, "linger.ms": 5})
 
 
-def produce_sync(producer, topic: str, value, key: Optional[str] = None) -> None:
+def produce_sync(producer, topic: str, value, key: str | None = None) -> None:
     """Produce one message and wait for its delivery report, raising on
     failure — so a caller that commits offsets afterwards can never silently
     lose a message to a failed produce."""
@@ -52,7 +52,7 @@ class BufferedProducer:
         if err is not None:
             self._errors.append(err)
 
-    def produce(self, topic: str, value, key: Optional[str] = None) -> None:
+    def produce(self, topic: str, value, key: str | None = None) -> None:
         self._p.produce(topic, key=key, value=value, on_delivery=self._cb)
         self._p.poll(0)  # serve delivery callbacks without blocking
 
@@ -87,12 +87,12 @@ def consume_loop(
     group_id: str,
     topics: list[str],
     handler: Callable[[str], None],
-    max_messages: Optional[int] = None,
+    max_messages: int | None = None,
     auto_commit: bool = True,
-    stop: Optional[threading.Event] = None,
-    idle_timeout_s: Optional[float] = None,
+    stop: threading.Event | None = None,
+    idle_timeout_s: float | None = None,
     commit_every: int = 1,
-    pre_commit: Optional[Callable[[], None]] = None,
+    pre_commit: Callable[[], None] | None = None,
 ) -> int:
     """Run a simple consume loop, calling handler(value_str) per message.
 

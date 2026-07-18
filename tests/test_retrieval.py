@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from freshet.api.retrieval import keyword_sql, vector_sql
 
@@ -22,7 +22,7 @@ def test_keyword_sql_uses_or_tsquery_and_rank():
 
 
 def test_filters_apply_to_both_arms():
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     assert "service = %(service)s" in vector_sql("scheduler-api", None)
     assert "ts >= %(since)s" in vector_sql(None, now)
     kw = keyword_sql("scheduler-api", now)
@@ -63,12 +63,12 @@ def test_should_abstain_on_weak_similarity():
 
 
 def test_hybrid_search_fuses_arms_and_flags_abstention():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from freshet.api.retrieval import HybridResult, hybrid_search
     from freshet.pipeline.embedding import StubEmbedder
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # rows: (chunk_id, event_id, service, ts, indexed_at, source, text, type, score)
     vec_rows = [
         ("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx error spike", "alert_fired", 0.81),
@@ -103,7 +103,7 @@ def test_hybrid_search_fuses_arms_and_flags_abstention():
 def test_hybrid_search_uses_embedder_min_similarity():
     """The abstention floor defaults to the embedder's per-model attribute
     (bge's compressed cosine range needs a higher floor than MiniLM's)."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from freshet.api.retrieval import hybrid_search
     from freshet.pipeline.embedding import StubEmbedder
@@ -111,7 +111,7 @@ def test_hybrid_search_uses_embedder_min_similarity():
     class HighFloorEmbedder(StubEmbedder):
         min_similarity = 0.9
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     rows = [("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx spike", "alert_fired", 0.81)]
 
     class FakeConn:
@@ -140,12 +140,12 @@ def test_default_tau_env_override(monkeypatch):
 
 
 def test_hybrid_search_abstains_when_similarity_weak():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from freshet.api.retrieval import hybrid_search
     from freshet.pipeline.embedding import StubEmbedder
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     weak = [("chk_e9_0", "e9", "auth", now, now, "metric", "cpu 12%", "metric", 0.04)]
 
     class FakeConn:

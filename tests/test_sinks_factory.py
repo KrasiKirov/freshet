@@ -1,8 +1,8 @@
 import pytest
 
 from freshet.autopilot.sinks.factory import make_sink
-from freshet.autopilot.sinks.stdout import StdoutSink
 from freshet.autopilot.sinks.slack import SlackSink
+from freshet.autopilot.sinks.stdout import StdoutSink
 
 
 def test_default_is_stdout():

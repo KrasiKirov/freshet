@@ -10,6 +10,7 @@ immediately, unchanged."""
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
 
@@ -32,10 +33,8 @@ class ResilientConnection:
         self._conn = psycopg.connect(dsn, autocommit=True)
 
     def _reconnect(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._conn.close()
-        except Exception:
-            pass
         self._conn = psycopg.connect(self._dsn, autocommit=True)
 
     def execute(self, *args, **kwargs):
@@ -48,10 +47,8 @@ class ResilientConnection:
                     raise
                 time.sleep(delay)
                 delay *= 2
-                try:
-                    self._reconnect()
-                except Exception:
-                    pass  # next execute attempt raises if still down
+                with contextlib.suppress(Exception):
+                    self._reconnect()  # next execute attempt raises if still down
 
     def close(self) -> None:
         self._conn.close()

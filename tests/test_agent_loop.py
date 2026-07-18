@@ -1,6 +1,6 @@
 """Unit tests for investigate() using a scripted fake Anthropic client."""
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 
@@ -39,7 +39,7 @@ class FakeClient:
 def _hit(event_id: str, type_: str = "deploy", text: str = "event"):
     return SimpleNamespace(
         event_id=event_id,
-        ts=datetime(2026, 6, 6, 8, 0, 0, tzinfo=timezone.utc),
+        ts=datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC),
         type=type_,
         text=text,
     )
@@ -51,6 +51,7 @@ def _hit(event_id: str, type_: str = "deploy", text: str = "event"):
 def test_investigate_normal_flow():
     """search → events_around → submit_findings returns correct Investigation."""
     from unittest.mock import MagicMock, patch
+
     from freshet.api.agent import investigate
 
     cause_id, fix_id = "evt_cause_001", "evt_fix_001"
@@ -79,6 +80,7 @@ def test_investigate_normal_flow():
 def test_investigate_max_steps_without_submit():
     """Loop bounded by max_steps; returns partial Investigation."""
     from unittest.mock import MagicMock, patch
+
     from freshet.api.agent import investigate
 
     responses = [
@@ -102,6 +104,7 @@ def test_investigate_max_steps_without_submit():
 def test_investigate_drops_unseen_cited_ids():
     """submit_findings citing IDs not in any tool result → those IDs dropped."""
     from unittest.mock import MagicMock, patch
+
     from freshet.api.agent import investigate
 
     responses = [
@@ -142,6 +145,7 @@ def test_seen_ids_handles_invalid_json():
 def test_investigate_transcript_records_submit():
     """Transcript includes a submit_findings entry with the final ids."""
     from unittest.mock import MagicMock, patch
+
     from freshet.api.agent import investigate
 
     cause_id = "evt_x"

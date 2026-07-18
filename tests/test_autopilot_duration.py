@@ -1,11 +1,11 @@
 """Pure unit tests for the postmortem duration formatter (keyless, no DB)."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from freshet.autopilot.investigate import _format_duration
 
 
 def _span(**kw):
-    start = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
     return start, start + timedelta(**kw)
 
 
@@ -22,6 +22,6 @@ def test_hours_and_minutes():
 
 
 def test_missing_timestamp_is_none():
-    start = datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
     assert _format_duration(None, start) is None
     assert _format_duration(start, None) is None

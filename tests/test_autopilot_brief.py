@@ -1,8 +1,11 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from freshet.autopilot.brief import (
-    Findings, cite_hit, findings_from_timeline, render_brief,
+    Findings,
+    cite_hit,
+    findings_from_timeline,
+    render_brief,
 )
 
 
@@ -15,7 +18,7 @@ class _Hit:  # minimal stand-in for RetrievedHit
 
 
 def test_cite_hit_format():
-    h = _Hit("ev1", datetime(2026, 7, 1, 12, 0, 0, tzinfo=timezone.utc), "deploy X")
+    h = _Hit("ev1", datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC), "deploy X")
     assert cite_hit(h) == "[ev1 @ 2026-07-01 12:00:00]"
 
 
@@ -39,7 +42,7 @@ def test_render_shows_impact_when_set():
 
 
 def test_findings_from_timeline_uses_cause_hit():
-    tl_cause = _Hit("evC", datetime(2026, 7, 1, 9, 0, 0, tzinfo=timezone.utc), "rollout")
+    tl_cause = _Hit("evC", datetime(2026, 7, 1, 9, 0, 0, tzinfo=UTC), "rollout")
 
     @dataclass
     class _TL:

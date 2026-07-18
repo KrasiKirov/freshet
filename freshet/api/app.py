@@ -19,7 +19,6 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -48,7 +47,7 @@ _Q_CONSUMER_LAG = (
 )
 
 
-def _prom_instant(query: str) -> Optional[float]:
+def _prom_instant(query: str) -> float | None:
     """Run a Prometheus instant query; return the scalar value, or None if
     Prometheus is unreachable or the result is empty/NaN. Never raises — a
     down obs stack just yields a dash in the UI."""
@@ -68,8 +67,8 @@ def _prom_instant(query: str) -> Optional[float]:
 class QueryRequest(BaseModel):
     question: str
     k: int = Field(default=5, ge=1, le=50)
-    service: Optional[str] = None
-    since: Optional[datetime] = None
+    service: str | None = None
+    since: datetime | None = None
     multi_query: bool = False
 
 
@@ -93,9 +92,9 @@ class QueryResponse(BaseModel):
 
 
 class Stats(BaseModel):
-    freshness_p50_s: Optional[float]
-    freshness_p95_s: Optional[float]
-    consumer_lag: Optional[float]
+    freshness_p50_s: float | None
+    freshness_p95_s: float | None
+    consumer_lag: float | None
 
 
 class IncidentSummary(BaseModel):
@@ -105,12 +104,12 @@ class IncidentSummary(BaseModel):
     latest_indexed: datetime
     text: str
     status: str
-    severity: Optional[str] = None
+    severity: str | None = None
 
 
 _conn = None
-_embedder: Optional[Embedder] = None
-_composer: Optional[Composer] = None
+_embedder: Embedder | None = None
+_composer: Composer | None = None
 _deps_lock = threading.Lock()
 
 

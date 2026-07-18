@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -8,8 +8,8 @@ from freshet.api.retrieval import RetrievedHit
 
 def _hit(eid, text, score):
     return RetrievedHit(chunk_id=eid, event_id=eid, service="s",
-                        ts=datetime(2026, 6, 6, tzinfo=timezone.utc),
-                        indexed_at=datetime(2026, 6, 6, tzinfo=timezone.utc),
+                        ts=datetime(2026, 6, 6, tzinfo=UTC),
+                        indexed_at=datetime(2026, 6, 6, tzinfo=UTC),
                         source="alert", text=text, type="error_spike",
                         similarity=0.5, score=score)
 

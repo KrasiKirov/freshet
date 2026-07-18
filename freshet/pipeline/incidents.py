@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Optional
 
 from freshet.common.schemas import Event, EventType, Severity
 
@@ -45,8 +44,8 @@ RESOLUTION_TYPES = frozenset({
 
 @dataclass
 class CorrelationResult:
-    incident_id: Optional[str]
-    transition: Optional[str]  # "opened" | "resolved" | None
+    incident_id: str | None
+    transition: str | None  # "opened" | "resolved" | None
 
 
 def is_severe(ev: Event) -> bool:

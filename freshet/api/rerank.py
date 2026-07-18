@@ -43,7 +43,7 @@ class CrossEncoderReranker:
             return hits
         model = self._ensure()
         scores = model.predict([(query, h.text) for h in hits])
-        return [h for _, h in sorted(zip(scores, hits), key=lambda z: z[0], reverse=True)]
+        return [h for _, h in sorted(zip(scores, hits, strict=True), key=lambda z: z[0], reverse=True)]
 
 
 def make_reranker() -> Reranker:

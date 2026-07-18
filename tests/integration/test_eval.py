@@ -19,9 +19,8 @@ def conn():
 def test_run_eval_scores_modes_and_hybrid_is_competitive(conn):
     pytest.importorskip("sentence_transformers")
     from freshet.eval import run_eval
-    from freshet.pipeline.embedding import make_embedder
-
     from freshet.eval.labeled import build_labeled_queries
+    from freshet.pipeline.embedding import make_embedder
 
     emb = make_embedder("bge")  # default retriever (768-dim, matches the schema)
     corpus, truths = run_eval.build_benchmark(seed=1, n_incidents=8)

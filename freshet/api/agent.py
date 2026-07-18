@@ -1,11 +1,12 @@
 """Agentic root-cause investigator — tool schemas and dispatch."""
 import json
+import os
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
 
-from freshet.api.retrieval import hybrid_search, events_around
-
+from freshet.api.retrieval import events_around, hybrid_search
 
 TOOL_SCHEMAS: list[dict] = [
     {
@@ -169,9 +170,6 @@ def make_dispatch(conn, embedder,
 
     return dispatch
 
-
-import os
-from dataclasses import dataclass
 
 _SYSTEM = (
     "You are an on-call investigator. Your job is to identify the root cause "
