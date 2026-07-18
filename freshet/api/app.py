@@ -17,6 +17,7 @@ import os
 import threading
 import urllib.parse
 import urllib.request
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -107,7 +108,7 @@ class IncidentSummary(BaseModel):
     severity: str | None = None
 
 
-_conn = None
+_pool = None
 _embedder: Embedder | None = None
 _composer: Composer | None = None
 _deps_lock = threading.Lock()
@@ -115,21 +116,35 @@ _deps_lock = threading.Lock()
 
 def get_deps():
     # FastAPI runs sync endpoints in a threadpool: guard the lazy init so two
-    # concurrent first requests can't race and build duplicate embedders/conns.
-    global _conn, _embedder, _composer
+    # concurrent first requests can't race and build duplicate embedders/pools.
+    global _pool, _embedder, _composer
     with _deps_lock:
         if _embedder is None:
             _embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
         if _composer is None:
             _composer = make_composer(os.environ.get("FRESHET_COMPOSER", "auto"))
-        if _conn is None:
-            from freshet.common.db import connect
+        if _pool is None:
+            from freshet.common.db import make_pool
 
-            _conn = connect()
-    return _conn, _embedder, _composer
+            _pool = make_pool()
+    # yield a pooled connection for this request; it returns to the pool on exit
+    with _pool.connection() as conn:
+        yield conn, _embedder, _composer
 
 
-app = FastAPI(title="Freshet query API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # close the pool's background threads on shutdown (no-op if never opened);
+    # reset the global so a subsequent startup rebuilds it instead of reusing a
+    # closed pool
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+
+
+app = FastAPI(title="Freshet query API", lifespan=lifespan)
 
 
 def _to_hit(h: RetrievedHit) -> Hit:

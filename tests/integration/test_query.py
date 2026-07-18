@@ -86,3 +86,26 @@ def test_end_to_end_answer_cites_event(conn):
     answer = make_composer("template").compose("error spike", result.hits)
     # template composer cites the top event id
     assert result.hits[0].event_id in answer
+
+
+def test_pooled_api_serves_concurrent_requests(conn, monkeypatch):
+    """The API's connection pool (get_deps) hands each request its own
+    connection, so concurrent /incidents calls don't serialize on one shared
+    connection. Exercises the real make_pool path (unit API tests override it)."""
+    import concurrent.futures as cf
+
+    from fastapi.testclient import TestClient
+
+    import freshet.api.app as appmod
+
+    monkeypatch.setenv("FRESHET_EMBEDDER", "stub")  # no model download
+    conn.execute(
+        "INSERT INTO incidents (incident_id, title, services, opened_at)"
+        " VALUES ('INC_pool', 'api: open', ARRAY['api'], now())"
+    )
+    with TestClient(appmod.app) as client, cf.ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(lambda _: client.get("/incidents?limit=5").status_code,
+                              range(16)))
+        assert appmod._pool is not None  # one pool created and reused, not per-request
+    assert results == [200] * 16
+    assert appmod._pool is None  # lifespan closed and reset the pool on shutdown
