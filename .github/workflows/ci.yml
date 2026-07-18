@@ -14,9 +14,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install package and test deps
-        run: pip install -e ".[test]" ruff
+        run: pip install -e ".[test]"
       - name: Lint (ruff — config in pyproject.toml)
         run: ruff check freshet tests scripts
+      - name: Type-check (mypy — config in pyproject.toml)
+        run: mypy
       - name: Run unit tests
         run: pytest -q
 

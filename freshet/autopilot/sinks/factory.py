@@ -16,8 +16,8 @@ def make_sink(kind: str = "stdout") -> Sink:
     if kind == "slack":
         token = os.environ.get("SLACK_BOT_TOKEN")
         channel = os.environ.get("SLACK_CHANNEL")
-        missing = [n for n, v in (("SLACK_BOT_TOKEN", token), ("SLACK_CHANNEL", channel)) if not v]
-        if missing:
+        if not token or not channel:
+            missing = [n for n, v in (("SLACK_BOT_TOKEN", token), ("SLACK_CHANNEL", channel)) if not v]
             raise RuntimeError(
                 f"--sink slack requires {' and '.join(missing)} (set in .env.local)"
             )

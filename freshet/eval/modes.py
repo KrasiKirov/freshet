@@ -55,7 +55,7 @@ def hybrid_event_ids(
     service: str | None = None, since: datetime | None = None,
     tau_s: float | None = None,
 ) -> list[str]:
-    kwargs = {"min_similarity": 0.0}  # eval measures ranking; abstention gated elsewhere
+    kwargs: dict[str, Any] = {"min_similarity": 0.0}  # eval measures ranking; abstention gated elsewhere
     if tau_s is not None:
         kwargs["tau_s"] = tau_s       # recency-neutral for deterministic benchmark eval
     result = hybrid_search(

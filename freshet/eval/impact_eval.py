@@ -22,7 +22,8 @@ def evaluate(seed: int = 1) -> dict:
     events, truths = build_impact_benchmark(seed)
     by_incident: dict[str, list] = defaultdict(list)
     for e in events:
-        by_incident[e.incident_id].append(e)
+        if e.incident_id is not None:  # benchmark events always carry one
+            by_incident[e.incident_id].append(e)
 
     exact = adjacent = 0
     confusion = []

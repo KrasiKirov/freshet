@@ -38,8 +38,9 @@ def plot_streaming_vs_batch(
     batch_interval_s: float,
 ) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
-    ax.plot(sample_times, streaming, label="streaming", linewidth=2)
-    ax.plot(sample_times, batch, label=f"batch (every {int(batch_interval_s)}s)", linewidth=2)
+    # matplotlib renders None as a gap; its stubs don't type the sequence that way
+    ax.plot(sample_times, streaming, label="streaming", linewidth=2)  # type: ignore[arg-type]
+    ax.plot(sample_times, batch, label=f"batch (every {int(batch_interval_s)}s)", linewidth=2)  # type: ignore[arg-type]
     ax.set_yscale("symlog")
     ax.set_xlabel("time (s)")
     ax.set_ylabel("data staleness (s, symlog)")

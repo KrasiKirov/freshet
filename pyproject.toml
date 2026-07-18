@@ -21,7 +21,7 @@ dependencies = [
 embed = ["sentence-transformers>=2"]
 llm = ["anthropic>=0.40"]
 eval = ["matplotlib>=3.7"]
-test = ["pytest>=8", "httpx>=0.27"]
+test = ["pytest>=8", "httpx>=0.27", "ruff", "mypy"]
 slack = ["slack_sdk>=3"]
 
 [tool.setuptools.packages.find]
@@ -47,6 +47,13 @@ select = ["E4", "E7", "E9", "F", "W", "I", "B", "C4", "SIM", "UP"]
 # default is the FastAPI idiom, not a bug. UP042: the schema enums are
 # deliberately `(str, Enum)` — `StrEnum` changes `__str__`/JSON output.
 ignore = ["E501", "B008", "UP042"]
+
+[tool.mypy]
+# Scoped to the package (tests/scripts are intentionally loosely typed). Third-party
+# libs without stubs (confluent_kafka, sentence_transformers, matplotlib, slack_sdk)
+# are ignored; the codebase itself type-checks clean.
+files = ["freshet"]
+ignore_missing_imports = true
 
 [tool.ruff.lint.per-file-ignores]
 # Scripts and eval entrypoints prepend to sys.path or lazy-import behind a

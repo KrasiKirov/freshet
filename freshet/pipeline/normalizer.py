@@ -87,6 +87,8 @@ def run(
         if assigned is not None:
             ev.incident_id = assigned
         if result.transition is not None:
+            # a transition (opened/resolved) always carries the incident it applies to
+            assert result.incident_id is not None
             life = LifecycleEvent(
                 type=result.transition,
                 incident_id=result.incident_id,

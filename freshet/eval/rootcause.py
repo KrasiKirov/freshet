@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Any
 
 from freshet.api.retrieval import RetrievedHit, keyword_sql
 
@@ -159,7 +160,7 @@ def main() -> None:
     services = {t.incident_id: t.service for t in truths}
 
     arms = {"keyword": None, "hybrid": None, "hybrid+rerank": CrossEncoderReranker()}
-    result = {"tier": "hard", "n_incidents": len(truths), "ladder": {}}
+    result: dict[str, Any] = {"tier": "hard", "n_incidents": len(truths), "ladder": {}}
     for arm, reranker in arms.items():
         hits_by_inc = {iid: _hits_for_arm(conn, embedder, svc, arm, reranker)
                        for iid, svc in services.items()}

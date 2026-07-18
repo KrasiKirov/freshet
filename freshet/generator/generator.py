@@ -162,6 +162,9 @@ def build_benchmark(seed: int = 1, n_incidents: int = 40, noise_between: int = 6
                 fix_id = ev.event_id
             elif step.role == "spike":
                 spike_id = ev.event_id
+        # every archetype defines a change, remediation, and spike step, so all
+        # three are set by the loop above (asserted so the invariant is explicit)
+        assert cause_id and fix_id and spike_id
         truths.append(IncidentTruth(incident_id, service, archetype.name,
                                     cause_id, fix_id, spike_id))
         t += timedelta(seconds=3700)
