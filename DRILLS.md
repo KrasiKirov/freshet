@@ -9,12 +9,12 @@ stack, samples a metric over time, and checks a property. Run them all with:
 
 The graphs below are committed PNGs produced by the drill harness
 (`freshet/eval/drills.py`); the **same signals are visible live** on the Grafana
-dashboard (`make up-obs` → http://localhost:3000/d/freshet-pipeline). The drills
-are timing-sensitive demonstrations, not CI tests — numbers vary run to run, the
+dashboard (`make up-obs` then http://localhost:3000/d/freshet-pipeline). The drills
+are timing-sensitive demonstrations, not CI tests: numbers vary run to run, the
 properties don't. Figures below are from a representative run (2026-06-15,
 single-node stack on a laptop, stub embedder).
 
-## 1. Worker recovery — no data loss across a crash
+## 1. Worker recovery: no data loss across a crash
 
 **Claim.** If an embedding worker dies mid-stream, events queue in Kafka rather
 than being lost; when the worker restarts it resumes from its committed offset
@@ -31,11 +31,11 @@ restart.
 
 ![worker recovery](results/drill_worker_recovery.png)
 
-## 2. Replay re-index — durable re-processing after a model change
+## 2. Replay re-index: durable re-processing after a model change
 
 **Claim.** Because Kafka retains the stream and the index keys each row
 deterministically (`chk_<event_id>_<chunk>`), you can re-embed the entire corpus
-after changing the embedding model by replaying the topic — rows are overwritten
+after changing the embedding model by replaying the topic: rows are overwritten
 in place, not duplicated. This is the durable-replay property the brief calls a
 load-bearing reason for Kafka.
 
@@ -45,10 +45,10 @@ consumer group (the same mechanism `make replay` exposes standalone); re-check.
 
 **Result.** `109 rows re-indexed in place, indexed_at advanced.` The row count is
 unchanged (no duplication) and every row's `indexed_at` moved forward (everything
-was genuinely re-processed). No graph — the evidence is the before/after
+was genuinely re-processed). No graph: the evidence is the before/after
 invariant, reproducible on its own via `make replay`.
 
-## 3. Burst backpressure — bounded lag, then drain
+## 3. Burst backpressure: bounded lag, then drain
 
 **Claim.** A sudden burst far larger than steady load does not lose data or wedge
 the pipeline; consumer lag spikes and then drains as the embedder works through
@@ -66,4 +66,4 @@ in the broker, then the embedder catches up and the index reaches the full count
 
 These three are the resilience side of the project's thesis: streaming isn't just
 fresher (see [`RESULTS.md`](RESULTS.md)), it's also durable under worker failure,
-model changes, and load spikes — and you can watch each property happen.
+model changes, and load spikes, and you can watch each property happen.
