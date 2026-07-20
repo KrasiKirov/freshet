@@ -28,9 +28,9 @@ def test_gather_postmortem_sets_impact(conn, emb, monkeypatch):
 
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     conn.execute(
-        "INSERT INTO incidents (incident_id, title, services, opened_at, resolved_at)"
-        " VALUES (%s, %s, ARRAY[%s], now() - interval '20 minutes', now())",
-        (iid, f"{truth.service}: resolved", truth.service),
+        "INSERT INTO incidents (incident_id, title, opened_at, resolved_at)"
+        " VALUES (%s, %s, now() - interval '20 minutes', now())",
+        (iid, f"{truth.service}: resolved"),
     )
     pm = gather_postmortem(conn, emb, truth.service, iid)
     assert pm.impact and pm.impact.startswith("Impact:")
@@ -50,9 +50,9 @@ def test_gather_findings_sets_impact_ongoing(conn, emb, monkeypatch):
 
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     conn.execute(
-        "INSERT INTO incidents (incident_id, title, services, opened_at)"
-        " VALUES (%s, %s, ARRAY[%s], now())",
-        (iid, f"{truth.service}: open", truth.service),
+        "INSERT INTO incidents (incident_id, title, opened_at)"
+        " VALUES (%s, %s, now())",
+        (iid, f"{truth.service}: open"),
     )
     f = gather_findings(conn, emb, truth.service, iid, "open")
     assert f.impact and "ongoing" in f.impact

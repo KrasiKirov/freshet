@@ -28,7 +28,7 @@ class _FakeConn:
                 row = (params["id"],)
         elif "INSERT INTO incidents" in sql:            # idempotent upsert
             row = (self.inserted,)
-        elif "SELECT incident_id FROM incidents" in sql:  # FIND_OPEN
+        elif "JOIN incident_services" in sql:            # FIND_OPEN
             row = (self.open_incident,) if self.open_incident else None
         elif "SET resolved_at" in sql and self.resolves:
             self.resolved.append(params["id"])

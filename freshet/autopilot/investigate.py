@@ -22,8 +22,8 @@ _Hit = namedtuple("_Hit", ["event_id", "ts", "text"])
 _RUNBOOK_SQL = ("SELECT text FROM vector_records WHERE service = %s AND type = 'runbook'"
                 " ORDER BY ts LIMIT 1")
 _LOOKUP_SQL = "SELECT event_id, ts, text FROM vector_records WHERE event_id = %s LIMIT 1"
-_INCIDENT_IMPACT_SQL = ("SELECT services, opened_at, resolved_at"
-                        " FROM incidents WHERE incident_id = %s")
+_INCIDENT_META_SQL = "SELECT opened_at, resolved_at FROM incidents WHERE incident_id = %s"
+_INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_id = %s"
 
 
 def fetch_runbook(conn, service: str) -> str | None:
@@ -37,9 +37,11 @@ def lookup_hit(conn, event_id: str) -> _Hit | None:
 
 
 def _impact_for(conn, incident_id: str, service: str, hits) -> str:
-    row = conn.execute(_INCIDENT_IMPACT_SQL, (incident_id,)).fetchone()
-    services, opened_at, resolved_at = row if row else (None, None, None)
-    services = list(services) if services else [service]
+    row = conn.execute(_INCIDENT_META_SQL, (incident_id,)).fetchone()
+    opened_at, resolved_at = row if row else (None, None)
+    services = [r[0] for r in conn.execute(_INCIDENT_SERVICES_SQL, (incident_id,)).fetchall()]
+    if not services:
+        services = [service]
     return estimate_impact(services, opened_at, resolved_at, [h.text for h in hits])
 
 

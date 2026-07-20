@@ -30,9 +30,9 @@ def test_open_incident_briefs_once(conn, emb, monkeypatch, capsys):
     # simulate the incident being opened + present in the incidents table
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     conn.execute(
-        "INSERT INTO incidents (incident_id, title, services, opened_at)"
-        " VALUES (%s, %s, ARRAY[%s], now())",
-        (iid, f"{truth.service}: open", truth.service),
+        "INSERT INTO incidents (incident_id, title, opened_at)"
+        " VALUES (%s, %s, now())",
+        (iid, f"{truth.service}: open"),
     )
     raw = LifecycleEvent("opened", iid, truth.service, "2026-07-01T00:00:00+00:00").to_json()
 
@@ -63,10 +63,10 @@ def test_resolve_posts_postmortem_once(conn, emb, monkeypatch, capsys):
     # before resolving (the postmortem claim requires it).
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     conn.execute(
-        "INSERT INTO incidents (incident_id, title, services, opened_at, briefed_at,"
-        " resolved_at, resolution_summary) VALUES (%s, %s, ARRAY[%s],"
+        "INSERT INTO incidents (incident_id, title, opened_at, briefed_at,"
+        " resolved_at, resolution_summary) VALUES (%s, %s,"
         " now() - interval '30 minutes', now() - interval '29 minutes', now(), %s)",
-        (iid, f"{truth.service}: resolved", truth.service, "rolled back"),
+        (iid, f"{truth.service}: resolved", "rolled back"),
     )
     raw = LifecycleEvent("resolved", iid, truth.service, "2026-07-01T00:00:00+00:00").to_json()
 
@@ -90,8 +90,8 @@ def test_resolve_without_brief_skips_postmortem(conn, emb, monkeypatch, capsys):
 
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     conn.execute(
-        "INSERT INTO incidents (incident_id, title, services, opened_at, resolved_at,"
-        " resolution_summary) VALUES (%s, %s, ARRAY['api'],"
+        "INSERT INTO incidents (incident_id, title, opened_at, resolved_at,"
+        " resolution_summary) VALUES (%s, %s,"
         " now() - interval '30 minutes', now(), %s)",
         (iid, "api: resolved", "rolled back"),
     )

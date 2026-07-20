@@ -34,12 +34,45 @@ ALTER TABLE vector_records
 CREATE TABLE IF NOT EXISTS incidents (
     incident_id        text PRIMARY KEY,
     title              text NOT NULL DEFAULT '',
-    services           text[] NOT NULL DEFAULT '{}',
     opened_at          timestamptz NOT NULL,
     resolved_at        timestamptz,
-    resolution_summary text,
-    event_ids          text[] NOT NULL DEFAULT '{}'
+    resolution_summary text
 );
+
+-- Incident<->service and incident<->event joins (FK integrity, indexable
+-- lookups) replace the earlier denormalized services/event_ids text[] columns.
+CREATE TABLE IF NOT EXISTS incident_services (
+    incident_id text NOT NULL REFERENCES incidents(incident_id) ON DELETE CASCADE,
+    service     text NOT NULL,
+    PRIMARY KEY (incident_id, service)
+);
+CREATE INDEX IF NOT EXISTS incident_services_service_idx ON incident_services (service);
+
+CREATE TABLE IF NOT EXISTS incident_events (
+    incident_id text NOT NULL REFERENCES incidents(incident_id) ON DELETE CASCADE,
+    event_id    text NOT NULL,
+    PRIMARY KEY (incident_id, event_id)
+);
+
+-- One-time migration for volumes created before the join tables existed:
+-- backfill from the old arrays, then drop them. Guarded on column existence
+-- so re-running init.sql on an already-migrated volume is a no-op.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'incidents' AND column_name = 'services') THEN
+        INSERT INTO incident_services (incident_id, service)
+        SELECT incident_id, unnest(services) FROM incidents
+        ON CONFLICT DO NOTHING;
+
+        INSERT INTO incident_events (incident_id, event_id)
+        SELECT incident_id, unnest(event_ids) FROM incidents
+        ON CONFLICT DO NOTHING;
+
+        ALTER TABLE incidents DROP COLUMN services;
+        ALTER TABLE incidents DROP COLUMN event_ids;
+    END IF;
+END $$;
 
 -- Atomic find-or-create for correlator-opened ("auto") incidents: at most one
 -- open auto incident per service, enforced by a partial unique index so

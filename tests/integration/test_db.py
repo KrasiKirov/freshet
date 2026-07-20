@@ -31,8 +31,27 @@ def test_schema_applied():
             ).fetchall()
         }
         assert {
-            "incident_id", "title", "services", "opened_at",
-            "resolved_at", "resolution_summary", "event_ids",
+            "incident_id", "title", "opened_at",
+            "resolved_at", "resolution_summary",
         } <= inc_cols
+        assert "services" not in inc_cols and "event_ids" not in inc_cols
+
+        svc_cols = {
+            r[0]
+            for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_name = 'incident_services'"
+            ).fetchall()
+        }
+        assert {"incident_id", "service"} <= svc_cols
+
+        evt_cols = {
+            r[0]
+            for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_name = 'incident_events'"
+            ).fetchall()
+        }
+        assert {"incident_id", "event_id"} <= evt_cols
     finally:
         conn.close()

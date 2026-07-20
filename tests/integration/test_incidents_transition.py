@@ -31,6 +31,10 @@ def test_statuspage_style_incident_resolves(conn):
     r1 = correlate(conn, _ev(iid, service="cloudflare", type="investigating",
                              severity=Severity.SEV2))
     assert r1.transition == "opened"
+    services = {r[0] for r in conn.execute(
+        "SELECT service FROM incident_services WHERE incident_id = %s", (iid,)
+    ).fetchall()}
+    assert services == {"cloudflare"}
     r2 = correlate(conn, _ev(iid, service="cloudflare", type="resolved",
                              severity=Severity.SEV2))
     assert r2.transition == "resolved"
@@ -45,6 +49,10 @@ def test_open_then_resolve_transitions_fire_once(conn):
     # first severe event opens the incident
     r1 = correlate(conn, _ev(iid, severity=Severity.SEV1))
     assert r1.incident_id == iid and r1.transition == "opened"
+    services = {r[0] for r in conn.execute(
+        "SELECT service FROM incident_services WHERE incident_id = %s", (iid,)
+    ).fetchall()}
+    assert services == {"scheduler-api"}
     # a second severe event does NOT re-open
     r2 = correlate(conn, _ev(iid, severity=Severity.SEV1))
     assert r2.transition is None

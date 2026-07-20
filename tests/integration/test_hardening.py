@@ -83,21 +83,27 @@ def test_scenario_incident_is_correlated_and_resolved(conn):
     normalizer.run(BROKERS, group=f"n-{run_id}", max_messages=10, raw_topic=raw, normalized_topic=norm)
 
     row = conn.execute(
-        "SELECT services, event_ids, resolved_at, resolution_summary FROM incidents"
+        "SELECT resolved_at, resolution_summary FROM incidents"
         " WHERE incident_id = 'INC-DEMO-0001'"
     ).fetchone()
     assert row is not None
-    services, event_ids, resolved_at, summary = row
-    assert services == ["scheduler-api"]
+    resolved_at, summary = row
+    services = {r[0] for r in conn.execute(
+        "SELECT service FROM incident_services WHERE incident_id = 'INC-DEMO-0001'"
+    ).fetchall()}
+    event_ids = [r[0] for r in conn.execute(
+        "SELECT event_id FROM incident_events WHERE incident_id = 'INC-DEMO-0001'"
+    ).fetchall()]
+    assert services == {"scheduler-api"}
     assert len(event_ids) == 9
     assert resolved_at is not None
     assert summary is not None and summary.startswith("Postmortem")
 
     # idempotency: a fresh group replays everything; state must not change
     normalizer.run(BROKERS, group=f"n2-{run_id}", max_messages=10, raw_topic=raw, normalized_topic=norm)
-    event_ids2 = conn.execute(
-        "SELECT event_ids FROM incidents WHERE incident_id = 'INC-DEMO-0001'"
-    ).fetchone()[0]
+    event_ids2 = [r[0] for r in conn.execute(
+        "SELECT event_id FROM incident_events WHERE incident_id = 'INC-DEMO-0001'"
+    ).fetchall()]
     assert len(event_ids2) == 9
 
 

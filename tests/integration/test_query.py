@@ -100,8 +100,8 @@ def test_pooled_api_serves_concurrent_requests(conn, monkeypatch):
 
     monkeypatch.setenv("FRESHET_EMBEDDER", "stub")  # no model download
     conn.execute(
-        "INSERT INTO incidents (incident_id, title, services, opened_at)"
-        " VALUES ('INC_pool', 'api: open', ARRAY['api'], now())"
+        "INSERT INTO incidents (incident_id, title, opened_at)"
+        " VALUES ('INC_pool', 'api: open', now())"
     )
     with TestClient(appmod.app) as client, cf.ThreadPoolExecutor(max_workers=8) as ex:
         results = list(ex.map(lambda _: client.get("/incidents?limit=5").status_code,

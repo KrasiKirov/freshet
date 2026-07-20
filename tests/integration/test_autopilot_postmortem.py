@@ -28,10 +28,10 @@ def test_gather_postmortem_keyless(conn, emb, monkeypatch):
     # a resolved incident row for this service (opened 42 min before it resolved)
     iid = f"INC_{uuid.uuid4().hex[:12]}"
     conn.execute(
-        "INSERT INTO incidents (incident_id, title, services, opened_at, resolved_at,"
-        " resolution_summary) VALUES (%s, %s, ARRAY[%s], now() - interval '42 minutes',"
+        "INSERT INTO incidents (incident_id, title, opened_at, resolved_at,"
+        " resolution_summary) VALUES (%s, %s, now() - interval '42 minutes',"
         " now(), %s)",
-        (iid, f"{truth.service}: resolved", truth.service, "rolled back the deploy"),
+        (iid, f"{truth.service}: resolved", "rolled back the deploy"),
     )
 
     pm = gather_postmortem(conn, emb, truth.service, iid)

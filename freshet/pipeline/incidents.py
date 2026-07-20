@@ -6,9 +6,9 @@ spike, rollback, or SEV1/SEV2) without one joins the open incident on its
 service, or opens a new one. A healthy event — or a status-feed terminal
 status ("resolved"/"postmortem", see RESOLUTION_TYPES) — resolves its
 incident; an RCA event records the resolution summary. All writes are
-idempotent (guarded array
-appends, COALESCE on resolution fields) so at-least-once redelivery cannot
-duplicate or regress state.
+idempotent (ON CONFLICT DO NOTHING joins into incident_services/incident_events,
+COALESCE on resolution fields) so at-least-once redelivery cannot duplicate or
+regress state.
 
 Find-or-create is atomic: correlator-opened incidents claim a partial unique
 index (one open auto incident per service) via INSERT ... ON CONFLICT, so
@@ -61,18 +61,23 @@ def _new_incident_id() -> str:
 
 
 UPSERT_INCIDENT_SQL = """
-INSERT INTO incidents (incident_id, title, services, opened_at, event_ids)
-VALUES (%(id)s, %(title)s, ARRAY[%(service)s], %(ts)s, ARRAY[%(event_id)s])
+INSERT INTO incidents (incident_id, title, opened_at)
+VALUES (%(id)s, %(title)s, %(ts)s)
 ON CONFLICT (incident_id) DO UPDATE SET
-    services = CASE WHEN %(service)s = ANY(incidents.services)
-                    THEN incidents.services
-                    ELSE array_append(incidents.services, %(service)s) END,
-    event_ids = CASE WHEN %(event_id)s = ANY(incidents.event_ids)
-                     THEN incidents.event_ids
-                     ELSE array_append(incidents.event_ids, %(event_id)s) END,
     opened_at = LEAST(incidents.opened_at, EXCLUDED.opened_at)
 RETURNING (xmax = 0) AS inserted
 """
+
+# Idempotent appends into the join tables — same "already there? do nothing"
+# semantics the old array_append CASE gave, so redelivery is still safe.
+LINK_SERVICE_SQL = (
+    "INSERT INTO incident_services (incident_id, service)"
+    " VALUES (%(id)s, %(service)s) ON CONFLICT DO NOTHING"
+)
+LINK_EVENT_SQL = (
+    "INSERT INTO incident_events (incident_id, event_id)"
+    " VALUES (%(id)s, %(event_id)s) ON CONFLICT DO NOTHING"
+)
 
 RESOLVE_SQL = (
     "UPDATE incidents SET resolved_at = %(ts)s"
@@ -84,19 +89,20 @@ SUMMARY_SQL = (
     " WHERE incident_id = %(id)s"
 )
 FIND_OPEN_SQL = (
-    "SELECT incident_id FROM incidents"
-    " WHERE resolved_at IS NULL AND %(service)s = ANY(services)"
-    " ORDER BY opened_at LIMIT 1"
+    "SELECT i.incident_id FROM incidents i"
+    " JOIN incident_services s ON s.incident_id = i.incident_id"
+    " WHERE i.resolved_at IS NULL AND s.service = %(service)s"
+    " ORDER BY i.opened_at LIMIT 1"
 )
 
 # Atomic open-incident claim for stray severe events (no explicit incident_id).
 # The partial unique index (one open auto incident per primary_service) makes
 # this race-safe under concurrent normalizers: exactly one INSERT wins, losers
-# get no row back and re-run FIND_OPEN to join the winner.
+# get no row back and re-run FIND_OPEN to join the winner. The service link
+# itself is written by LINK_SERVICE_SQL in correlate(), same as the upsert path.
 CLAIM_OPEN_SQL = """
-INSERT INTO incidents
-    (incident_id, title, services, primary_service, auto_opened, opened_at, event_ids)
-VALUES (%(id)s, %(title)s, ARRAY[%(service)s], %(service)s, TRUE, %(ts)s, ARRAY[%(event_id)s])
+INSERT INTO incidents (incident_id, title, primary_service, auto_opened, opened_at)
+VALUES (%(id)s, %(title)s, %(service)s, TRUE, %(ts)s)
 ON CONFLICT (primary_service) WHERE resolved_at IS NULL AND auto_opened DO NOTHING
 RETURNING incident_id
 """
@@ -139,14 +145,10 @@ def correlate(conn, ev: Event) -> CorrelationResult:
         return CorrelationResult(None, None)
     inserted = conn.execute(
         UPSERT_INCIDENT_SQL,
-        {
-            "id": incident_id,
-            "title": incident_title(ev),
-            "service": ev.service,
-            "ts": ev.ts,
-            "event_id": ev.event_id,
-        },
+        {"id": incident_id, "title": incident_title(ev), "ts": ev.ts},
     ).fetchone()[0]
+    conn.execute(LINK_SERVICE_SQL, {"id": incident_id, "service": ev.service})
+    conn.execute(LINK_EVENT_SQL, {"id": incident_id, "event_id": ev.event_id})
     # a claim-created row makes the follow-up upsert a no-op (inserted=False),
     # so the claim itself carries the "opened" transition
     transition = "opened" if (inserted or opened_by_claim) else None
