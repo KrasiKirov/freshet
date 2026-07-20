@@ -88,17 +88,23 @@ a new test locks in the guard (resolved-but-never-briefed → no postmortem).
    candidate dropped for naming the effect, not the cause.
 2. ~~**Run the new evals.**~~ Done 2026-07-15: three-arm table in RESULTS.md
    (item 8), bge floor calibrated to 0.7 (item 4), scale-demo re-run (item 10).
-3. **Incident↔service join table — RECOMMENDED AGAINST (2026-07-17).** The
-   arrays (`services`, `event_ids`) block FK integrity and, in principle,
-   efficient lookups. But normalizing them means rewriting `correlate()` — the
-   atomic find-or-create and the partial-unique-index claim that this whole
-   hardening pass just made race-safe — plus `FIND_OPEN_SQL`, the `/incidents`
-   endpoint, an `init.sql` migration with backfill, and ~6 integration tests
-   that insert `ARRAY[…]`. At demo scale (tens of incidents) `= ANY(services)`
-   costs nothing, so the benefit is modeling purity with **zero functional
-   gain**, paid for with regression risk in the most safety-critical path in the
-   system. Deliberately left as-is; revisit only if incident volume or a real
-   FK-integrity need materializes.
+3. ~~**Incident↔service join table.**~~ Done 2026-07-17. Initially recommended
+   against (regression risk in `correlate()`'s race-safe claim logic for zero
+   functional gain at demo scale); the user weighed that and asked for it
+   anyway. Replaced the `services`/`event_ids` text[] columns with
+   `incident_services`/`incident_events` (composite PK, FK `ON DELETE CASCADE`,
+   an index on `service` for the lookup). `correlate()`'s
+   `UPSERT_INCIDENT_SQL` no longer touches either array; two new idempotent
+   `INSERT ... ON CONFLICT DO NOTHING` link statements give the same
+   redelivery-safe append semantics the old `array_append` CASE did.
+   `FIND_OPEN_SQL`'s `= ANY(services)` became a join. `db/init.sql` migrates
+   existing volumes with a guarded, idempotent backfill-then-drop (verified:
+   applies once, a second `make db-init` is a true no-op). One live gap the
+   initial grep missed: `investigate.py`'s impact lookup also read
+   `incidents.services` directly — caught by the integration suite
+   (`UndefinedColumn`), fixed by querying `incident_services` instead. The
+   atomic auto-open claim (`primary_service` + its partial unique index) is
+   untouched — it was already race-safe and orthogonal to this change.
 4. ~~**API connection pool.**~~ Done 2026-07-17: `make_pool()` (psycopg_pool,
    autocommit, health-checked) behind a `yield` dependency in `get_deps`, so
    concurrent requests each get their own connection instead of serializing on
