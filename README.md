@@ -50,6 +50,14 @@ loads `.env.local`, so with `ANTHROPIC_API_KEY` set the answers are **LLM-writte
 grounded, and cited**; without a key it falls back to the keyless cited-template
 composer (still grounded, just extractive).
 
+Security posture: this is a **local dev stack, not a deployable service**. Every
+listener binds loopback only (the compose ports are `127.0.0.1:`-prefixed; uvicorn
+defaults to 127.0.0.1), Postgres runs with demo credentials, the broker is
+unauthenticated PLAINTEXT, and the query API has **no auth or rate limiting** — with
+a key set, each `/query` is LLM spend. Do not port-forward or rebind `:8000`/`:8088`
+to a public interface; if you ever host it, put auth + rate limiting in front and set
+`FRESHET_GITHUB_WEBHOOK_SECRET` so webhook deliveries are HMAC-verified.
+
 ### Autopilot (autonomous responder)
 
 `make autopilot` runs a separate consumer that reacts to incident lifecycle
