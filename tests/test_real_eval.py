@@ -3,6 +3,7 @@ event-id mapping must match what map_incident derives, and scoring must rank
 at the event level (hits are chunks)."""
 import json
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
 
 from freshet.eval.real_eval import (
@@ -70,6 +71,30 @@ def test_aggregate():
     agg = aggregate(recs)
     assert agg == {"recall@5": 0.5, "mrr": 0.5, "top1_cite": 0.5, "n": 2}
     assert aggregate([])["n"] == 0
+
+
+def test_corpus_now_anchors_to_snapshot_not_wallclock():
+    from datetime import datetime, timedelta
+
+    from freshet.eval.real_eval import corpus_now
+
+    @dataclass
+    class _Ev:
+        ts: datetime
+
+    newest = datetime(2026, 7, 17, 18, 11, 57, tzinfo=UTC)
+    evs = [_Ev(newest - timedelta(days=800)), _Ev(newest), _Ev(newest - timedelta(hours=3))]
+    anchor = corpus_now(evs)
+    assert anchor == newest + timedelta(minutes=1)   # derived from data, not now()
+
+
+def test_tau_sweep_ladder_is_ascending_and_ends_neutral():
+    from freshet.eval.real_eval import TAU_SWEEP
+
+    taus = [t for _, t in TAU_SWEEP]
+    assert taus == sorted(taus)
+    assert TAU_SWEEP[0] == ("30m", 1800.0)      # the old default stays measured
+    assert TAU_SWEEP[-1][0] == "neutral" and TAU_SWEEP[-1][1] >= 1e12
 
 
 def test_sample_fixture_cause_update_maps():

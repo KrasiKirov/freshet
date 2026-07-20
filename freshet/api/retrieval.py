@@ -99,11 +99,15 @@ def should_abstain(similarities: list[float], min_similarity: float) -> bool:
 
 
 
-# Recency half-weight ~ 21 min — tuned to the scripted demo's incident span.
-# Real corpora (status feeds with incidents hours/days old) need a much larger
-# tau; override with FRESHET_TAU_S. Note the benchmark evals run recency-neutral
-# (tau≈∞), so this decay is a product default, not a benchmarked one.
-DEFAULT_TAU_S = 1800.0
+# Recency-neutral by default, decided by measurement (RESULTS M15 recency
+# sweep): on real hand-labeled status-feed incidents (median event age ~44
+# days), EVERY practical decay level costs recall on retrospective root-cause
+# queries — recall@5 drops from 0.917 (neutral) to 0.833 even at tau=365d, and
+# to 0.25–0.50 at hours/days scale (the old 30m demo default underflowed every
+# score to 0.0, silently degenerating to RRF tie order). Decay's hypothesized
+# value is live "what's breaking right now?" ranking, which has no labeled
+# queries yet — so it is opt-in via FRESHET_TAU_S, not an unmeasured default.
+DEFAULT_TAU_S = 1e12
 # Fallback abstention floor (MiniLM-calibrated). When the embedder carries a
 # per-model `min_similarity` attribute (see pipeline.embedding), that wins —
 # bge's compressed cosine distribution makes 0.3 effectively "never abstain".
@@ -187,8 +191,8 @@ def hybrid_search(
     reranker: Reranker | None = None,
     rerank_pool: int = 30,
 ) -> HybridResult:
-    # None -> resolve defaults: tau from FRESHET_TAU_S (else the demo-tuned
-    # constant), abstention floor from the embedder's per-model attribute.
+    # None -> resolve defaults: tau from FRESHET_TAU_S (else recency-neutral —
+    # see DEFAULT_TAU_S), abstention floor from the embedder's per-model attribute.
     if tau_s is None:
         tau_s = _default_tau_s()
     if min_similarity is None:

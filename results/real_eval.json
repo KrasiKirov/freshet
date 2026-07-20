@@ -8,6 +8,74 @@
   "corpus_events": 841,
   "labels_curated": "reviewed",
   "note": "hand-labeled real Statuspage incidents; cause = the update where the provider stated the cause; whole-corpus, recency-neutral, bge",
+  "recency": {
+    "now_anchor": "2026-07-17T18:12:57.275000+00:00",
+    "sweep": {
+      "180d": {
+        "mrr": 0.433,
+        "n": 12,
+        "recall@5": 0.75,
+        "tau_s": 15552000.0,
+        "top1_cite": 0.25
+      },
+      "24h": {
+        "mrr": 0.167,
+        "n": 12,
+        "recall@5": 0.25,
+        "tau_s": 86400.0,
+        "top1_cite": 0.083
+      },
+      "30d": {
+        "mrr": 0.232,
+        "n": 12,
+        "recall@5": 0.5,
+        "tau_s": 2592000.0,
+        "top1_cite": 0.083
+      },
+      "30m": {
+        "mrr": 0.243,
+        "n": 12,
+        "recall@5": 0.5,
+        "tau_s": 1800.0,
+        "top1_cite": 0.083
+      },
+      "365d": {
+        "mrr": 0.472,
+        "n": 12,
+        "recall@5": 0.833,
+        "tau_s": 31536000.0,
+        "top1_cite": 0.25
+      },
+      "6h": {
+        "mrr": 0.167,
+        "n": 12,
+        "recall@5": 0.25,
+        "tau_s": 21600.0,
+        "top1_cite": 0.083
+      },
+      "7d": {
+        "mrr": 0.183,
+        "n": 12,
+        "recall@5": 0.333,
+        "tau_s": 604800.0,
+        "top1_cite": 0.083
+      },
+      "90d": {
+        "mrr": 0.378,
+        "n": 12,
+        "recall@5": 0.667,
+        "tau_s": 7776000.0,
+        "top1_cite": 0.25
+      },
+      "neutral": {
+        "mrr": 0.576,
+        "n": 12,
+        "recall@5": 0.917,
+        "tau_s": 1000000000000.0,
+        "top1_cite": 0.417
+      }
+    }
+  },
   "retrieval": {
     "mrr": 0.576,
     "n": 12,

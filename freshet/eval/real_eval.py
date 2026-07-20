@@ -29,14 +29,33 @@ import hashlib
 import json
 import os
 import pathlib
+from datetime import datetime, timedelta
 
 RESULTS = "results/real_eval.json"
 FIXTURES = pathlib.Path("freshet/eval/fixtures/real")
 
-# Same as the other evals — recency-neutral: real incidents span months, so the
-# demo-tuned 21-minute decay would zero every score.
+# Headline metrics are recency-neutral, same as the other evals: real incidents
+# span months, so any strong decay would measure the decay, not retrieval.
 _EVAL_TAU_S = 1e12
 K = 5
+
+# Recency-on arm: what does decay cost on real data? The ladder brackets the
+# corpus's age structure (median event age ~44 days at snapshot time): the old
+# demo-tuned 30m, then hours→days→months, ending recency-neutral. Outcome (see
+# RESULTS M15): recovery is monotone from 30d up but even 365d never matches
+# neutral, so no decay level is free on retrospective queries — which is why
+# DEFAULT_TAU_S is now recency-neutral and decay is opt-in via FRESHET_TAU_S.
+TAU_SWEEP: list[tuple[str, float]] = [
+    ("30m", 1800.0),
+    ("6h", 21600.0),
+    ("24h", 86400.0),
+    ("7d", 604800.0),
+    ("30d", 2592000.0),
+    ("90d", 7776000.0),
+    ("180d", 15552000.0),
+    ("365d", 31536000.0),
+    ("neutral", 1e12),
+]
 
 # Off-corpus queries for the real-language abstention check. Ops-flavored ones
 # are hard negatives: right vocabulary, but nothing these five feeds cover.
@@ -75,6 +94,13 @@ def load_corpus(fixtures_dir: pathlib.Path = FIXTURES) -> list:
 
 def load_labels(fixtures_dir: pathlib.Path = FIXTURES) -> dict:
     return json.loads((fixtures_dir / "labels.json").read_text())
+
+
+def corpus_now(events) -> datetime:
+    """Deterministic 'now' for recency scoring: anchored to the snapshot itself
+    (newest event + 1 min), not wall-clock — otherwise ages grow as the committed
+    snapshot gets older and the sweep numbers drift run-to-run."""
+    return max(e.ts for e in events) + timedelta(minutes=1)
 
 
 def score_label(hits: list, cause_ids: set[str]) -> dict:
@@ -143,6 +169,24 @@ def main() -> None:
                          tau_s=_EVAL_TAU_S).abstained:
             off_abstain += 1
 
+    # recency-on arm: same labeled queries, decay applied, aged against the
+    # snapshot anchor so the numbers are deterministic
+    anchor = corpus_now(corpus)
+    sweep: dict[str, dict] = {}
+    print(f"\nRecency sweep (now anchored to snapshot: {anchor.isoformat()}):")
+    print(f"  {'tau':>8}  recall@5   mrr   top1")
+    for label, tau in TAU_SWEEP:
+        recs = []
+        for lab in labels["labeled"]:
+            cause_ids = {update_event_id(lab["incident_id"].split(":", 1)[1], uid)
+                         for uid in lab["cause_update_ids"]}
+            res = hybrid_search(conn, embedder, lab["query"], k=K, service=None,
+                                tau_s=tau, now=anchor)
+            recs.append(score_label(res.hits, cause_ids))
+        agg = aggregate(recs)
+        sweep[label] = {"tau_s": tau, **agg}
+        print(f"  {label:>8}  {agg['recall@5']:8.3f}  {agg['mrr']:.3f}  {agg['top1_cite']:.3f}")
+
     result = {
         "retrieval": aggregate(records),
         "abstention": {
@@ -151,6 +195,7 @@ def main() -> None:
             "off_corpus_abstained": off_abstain,
             "off_corpus_total": len(OFF_CORPUS),
         },
+        "recency": {"now_anchor": anchor.isoformat(), "sweep": sweep},
         "corpus_events": len(corpus),
         "labels_curated": labels.get("curated"),
         "note": ("hand-labeled real Statuspage incidents; cause = the update "
