@@ -68,6 +68,38 @@ abstained (4 ops-flavored hard negatives about services these feeds don't cover 
 queries cleanly is the strongest single piece of evidence that the calibration
 isn't overfit to the generator.
 
+**Recency decay, measured — and turned off by default.** Production used to apply
+a demo-tuned exponential decay (~21-min half-weight) that no eval had ever
+measured. A tau sweep over the same 12 labeled queries (ages fixed against the
+snapshot, so the numbers are deterministic; median event age ~44 days) closes
+that blind spot:
+
+| tau | recall@5 | MRR | top-1 |
+|---|---|---|---|
+| 30m (old default) | 0.500 | 0.243 | 0.083 |
+| 6h | 0.250 | 0.167 | 0.083 |
+| 24h | 0.250 | 0.167 | 0.083 |
+| 7d | 0.333 | 0.183 | 0.083 |
+| 30d | 0.500 | 0.232 | 0.083 |
+| 90d | 0.667 | 0.378 | 0.250 |
+| 180d | 0.750 | 0.433 | 0.250 |
+| 365d | 0.833 | 0.472 | 0.250 |
+| **neutral (new default)** | **0.917** | **0.576** | **0.417** |
+
+Two findings. (1) **No decay level is free**: recovery is monotone from 30d
+upward but even a one-year half-life still loses ~8 recall points and a third of
+MRR versus neutral — retrospective root-cause questions need old evidence, and
+multiplying scores by `exp(-age/tau)` punishes exactly that. (2) The old 30m
+default wasn't even a working freshness bias: at 44-day median age every score
+underflows to float **0.0**, all hits tie, and the sort silently falls back to
+RRF order — which is why 30m scores *better* than 6h in the table (degeneracy,
+not decay, was ranking). So the default is now **recency-neutral**, and decay is
+**opt-in** (`FRESHET_TAU_S`) for live "what's breaking right now?" views —
+where its benefit is plausible (the Reddit/AWS miss above was semantic pull
+toward *older* near-duplicate incidents) but has no labeled queries yet, and
+this project does not ship unmeasured defaults that measurably hurt the
+measured workload.
+
 Caveats kept in front: (1) 12 labeled incidents is small — a floor for
 signal, not a stable percentage. (2) Labels are reviewed judgment calls (which
 update "states the cause"), `curated: reviewed` in `labels.json` with a per-

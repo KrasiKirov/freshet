@@ -30,9 +30,15 @@ a new test locks in the guard (resolved-but-never-briefed → no postmortem).
    0.662, so 0.7 (the gap midpoint) gives 0/40 false abstentions and 16/16
    correct ones. The interim guess of 0.5 let 6/8 ops-flavored hard negatives
    through. `FRESHET_MIN_SIMILARITY` still overrides.
-5. **Recency decay configurable.** `FRESHET_TAU_S` overrides the demo-tuned
-   21-minute half-weight. *Open: benchmark runs recency-neutral while production
-   applies decay — add a recency-on eval arm or pick a real-feed default.*
+5. **Recency decay configurable — and now measured, closed 2026-07-20.**
+   `FRESHET_TAU_S` overrides. The open recency-on eval arm is built into
+   `make real-eval` (a deterministic tau sweep, ages anchored to the snapshot):
+   on real retrospective queries **no decay level matches recency-neutral**
+   (0.917 recall@5 neutral vs 0.833 even at tau=365d; hours/days-scale taus
+   score 0.25–0.50), and the old 30m default underflowed every score to 0.0 —
+   ranking had silently degenerated to RRF tie order. `DEFAULT_TAU_S` is now
+   recency-neutral; decay is opt-in for live "what's-breaking-now" views (no
+   labeled queries for that workload yet). RESULTS M15 has the full table.
 6. **Incident-scoped agent.** `investigate(since=…)`; the autopilot passes
    `opened_at − 2h`, applied as the default `search` lower bound.
 7. **API polish.** `/query` hits expose `type`; `get_deps` init is lock-guarded.

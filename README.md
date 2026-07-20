@@ -178,7 +178,7 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
                                         │
                                         ▼
    FastAPI POST /query:  hybrid retrieval (vector + keyword + filters)
-                          → reciprocal-rank fusion → recency weighting
+                          → reciprocal-rank fusion → recency weighting (opt-in)
                           → grounded answer with [event_id @ timestamp] citations
                           → abstains when evidence is weak
 
@@ -221,12 +221,14 @@ runs with deterministic fake embeddings and no download. Optional extras:
 `.[llm]` (Anthropic-composed answers — set `ANTHROPIC_API_KEY`, pick the model
 with `FRESHET_LLM_MODEL`), `.[eval]` (the evaluation harness + plots).
 
-Retrieval tuning via env: `FRESHET_TAU_S` sets the recency-decay constant (the
-default half-weight of ~21 min is tuned to the scripted demo; raise it for real
-status-feed corpora where incidents are hours old), and `FRESHET_MIN_SIMILARITY`
-overrides the abstention floor (defaults are per-embedder: 0.3 for stub,
-0.7 for bge — calibrated with `scripts/calibrate_abstention.py`; bge's cosine range
-is compressed upward, so the floors are not comparable across models).
+Retrieval tuning via env: `FRESHET_TAU_S` opts in to recency decay (the default
+is **recency-neutral** — the M15 tau sweep showed every practical decay level
+costs recall on real retrospective root-cause queries, so decay is reserved for
+live "what's breaking now?" deployments that choose it), and
+`FRESHET_MIN_SIMILARITY` overrides the abstention floor (defaults are
+per-embedder: 0.3 for stub, 0.7 for bge — calibrated with
+`scripts/calibrate_abstention.py`; bge's cosine range is compressed upward, so
+the floors are not comparable across models).
 
 ### Other commands
 
