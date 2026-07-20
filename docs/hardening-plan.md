@@ -88,12 +88,24 @@ a new test locks in the guard (resolved-but-never-briefed → no postmortem).
    candidate dropped for naming the effect, not the cause.
 2. ~~**Run the new evals.**~~ Done 2026-07-15: three-arm table in RESULTS.md
    (item 8), bge floor calibrated to 0.7 (item 4), scale-demo re-run (item 10).
-3. **Incident↔service join table.** The arrays (`services`, `event_ids`) still
-   block FK integrity and efficient lookups; the race they caused is fixed, so
-   this is now modeling cleanup rather than a correctness issue.
-4. **API connection pool.** The resilient wrapper fixes the bricking failure
-   mode; a `psycopg_pool` would additionally remove request serialization under
-   concurrency. Demo-scale priority: low.
+3. **Incident↔service join table — RECOMMENDED AGAINST (2026-07-17).** The
+   arrays (`services`, `event_ids`) block FK integrity and, in principle,
+   efficient lookups. But normalizing them means rewriting `correlate()` — the
+   atomic find-or-create and the partial-unique-index claim that this whole
+   hardening pass just made race-safe — plus `FIND_OPEN_SQL`, the `/incidents`
+   endpoint, an `init.sql` migration with backfill, and ~6 integration tests
+   that insert `ARRAY[…]`. At demo scale (tens of incidents) `= ANY(services)`
+   costs nothing, so the benefit is modeling purity with **zero functional
+   gain**, paid for with regression risk in the most safety-critical path in the
+   system. Deliberately left as-is; revisit only if incident volume or a real
+   FK-integrity need materializes.
+4. ~~**API connection pool.**~~ Done 2026-07-17: `make_pool()` (psycopg_pool,
+   autocommit, health-checked) behind a `yield` dependency in `get_deps`, so
+   concurrent requests each get their own connection instead of serializing on
+   one; a lifespan hook closes the pool and resets the global on shutdown. The
+   pool's checkout health-check subsumes `ResilientConnection`'s reconnect job
+   for the API; workers stay single-connection (sequential by design). Covered
+   by a 16-request concurrent integration test.
 5. ~~**Embed-failure dead-lettering.**~~ Done 2026-07-17: `make_handler` retries
    encode 3× inline, then dead-letters the message; upsert failures still
    propagate (infrastructure, not poison — dead-lettering during a DB outage
@@ -103,7 +115,17 @@ a new test locks in the guard (resolved-but-never-briefed → no postmortem).
    (`FRESHET_TEST_EMBEDDER`); embedding-semantics tests skip via
    `importorskip("sentence_transformers")`. Verified in a CI-simulated venv
    (`.[test]` only) — which also caught `run_eval` importing matplotlib at
-   module scope (now lazy). Widening ruff / adding mypy still open.
+   module scope (now lazy).
+7. ~~**Widen ruff / add mypy.**~~ Done 2026-07-17. Ruff config moved into
+   `pyproject.toml` and widened to `E4,E7,E9,F,W,I,B,C4,SIM,UP` (E501 off — long
+   SQL/docstrings; B008 off — the FastAPI `Depends` idiom; UP042 off — the
+   schema enums are deliberately `(str, Enum)`, since `StrEnum` changes JSON
+   output): 296 findings auto-fixed (import order, `Optional` → `| None`,
+   `datetime.UTC`) plus ~30 by hand, including 4 real `zip(strict=True)` fixes
+   and two out-of-place import blocks. Mypy added to CI (`files = ["freshet"]`,
+   `ignore_missing_imports`); the 13 errors it found are fixed — invariant
+   asserts where a guard existed, `Any` annotations for a `**kwargs` splat and a
+   heterogeneous dict, and a typed-ignore at the untyped matplotlib boundary.
 
 Also done 2026-07-17: **minilm retired from live paths** — its 384-dim vectors
 cannot index into the `vector(768)` schema, so `make_embedder("minilm")` now
