@@ -38,13 +38,25 @@ _STATIC = Path(__file__).parent / "static"
 PROMETHEUS_URL = os.environ.get("FRESHET_PROMETHEUS_URL", "http://localhost:9090")
 
 # Same metrics the Grafana dashboard uses, as instant queries.
-_Q_FRESHNESS_P50 = "histogram_quantile(0.50, sum(rate(freshet_freshness_seconds_bucket[5m])) by (le))"
-_Q_FRESHNESS_P95 = "histogram_quantile(0.95, sum(rate(freshet_freshness_seconds_bucket[5m])) by (le))"
+#
+# Pipeline latency (ingested -> queryable), NOT end-to-end freshness
+# (ts -> queryable). On replayed or status-feed corpora `ts` is the moment the
+# incident happened — often days ago — so end-to-end freshness measures the age
+# of the news, not the speed of the pipeline. Pipeline latency is meaningful on
+# every corpus; see Event.pipeline_latency_s / end_to_end_latency_s.
+# 15m window, not 5m: `make live-demo` polls the feeds once at startup, so all
+# ingestion lands in one burst. A 5m window leaves the gauges empty for anyone
+# who opens the UI a few minutes later, which reads as broken rather than idle.
+_Q_LATENCY_P50 = "histogram_quantile(0.50, sum(rate(freshet_pipeline_latency_seconds_bucket[15m])) by (le))"
+_Q_LATENCY_P95 = "histogram_quantile(0.95, sum(rate(freshet_pipeline_latency_seconds_bucket[15m])) by (le))"
+# Consumer groups are named per demo (normalizer/embedder, live-norm/live-emb,
+# sd-norm/sd-emb, drill-emb...), so match on the role substring rather than
+# pinning exact names — otherwise lag silently reads empty outside `make api`.
 _Q_CONSUMER_LAG = (
     "sum(clamp_min(sum by (redpanda_group) ("
     'redpanda_kafka_max_offset{redpanda_namespace="kafka",redpanda_topic=~"raw.events|normalized.events"}'
     " - on(redpanda_topic, redpanda_partition) group_right() "
-    'redpanda_kafka_consumer_group_committed_offset{redpanda_group=~"normalizer|embedder"}), 0))'
+    'redpanda_kafka_consumer_group_committed_offset{redpanda_group=~".*(norm|emb).*"}), 0))'
 )
 
 
@@ -93,8 +105,8 @@ class QueryResponse(BaseModel):
 
 
 class Stats(BaseModel):
-    freshness_p50_s: float | None
-    freshness_p95_s: float | None
+    latency_p50_s: float | None
+    latency_p95_s: float | None
     consumer_lag: float | None
 
 
@@ -183,8 +195,8 @@ def query(req: QueryRequest, deps=Depends(get_deps)) -> QueryResponse:
 @app.get("/stats", response_model=Stats)
 def stats() -> Stats:
     return Stats(
-        freshness_p50_s=_prom_instant(_Q_FRESHNESS_P50),
-        freshness_p95_s=_prom_instant(_Q_FRESHNESS_P95),
+        latency_p50_s=_prom_instant(_Q_LATENCY_P50),
+        latency_p95_s=_prom_instant(_Q_LATENCY_P95),
         consumer_lag=_prom_instant(_Q_CONSUMER_LAG),
     )
 

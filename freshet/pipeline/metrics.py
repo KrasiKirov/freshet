@@ -38,6 +38,16 @@ FRESHNESS = Histogram(
     "Event->queryable freshness: seconds from ts to indexed_at",
     buckets=LATENCY_BUCKETS,
 )
+# Freshness above is end-to-end (ts -> indexed_at), which on replayed or
+# status-feed corpora measures how old the incident was, not how fast the
+# pipeline ran: a real status update can be days old the moment it arrives.
+# Pipeline latency isolates the part the system controls and stays meaningful
+# on every corpus. Both are exposed; dashboards pick the one that fits the run.
+PIPELINE_LATENCY = Histogram(
+    "freshet_pipeline_latency_seconds",
+    "Pipeline latency: seconds from ingested_at to indexed_at",
+    buckets=LATENCY_BUCKETS,
+)
 
 
 def start_metrics_server(port: int) -> None:

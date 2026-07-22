@@ -66,6 +66,7 @@
     .answer{margin-top:24px;max-width:76ch}
     .answer .body{font-family:var(--sans);font-size:16px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
     .answer .body.abstain{color:var(--ink-2);font-size:15px}
+    .answer .hint{margin-top:9px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);line-height:1.6}
     .answer .idle{font-family:var(--mono);font-size:12.5px;color:var(--ink-3)}
     .working{font-family:var(--mono);font-size:12.5px;color:var(--accent)}
     .sources{margin-top:22px;border-top:1px solid var(--rule);padding-top:14px;max-width:86ch}
@@ -108,9 +109,9 @@
     <span class="tag">streaming RAG · live incident wire</span>
     <span class="spacer"></span>
     <span class="stats">
-      <span>fresh p50 <b id="s-p50">–</b></span>
-      <span>p95 <b id="s-p95">–</b></span>
-      <span>lag <b id="s-lag">–</b></span>
+      <span title="pipeline latency: ingested → queryable">pipeline p50 <b id="s-p50">–</b></span>
+      <span title="pipeline latency: ingested → queryable">p95 <b id="s-p95">–</b></span>
+      <span title="unread messages across the pipeline's consumer groups">lag <b id="s-lag">–</b></span>
     </span>
     <span class="live"><span class="dot"></span> live</span>
   </header>
@@ -138,10 +139,38 @@
 
   <script>
     const $ = (id)=>document.getElementById(id);
-    const EXAMPLES=["what's degraded right now?","any incidents on Cloudflare?",
-                    "what caused the latest outage?","which services are investigating?"];
-    EXAMPLES.forEach(q=>{const a=document.createElement("a");a.textContent=q;
-      a.onclick=()=>{$("question").value=q;ask();};$("chips").appendChild(a);});
+    // Chips are built from the services actually in the wire, not hardcoded.
+    // Retrieval abstains below a calibrated similarity floor, and broad questions
+    // ("what's degraded right now?") match no single event strongly enough to
+    // clear it — naming a service is what lifts a query over the line. Suggesting
+    // questions the system cannot answer is a bad first impression, so the
+    // suggestions follow the data.
+    // Derived from each incident's OWN title (statuspage text is "Title: body"),
+    // not from the service name: a question that quotes the incident's wording
+    // reliably clears the abstention floor, whereas "any incidents on openai?"
+    // does not — OpenAI's update text never contains the word "OpenAI", so there
+    // is nothing for the embedding to match.
+    //
+    // Phrased "what is happening with", never "what caused": status feeds report
+    // symptoms and resolutions, and only ~5% of real incidents ever state a cause
+    // (RESULTS.md M15). Asking for a cause the data does not hold produces a
+    // truthful non-answer, which reads as a broken demo rather than an honest one.
+    let chipsBuilt=false;
+    function buildChips(items){
+      if(chipsBuilt||!items||!items.length) return;
+      const seen=new Set(), qs=[];
+      for(const it of items){
+        const title=(it.text||"").split(":")[0].trim();
+        if(title.length<12||title.length>64||seen.has(title)) continue;
+        seen.add(title); qs.push(`what is happening with the ${title}?`);
+        if(qs.length===3) break;
+      }
+      if(!qs.length) return;
+      $("chips").innerHTML="";
+      qs.forEach(q=>{const a=document.createElement("a");a.textContent=q;
+        a.onclick=()=>{$("question").value=q;ask();};$("chips").appendChild(a);});
+      chipsBuilt=true;
+    }
 
     function ago(iso,now){
       const s=Math.max(0,((now||Date.now())-new Date(iso).getTime())/1000);
@@ -153,7 +182,7 @@
     // ── stats ──
     async function stats(){
       try{const s=await(await fetch("/stats")).json();
-        $("s-p50").textContent=fmt(s.freshness_p50_s);$("s-p95").textContent=fmt(s.freshness_p95_s);
+        $("s-p50").textContent=fmt(s.latency_p50_s);$("s-p95").textContent=fmt(s.latency_p95_s);
         $("s-lag").textContent=s.consumer_lag==null?"–":Math.round(s.consumer_lag);
       }catch(e){}
     }
@@ -187,6 +216,7 @@
       let items; try{items=await(await fetch("/incidents?limit=25")).json();}catch(e){return;}
       const em=feed.querySelector(".empty"); if(em)em.remove();
       $("count").textContent=items.length+" live";
+      buildChips(items);
       if(!items.length && !rows.size){feed.innerHTML='<div class="empty">no incidents yet — run <b>make live-demo</b></div>';return;}
       const seen=new Set();
       for(const it of items){
@@ -227,6 +257,10 @@
         const d=await(await fetch("/query",{method:"POST",headers:{"content-type":"application/json"},
           body:JSON.stringify({question,k:6})})).json();
         const b=document.createElement("div");b.className="body"+(d.abstained?" abstain":"");b.innerHTML=mdInline(d.answer);
+        // abstaining is correct behaviour, not a dead end: point at what IS known
+        if(d.abstained){const h=document.createElement("div");h.className="hint";
+          h.textContent="Broad questions rarely match a single event strongly enough. Try naming a service — the wire on the right lists what is currently open.";
+          b.appendChild(h);}
         $("answer").innerHTML="";$("answer").appendChild(b);
         if(d.hits&&d.hits.length){
           const s=$("sources");s.hidden=false;const h=document.createElement("h4");h.textContent="Sources";s.appendChild(h);

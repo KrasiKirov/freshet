@@ -3,7 +3,7 @@
 const { chromium } = require('playwright');
 
 const OUT = process.env.OUT_DIR || '.';
-const QUESTION = "what is wrong with Cloudflare Access?";
+const QUESTION = "what is happening with the Network Performance Issues in Istanbul?";
 
 (async () => {
   const browser = await chromium.launch();

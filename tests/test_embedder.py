@@ -56,6 +56,44 @@ def test_observe_indexed_records_freshness():
     assert abs(REGISTRY.get_sample_value("freshet_freshness_seconds_sum") - sum_before - 2.5) < 1e-6
 
 
+def test_observe_indexed_records_pipeline_latency_separately():
+    """Pipeline latency (ingested -> indexed) must be measured independently of
+    end-to-end freshness (ts -> indexed). On replayed or status-feed data `ts` is
+    days old, so only pipeline latency reflects how fast the pipeline actually is."""
+    from prometheus_client import REGISTRY
+
+    from freshet.pipeline.embedder import observe_indexed
+
+    # an event that HAPPENED 3 days ago but was received 1.5s before indexing
+    ev = Event(service="s", source=EventSource.ALERT, type="error_spike", text="x")
+    ev.ts = ev.ts - timedelta(days=3)
+    indexed = ev.ts + timedelta(days=3)
+    ev.ingested_at = indexed - timedelta(seconds=1.5)
+    [rec] = records_for_event(ev, now=indexed)
+
+    lat_before = REGISTRY.get_sample_value("freshet_pipeline_latency_seconds_sum") or 0
+    fresh_before = REGISTRY.get_sample_value("freshet_freshness_seconds_sum") or 0
+
+    observe_indexed(rec, ingested_at=ev.ingested_at)
+
+    lat = REGISTRY.get_sample_value("freshet_pipeline_latency_seconds_sum") - lat_before
+    fresh = REGISTRY.get_sample_value("freshet_freshness_seconds_sum") - fresh_before
+    assert abs(lat - 1.5) < 1e-6                    # the pipeline took 1.5s
+    assert abs(fresh - 3 * 86400) < 1e-6            # the news was 3 days old
+
+
+def test_observe_indexed_skips_latency_without_ingested_at():
+    from prometheus_client import REGISTRY
+
+    from freshet.pipeline.embedder import observe_indexed
+
+    ev = Event(service="s", source=EventSource.ALERT, type="error_spike", text="x")
+    [rec] = records_for_event(ev, now=ev.ts + timedelta(seconds=1))
+    before = REGISTRY.get_sample_value("freshet_pipeline_latency_seconds_count") or 0
+    observe_indexed(rec)  # no ingested_at available
+    assert REGISTRY.get_sample_value("freshet_pipeline_latency_seconds_count") == before
+
+
 class _FakeProducer:
     """Collects (topic, value) pairs; compatible with produce_sync."""
 

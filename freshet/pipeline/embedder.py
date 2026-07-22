@@ -24,6 +24,7 @@ from freshet.pipeline.metrics import (
     DEADLETTER_EVENTS,
     FRESHNESS,
     INDEXED_EVENTS,
+    PIPELINE_LATENCY,
     start_metrics_server,
 )
 from freshet.pipeline.normalizer import NORMALIZED_TOPIC
@@ -83,10 +84,16 @@ def upsert_record(conn, rec: VectorRecord, embedding: list[float]) -> None:
     )
 
 
-def observe_indexed(rec: VectorRecord) -> None:
-    """Record metrics for one indexed (queryable) record."""
+def observe_indexed(rec: VectorRecord, ingested_at: datetime | None = None) -> None:
+    """Record metrics for one indexed (queryable) record.
+
+    `ingested_at` (from the source Event) additionally records pipeline latency.
+    It is optional because VectorRecord does not carry it; without it only
+    end-to-end freshness is observed."""
     INDEXED_EVENTS.inc()
     FRESHNESS.observe((rec.indexed_at - rec.ts).total_seconds())
+    if ingested_at is not None:
+        PIPELINE_LATENCY.observe((rec.indexed_at - ingested_at).total_seconds())
 
 
 # Encode failures retry this many times inline before the message dead-letters,
@@ -136,7 +143,7 @@ def make_handler(conn, emb: Embedder, producer, *,
             raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
         for rec, vector in zip(records, vectors, strict=True):
             upsert_record(conn, rec, vector)
-            observe_indexed(rec)
+            observe_indexed(rec, ingested_at=ev.ingested_at)
 
     return handle
 

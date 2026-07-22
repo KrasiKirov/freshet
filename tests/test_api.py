@@ -83,8 +83,8 @@ def test_stats_endpoint_reads_prometheus(monkeypatch):
     resp = TestClient(app).get("/stats")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["freshness_p50_s"] == 3.5
-    assert body["freshness_p95_s"] == 6.0
+    assert body["latency_p50_s"] == 3.5
+    assert body["latency_p95_s"] == 6.0
     assert body["consumer_lag"] == 12.0
 
 
@@ -93,5 +93,5 @@ def test_stats_degrades_when_prometheus_down(monkeypatch):
 
     monkeypatch.setattr(appmod, "_prom_instant", lambda q: None)
     body = TestClient(app).get("/stats").json()
-    assert body["freshness_p50_s"] is None
+    assert body["latency_p50_s"] is None
     assert body["consumer_lag"] is None
