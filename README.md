@@ -76,8 +76,16 @@ without posting.
 **`make slack-demo`** drives one incident open → resolve through the pipeline
 so the autopilot posts a **cited brief** and, on resolution, a **threaded
 postmortem**: the whole loop in one command. It is **safe by default**: it renders
-the Block Kit payload to your terminal and **posts nothing** (no token needed). To
-post to a real workspace, set it up once (your Slack app, nothing committed):
+the Block Kit payload to your terminal and **posts nothing** (no token needed).
+
+![The autonomous loop: a scripted incident is injected, the autopilot briefs it with a cited root cause, then postmortems it on resolution](docs/autopilot-loop.gif)
+
+*Unedited output of `make slack-demo` (dry-run, no Slack token). The pipeline
+spins up, one incident is injected, and the autopilot produces a cited root
+cause, timeline, and action item, then a threaded postmortem on resolution.
+Regenerate with `vhs docs/autopilot-loop.tape`.*
+
+To post to a real workspace, set it up once (your Slack app, nothing committed):
 
 1. Create a Slack app at <https://api.slack.com/apps>, choosing *From scratch*.
 2. **OAuth & Permissions**: add the bot scope **`chat:write`**, then *Install to workspace*.

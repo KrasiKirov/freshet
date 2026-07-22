@@ -54,6 +54,8 @@ echo
 if [ "$SINK" = "slack" ]; then
   echo "==> Done — a cited brief and a threaded postmortem were POSTED to $SLACK_CHANNEL."
 else
-  echo "==> Done — the [slack-dry-run] blocks above are the exact brief + threaded"
+  # not "above": the postmortem's narrative needs an LLM call, so its block can
+  # still be in flight and land after this summary
+  echo "==> Done — the [slack-dry-run] blocks are the exact brief + threaded"
   echo "    postmortem that would post. Run 'REAL=1 make slack-demo' to post for real."
 fi

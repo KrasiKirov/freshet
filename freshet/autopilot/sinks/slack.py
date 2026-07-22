@@ -67,7 +67,10 @@ class SlackSink:
         blocks = slack_blocks(findings)
         text = render_brief(findings)  # plain-text notification fallback
         if self._dry_run:
-            print(f"[slack-dry-run] channel={self._channel} thread={thread}\ntext={text}\nblocks={blocks}")
+            # text on its own line: it starts with "=== ... ===", so an inline
+            # "text=" prefix renders as "text====" and is hard to read
+            print(f"[slack-dry-run] channel={self._channel} thread={thread}\n"
+                  f"{text}\nblocks={blocks}")
             return None
         client = self._client
         if client is None:
