@@ -5,10 +5,10 @@
 **Streaming RAG for on-call engineers.** Freshet ingests operational events
 (deploys, alerts, metrics, incident chat, postmortems) through Kafka, indexes them
 into pgvector within **seconds**, and answers *"what's breaking, and why?"* with
-cited, recency-aware answers. It then autonomously briefs the incident and drafts
-the postmortem.
+grounded, cited answers that abstain when the evidence is weak. It then
+autonomously briefs the incident and drafts the postmortem.
 
-![Freshet: the live incident wire, real public status-feed incidents, answered with cited, recency-aware answers](docs/live-demo.gif)
+![Freshet: the live incident wire, real public status-feed incidents, answered with grounded and cited answers](docs/live-demo.gif)
 
 *The live UI over **real** Cloudflare/GitHub/OpenAI/Discord/Reddit status incidents
 (`make up && make live-demo`). A question is asked against the live wire and answered
@@ -44,15 +44,31 @@ the exact source updates listed beneath. Unedited; regenerate with
 
 `make up && make live-demo` polls **real public status feeds** (Cloudflare, GitHub,
 OpenAI, Discord, Reddit), streams them through the full pipeline, and opens a UI at
-`http://localhost:8000` where you can ask *"what's degraded right now?"* and get a
-grounded, **cited** answer over live incidents, with a streaming feed showing each
-incident's severity, status, and how many seconds ago it was ingested.
+`http://localhost:8000` where you can ask *"what is happening with the R2 errors in
+ENAM?"* and get a grounded, **cited** answer over the ingested incidents, alongside a
+streaming feed of each incident's severity and status.
 
-Honest notes: the data is **real** but the corpus is small (a few companies' recent
-incidents); the demo runs the **full Kafka streaming stack locally**. `make live-demo`
-loads `.env.local`, so with `ANTHROPIC_API_KEY` set the answers are **LLM-written,
-grounded, and cited**; without a key it falls back to the keyless cited-template
-composer (still grounded, just extractive).
+Ask about a **specific** incident or service. Retrieval abstains below a calibrated
+similarity floor, and broad questions ("what's degraded right now?") match no single
+event strongly enough to clear it, so the UI builds its suggestion chips from the
+incidents actually in the feed. Note also that the chips ask *what is happening with*,
+never *what caused*: real status feeds report symptoms and resolutions, and only ~5%
+of incidents ever state a cause (see [M15](RESULTS.md)).
+
+Honest notes: the data is **real** but these are the providers' recent incidents,
+typically **hours to days old**. The feed's `Nm ago` is when Freshet *ingested* the
+update, not when the incident happened, so a one-shot poll shows every card with the
+same ingestion age. The demo runs the **full Kafka streaming stack locally**.
+`make live-demo` loads `.env.local`, so with `ANTHROPIC_API_KEY` set the answers are
+**LLM-written, grounded, and cited**; without a key it falls back to the keyless
+cited-template composer (still grounded, just extractive).
+
+The header gauges read **pipeline latency** (`ingested -> queryable`), not end-to-end
+freshness (`ts -> queryable`). On a status feed the event is already days old when it
+arrives, so end-to-end would measure the age of the news rather than the speed of the
+pipeline; pipeline latency isolates the part the system controls and stays meaningful
+on replayed corpora. Both are exported (`freshet_pipeline_latency_seconds`,
+`freshet_freshness_seconds`) and charted side by side on the Grafana dashboard.
 
 Security posture: this is a **local dev stack, not a deployable service**. Every
 listener binds loopback only (the compose ports are `127.0.0.1:`-prefixed; uvicorn
@@ -162,7 +178,9 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
   ![Streaming keeps data ~5s fresh vs an hourly batch letting it rot ~59 min: ~356× fresher](docs/hero-freshness.png)
 
 
-- **Event-to-queryable freshness p50 ≈ 2–4s**, watched live on Grafana.
+- **Event-to-queryable freshness p50 ≈ 2–4s** on live-generated events (`make slice`),
+  watched live on Grafana alongside pipeline latency (`ingested -> queryable`), which
+  is the meaningful one on replayed or status-feed corpora.
 - **Resilient**: no data loss when a worker is killed mid-stream, durable replay
   re-indexes the corpus after a model change, and a 10× burst drains without loss.
   Each is demonstrated with an evidence graph.
@@ -262,7 +280,7 @@ the floors are not comparable across models).
     make test-integration # end-to-end tests against the running stack
     make db-init          # apply schema to a running stack (idempotent)
 
-Open http://localhost:8000 for the UI (query box + live freshness/lag gauges
+Open http://localhost:8000 for the UI (query box + live pipeline-latency/lag gauges
 that read Prometheus), or query directly:
 
     curl -s localhost:8000/query -X POST -H 'content-type: application/json' \

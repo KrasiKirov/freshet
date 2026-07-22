@@ -5,30 +5,54 @@
   "version": 1,
   "editable": true,
   "refresh": "5s",
-  "time": { "from": "now-15m", "to": "now" },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "type": "stat",
-      "title": "Freshness p50",
-      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "title": "Pipeline latency p50",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(freshet_pipeline_latency_seconds_bucket[1m])) by (le))",
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Ingested -> queryable. Excludes how old the event already was, so it stays meaningful on replayed and status-feed corpora."
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Freshness p95",
-      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "title": "Pipeline latency p95",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(freshet_pipeline_latency_seconds_bucket[1m])) by (le))",
           "refId": "A"
         }
       ]
@@ -37,52 +61,120 @@
       "id": 3,
       "type": "stat",
       "title": "Dead-lettered messages",
-      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
-      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
       "targets": [
-        { "expr": "sum(freshet_deadletter_total)", "refId": "A" }
+        {
+          "expr": "sum(freshet_deadletter_total)",
+          "refId": "A"
+        }
       ]
     },
     {
       "id": 4,
       "type": "stat",
       "title": "Events indexed",
-      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 5 },
-      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
       "targets": [
-        { "expr": "sum(freshet_embedder_events_total)", "refId": "A" }
+        {
+          "expr": "sum(freshet_embedder_events_total)",
+          "refId": "A"
+        }
       ]
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Event -> queryable freshness (percentiles)",
-      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 9 },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "title": "Latency percentiles: pipeline vs end-to-end",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
       "targets": [
         {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum(rate(freshet_pipeline_latency_seconds_bucket[1m])) by (le))",
+          "legendFormat": "pipeline p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum(rate(freshet_pipeline_latency_seconds_bucket[1m])) by (le))",
+          "legendFormat": "pipeline p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum(rate(freshet_pipeline_latency_seconds_bucket[1m])) by (le))",
+          "legendFormat": "pipeline p99",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "D",
           "expr": "histogram_quantile(0.50, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
-          "legendFormat": "p50",
-          "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
-          "legendFormat": "p95",
-          "refId": "B"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum(rate(freshet_freshness_seconds_bucket[1m])) by (le))",
-          "legendFormat": "p99",
-          "refId": "C"
+          "legendFormat": "end-to-end p50 (incl. event age)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
         }
-      ]
+      ],
+      "description": "Pipeline (ingested -> queryable) is what the system controls. End-to-end (ts -> queryable) also counts how old the event was on arrival: on live synthetic runs the two overlap, on real status feeds end-to-end is days because the incident already happened."
     },
     {
       "id": 6,
       "type": "timeseries",
       "title": "Throughput (events/s)",
-      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 9 },
-      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "expr": "sum(rate(freshet_normalizer_events_total[1m]))",
@@ -100,11 +192,21 @@
       "id": 7,
       "type": "timeseries",
       "title": "Consumer lag (messages)",
-      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 9 },
-      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
       "targets": [
         {
-          "expr": "clamp_min(sum by (redpanda_group) (redpanda_kafka_max_offset{redpanda_namespace=\"kafka\",redpanda_topic=~\"raw.events|normalized.events\"} - on(redpanda_topic, redpanda_partition) group_right() redpanda_kafka_consumer_group_committed_offset{redpanda_group=~\"normalizer|embedder\"}), 0)",
+          "expr": "clamp_min(sum by (redpanda_group) (redpanda_kafka_max_offset{redpanda_namespace=\"kafka\",redpanda_topic=~\"raw.events|normalized.events\"} - on(redpanda_topic, redpanda_partition) group_right() redpanda_kafka_consumer_group_committed_offset{redpanda_group=~\".*(norm|emb).*\"}), 0)",
           "legendFormat": "{{redpanda_group}}",
           "refId": "A"
         }
