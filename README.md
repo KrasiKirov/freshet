@@ -10,7 +10,11 @@ the postmortem.
 
 ![Freshet: the live incident wire, real public status-feed incidents, answered with cited, recency-aware answers](docs/live-demo.gif)
 
-*The live UI over **real** Cloudflare/GitHub/OpenAI/Discord/Reddit status incidents (`make up && make live-demo`). Every answer is grounded with `[source @ timestamp]` citations.*
+*The live UI over **real** Cloudflare/GitHub/OpenAI/Discord/Reddit status incidents
+(`make up && make live-demo`). A question is asked against the live wire and answered
+from the retrieved events, every claim carrying a `[source @ timestamp]` citation and
+the exact source updates listed beneath. Unedited; regenerate with
+`node docs/record-ui.js`.*
 
 ### Why it's different: measured, not claimed
 
