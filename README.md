@@ -105,6 +105,16 @@ spins up, one incident is injected, and the autopilot produces a cited root
 cause, timeline, and action item, then a threaded postmortem on resolution.
 Regenerate with `vhs docs/autopilot-loop.tape`.*
 
+The same run against a real workspace (`REAL=1 make slack-demo`), as it actually
+lands in Slack:
+
+![Slack thread: the autopilot posts a cited incident brief with root cause, timeline, resolution and action item, then threads the postmortem underneath it on resolution](docs/slack-brief.png)
+
+*The brief posts when the incident opens; the postmortem arrives as a threaded
+reply when it resolves, so one incident stays one conversation. Every claim cites
+the `evt_...` it came from, and the impact line is derived from breadth, duration
+and the error rate quoted in the source events.*
+
 To post to a real workspace, set it up once (your Slack app, nothing committed):
 
 1. Create a Slack app at <https://api.slack.com/apps>, choosing *From scratch*.
