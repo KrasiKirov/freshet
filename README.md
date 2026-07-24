@@ -55,28 +55,21 @@ incidents actually in the feed. Note also that the chips ask *what is happening 
 never *what caused*: real status feeds report symptoms and resolutions, and only ~5%
 of incidents ever state a cause (see [M15](RESULTS.md)).
 
-Honest notes: the data is **real** but these are the providers' recent incidents,
-typically **hours to days old**. The feed's `Nm ago` is when Freshet *ingested* the
-update, not when the incident happened, so a one-shot poll shows every card with the
-same ingestion age. The demo runs the **full Kafka streaming stack locally**.
-`make live-demo` loads `.env.local`, so with `ANTHROPIC_API_KEY` set the answers are
-**LLM-written, grounded, and cited**; without a key it falls back to the keyless
-cited-template composer (still grounded, just extractive).
+Honest notes: the data is **real**, but these are the providers' recent incidents,
+typically **hours to days old**, and the feed's `Nm ago` is when Freshet *ingested*
+the update, not when the incident happened. With `ANTHROPIC_API_KEY` in `.env.local`
+the answers are LLM-written; without a key it falls back to a keyless cited template
+(still grounded, just extractive). The header gauges read **pipeline latency**
+(`ingested -> queryable`) rather than end-to-end freshness, because on a status feed
+the event is already old on arrival, so end-to-end would measure the age of the news
+instead of the speed of the pipeline.
 
-The header gauges read **pipeline latency** (`ingested -> queryable`), not end-to-end
-freshness (`ts -> queryable`). On a status feed the event is already days old when it
-arrives, so end-to-end would measure the age of the news rather than the speed of the
-pipeline; pipeline latency isolates the part the system controls and stays meaningful
-on replayed corpora. Both are exported (`freshet_pipeline_latency_seconds`,
-`freshet_freshness_seconds`) and charted side by side on the Grafana dashboard.
-
-Security posture: this is a **local dev stack, not a deployable service**. Every
-listener binds loopback only (the compose ports are `127.0.0.1:`-prefixed; uvicorn
-defaults to 127.0.0.1), Postgres runs with demo credentials, the broker is
-unauthenticated PLAINTEXT, and the query API has **no auth or rate limiting**: with
-a key set, each `/query` is LLM spend. Do not port-forward or rebind `:8000`/`:8088`
-to a public interface; if you ever host it, put auth + rate limiting in front and set
-`FRESHET_GITHUB_WEBHOOK_SECRET` so webhook deliveries are HMAC-verified.
+> **Security posture.** This is a **local dev stack, not a deployable service**:
+> every listener binds loopback, Postgres uses demo credentials, the broker is
+> unauthenticated, and the query API has **no auth or rate limiting** (with a key
+> set, each `/query` is LLM spend). Do not expose `:8000`/`:8088` publicly; if you
+> host it, put auth and rate limiting in front and set
+> `FRESHET_GITHUB_WEBHOOK_SECRET` so webhooks are HMAC-verified.
 
 ### Autopilot (autonomous responder)
 
@@ -115,7 +108,8 @@ reply when it resolves, so one incident stays one conversation. Every claim cite
 the `evt_...` it came from, and the impact line is derived from breadth, duration
 and the error rate quoted in the source events.*
 
-To post to a real workspace, set it up once (your Slack app, nothing committed):
+<details>
+<summary><b>Posting to your own workspace</b> (one-time Slack app setup)</summary>
 
 1. Create a Slack app at <https://api.slack.com/apps>, choosing *From scratch*.
 2. **OAuth & Permissions**: add the bot scope **`chat:write`**, then *Install to workspace*.
@@ -123,29 +117,24 @@ To post to a real workspace, set it up once (your Slack app, nothing committed):
 4. In `.env.local` (gitignored) set `SLACK_BOT_TOKEN=xoxb-...` and `SLACK_CHANNEL=#your-channel`,
    then `pip install -e ".[slack]"`.
 
-Then `REAL=1 make slack-demo` posts the brief + threaded postmortem for real. (Threading
-is exercised only on a real post; the dry-run renders both messages un-threaded, since no
-Slack message timestamp comes back to thread under.)
+Then `REAL=1 make slack-demo` posts for real. Threading is exercised only on a real
+post: the dry-run renders both messages un-threaded, since no Slack message timestamp
+comes back to thread under.
 
-Each brief/postmortem includes a derived **impact** line (Low/Medium/High from
-breadth + duration + impact figures quoted in the source text). It is an
-*indicator*, not measured user impact. `make impact-eval` reports how well that
-heuristic recovers an authored severity-driven label on a dedicated synthetic
-benchmark (see [`RESULTS.md`](RESULTS.md)).
+</details>
 
-Root-cause quality is measured on a hardened benchmark tier with decoy causes (`make
-rootcause-eval`) over a keyword→hybrid→hybrid+rerank ladder with naive vs
-score-aware cause selection, plus a real-data face-validity pass (`make
-rootcause-facevalidity`) showing the selector abstains on symptom-only status-feed
-incidents. See [`RESULTS.md`](RESULTS.md).
+The brief's **impact** line (Low/Medium/High from breadth, duration and error rates
+quoted in the source text) is a derived *indicator*, not measured user impact;
+`make impact-eval` scores it against an authored label. Cause quality is measured on
+a hardened benchmark tier with decoy causes (`make rootcause-eval`), plus a real-data
+pass showing the selector **abstains** rather than inventing a cause when no change
+event is in evidence (`make rootcause-facevalidity`).
 
 The cause is cited as an actual **commit** when a GitHub push is ingested: `make
-connector` runs an HMAC-verified webhook receiver (a `push` becomes a `commit` event;
-a `deployment` becomes a deploy), and `make connector-demo` replays a GitHub push
-fixture plus a matching spike so the brief's cause reads `commit <sha>: <msg> (by
-<author>)`. This is demonstrated via **replayed webhook fixtures** (real payload shape
-+ HMAC verification path), not a live repo wired to the public status feeds (those are
-other companies' services). With this the autonomous loop is complete end to end:
+connector` runs an HMAC-verified webhook receiver, and `make connector-demo` replays
+a push fixture plus a matching spike so the brief reads `commit <sha>: <msg> (by
+<author>)`. That is a replayed fixture (real payload shape and HMAC path), not a live
+repo. With it the loop is complete end to end:
 **bad commit → runbook → impact → Slack brief → postmortem.**
 
 ## Results
@@ -173,7 +162,8 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
   spike?"** lookup reaches **1.0 / 1.0** over 12 incidents. The ablation is now run:
   a keyless, deterministic `fixed-two-step` pipeline using the same lookup **also
   scores 1.0 / 1.0, identical to the LLM agent**, so the win is the retrieval
-  capability, not agency.
+  capability, not agency. A sample agent run is committed at
+  [`results/agent_transcript.md`](results/agent_transcript.md).
 - **Validated on real incidents (`make real-eval`)**: 225 incidents (841 updates)
   from five public status feeds, run through the same pipeline. Finding #1 is in the
   data: only **12 of 225** state a machine-readable cause (the rest say "we've
@@ -194,6 +184,11 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
 - **Resilient**: no data loss when a worker is killed mid-stream, durable replay
   re-indexes the corpus after a model change, and a 10× burst drains without loss.
   Each is demonstrated with an evidence graph.
+- **Negative results, reported**: cross-encoder reranking is **neutral** once an
+  incident is in scope; an LLM-written narrative is **as grounded** as the extractive
+  timeline (0.87 vs 0.89 faithfulness, so fluency costs nothing); and every practical
+  **recency-decay** level *hurt* recall on real retrospective queries, which is why
+  decay ships off by default.
 - **Observable**: workers export Prometheus metrics and the stack ships a
   provisioned Grafana dashboard (`make up-obs`, then
   <http://localhost:3000/d/freshet-pipeline>).
@@ -310,119 +305,6 @@ that read Prometheus), or query directly:
 
 The query returns a grounded answer that cites events as `[event_id @ timestamp]`,
 or abstains when retrieval is weak.
-
-## Root-cause synthesis: explain an incident, grounded
-
-This reframes the task so retrieval is genuinely load-bearing: instead of "show me
-recent events," the question is *"what caused this incident and how was it
-resolved?"* over a richer seeded corpus (multiple incident arcs + per-service
-runbooks). It's too much to eyeball, so finding the true cause/fix *is* the task.
-`make rootcause-demo` streams the corpus and prints a **cited root-cause timeline**:
-the cause (the deploy preceding the error spike), the resolution (the rollback),
-and the ordered supporting events, each line `[event_id @ timestamp]`, keyless, no
-LLM. Optional **cross-encoder reranking** (`FRESHET_RERANK=cross-encoder`, keyless,
-off by default) sits in the retrieval seam.
-
-`make rootcause-eval` measures it honestly over the **40-incident, six-archetype
-benchmark**. Each incident's true cause/fix are authored with the corpus, so we
-score whether the timeline captured them (a reproducible selection metric, not
-"the AI discovered an unknown cause"). **Result: the generalized timeline recovers
-the cause and fix for all 40 incidents across every archetype**: deploy/rollback,
-config revert, dependency failover, scale-up, cert renewal, migration revert
-(`results/rootcause_completeness.png`). This eval is service-scoped (mirroring the
-product's root-cause path), so it isolates *synthesis*; the hard *whole-corpus*
-retrieval number lives in `make eval`. Cross-encoder reranking is **neutral** here
-(both 1.0), which updates the earlier toy-scale observation that rerank appeared
-to *hurt* completeness: once an incident is in scope, reranking neither helps nor
-harms cause/fix capture. The genuinely hard part surfaces at whole-corpus scale,
-where a single-shot retriever still struggles to surface a terse `Deploy
-v2.15.0 started` cause that doesn't read like an answer to "what caused it?" which
-is exactly what the **agentic investigator** below was built to close.
-
-**The LLM narrative.** With `ANTHROPIC_API_KEY` set, an LLM writes
-the causal explanation in prose over the same timeline: the one thing a template
-can't do. `make answer-eval` measures it with a hand-rolled **LLM-as-judge**:
-faithfulness (are the narrative's claims supported by the cited events?) and
-answer-relevance, comparing the keyless **extractive** timeline (faithful by
-construction) against the **LLM narrative**: the precise question of whether
-fluency cost groundedness. Measured result (claude-sonnet-4-6 judge, indicative):
-the narrative matched the extractive timeline on relevance (0.95 = 0.95) and was
-nearly as faithful (0.87 vs 0.89). Fluency did *not* meaningfully cost
-groundedness. The extractive timeline scoring 0.89 rather than a perfect 1.0 is the
-judge's own imperfection (it's an LLM too), which is exactly why
-these numbers are reported as indicative, not absolute. Honest caveats: LLM-judge
-scores are non-deterministic and the judge is itself an LLM that can be wrong
-(reported as indicative); the narrative + judge need a key and real API spend, so
-reproducing the committed numbers isn't keyless; the extractive timeline, the
-keyless core, and CI are unchanged.
-
-## Multi-step retrieval: closing the whole-corpus gap (M11)
-
-The completeness eval above is service-scoped, which isolates *synthesis*. The
-genuinely hard problem is **whole-corpus** root cause: with no service hint, a
-single-shot retriever surfaces the error spike and the rollback but mostly **misses
-the cause** (0.17 cause-recall even with the bge retriever, 0.0 under the old
-MiniLM) because `Deploy v2.15.0 started` doesn't read like an answer to "what
-caused this?" The fix is to *re-retrieve* with a different question: "what changed
-just before the spike?"
-
-`make agent-eval` runs a **tool-calling LLM loop** (`freshet/api/agent.py`) over
-three tools: `search` (hybrid retrieval), `get_runbook` (the per-service playbook),
-and the load-bearing one, **`get_events_around`**: a non-semantic temporal lookup
-that returns whatever happened within a window of a timestamp, regardless of
-wording. It ends with a `submit_findings` terminal tool, and cited event-ids are
-validated against ids it actually saw (unseen ids dropped, keeping it grounded).
-
-Measured head-to-head on 12 incidents (2 per archetype), all whole-corpus:
-
-| config | cause_recall | fix_recall |
-|---|---|---|
-| single-shot baseline (bge) | 0.17 | 0.42 |
-| **fixed-two-step (keyless ablation)** | **1.00** | **1.00** |
-| agent (LLM tool loop) | 1.00 | 1.00 |
-
-The temporal lookup recovers cause and fix on every incident across every archetype,
-where the single-shot baseline finds only ~1-in-6 causes. A sample agent run is
-committed at [`results/agent_transcript.md`](results/agent_transcript.md) so a
-keyless clone can read it step by step. **The ablation settles the honest question:**
-the `fixed-two-step` arm (the same search, then anchor on the top spike hit and call
-the temporal lookup, **with no LLM**) scores identically to the agent (1.00 / 1.00).
-So the entire lift over single-shot is the **retrieval capability**, and the LLM
-agency adds nothing measurable on this benchmark. Caveats: the agent arm is
-**non-deterministic** (one committed run); the single-shot and fixed-two-step arms
-are keyless and deterministic; the sample is small (12) by design; on messier real
-corpora the fixed anchor heuristic could pick the wrong anchor, where the agent loop
-might re-earn its keep. The synthetic benchmark can't show that either way (see the
-real-data section below).
-
-## Real-data validation: off the synthetic benchmark (M15)
-
-Every number above is measured on the generator's own corpus, which the system was
-built against. `make real-eval` is the first measurement on data the project did
-**not** author: 225 real incidents (841 status updates) snapshotted from the five
-public feeds the live demo already polls (Cloudflare, GitHub, Reddit, Discord,
-OpenAI), run through the **same** `map_incident` code path, with hand-reviewed labels
-marking the update that states each cause. Committed snapshots make it deterministic
-(`scripts/fetch_real_incidents.py` refreshes them).
-
-**The first finding is in the labeling.** Of 225 resolved incidents, only **12** have
-an update that states an actual cause. The modal real update is *"the issue has been
-identified and a fix is being implemented,"* which names none. GitHub is the exception
-(it writes true postmortems). That gap between tidy synthetic incidents and vague real
-ones is itself worth knowing.
-
-| metric | value | reading |
-|---|---|---|
-| recall@5 | **0.92** (11/12) | the cause update is in the top 5 for all but one |
-| top-1 citation | 0.42 (5/12) | the *literal* top hit is the cause update under half the time |
-| abstention | **0/12 on-topic, 8/8 off-topic** | the bge floor (0.70), calibrated on synthetic data, transfers to real language with no retuning |
-
-Honest read: retrieval **surfaces** the real cause reliably, but the keyless composer
-cites the *top* hit, which is the cause update only 42% of the time, the same
-single-shot gap the M11 ablation shows, now confirmed on real language rather than the
-generator's. That the synthetic-tuned abstention floor cleanly separates real
-on/off-topic queries is the strongest evidence it isn't overfit to the generator. Full
-write-up and the per-incident labels in [`RESULTS.md`](RESULTS.md) (M15).
 
 ## Layout
 
