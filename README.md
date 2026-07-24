@@ -184,6 +184,18 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
 - **Resilient**: no data loss when a worker is killed mid-stream, durable replay
   re-indexes the corpus after a model change, and a 10× burst drains without loss.
   Each is demonstrated with an evidence graph.
+- **Observable**: workers export Prometheus metrics and the stack ships a
+  provisioned Grafana dashboard (`make up-obs`, then
+  <http://localhost:3000/d/freshet-pipeline>).
+
+  ![Grafana dashboard during a burst: pipeline latency p50 250ms and p95 475ms, zero dead-letters, throughput ramping to ~17 events/s, and consumer lag spiking to ~600 then draining back to zero](docs/dashboard.png)
+
+  *A real burst caught live: the poller's backlog arrives, consumer lag jumps to
+  ~600 and throughput ramps to ~17 ev/s to absorb it, then lag drains back to zero
+  with **0 dead-letters**. The latency panel is why pipeline latency is the default
+  gauge: `pipeline p50/p95/p99` sit in the sub-second band while `end-to-end p50`
+  pins at 5 min, because these are real status-feed updates that were already
+  minutes old when they arrived.*
 
 ## Architecture
 
