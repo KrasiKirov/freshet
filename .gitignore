@@ -24,6 +24,12 @@ documentation/
 # Claude planning artifacts (brainstorm specs + implementation plans) — local only
 docs/superpowers/
 
+# Internal working notes kept local. NOTE: the rest of docs/ IS tracked on
+# purpose — it holds the images the README embeds and the scripts that
+# regenerate them, so do not ignore docs/ wholesale.
+docs/hardening-plan.md
+docs/live-demo-storyboard.md
+
 # Interview prep — local only
 interview-prep/
 
