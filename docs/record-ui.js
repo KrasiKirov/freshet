@@ -14,7 +14,7 @@
 const { chromium } = require('playwright');
 
 const OUT = process.env.OUT_DIR || '.';
-const QUESTION = "what is happening with the Network Performance Issues in Istanbul?";
+const QUESTION = "what caused the Incident With Blocked GitHub.com Traffic?";
 
 (async () => {
   const browser = await chromium.launch();

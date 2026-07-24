@@ -11,10 +11,11 @@ autonomously briefs the incident and drafts the postmortem.
 ![Freshet: the live incident wire, real public status-feed incidents, answered with grounded and cited answers](docs/live-demo.gif)
 
 *The live UI over **real** Cloudflare/GitHub/OpenAI/Discord/Reddit status incidents
-(`make up && make live-demo`). A question is asked against the live wire and answered
-from the retrieved events, every claim carrying a `[source @ timestamp]` citation and
-the exact source updates listed beneath. Unedited; regenerate with
-`node docs/record-ui.js`.*
+(`make up && make live-demo`), including one still open (`INVESTIGATING`) at the time
+of recording. The question asked is a root-cause one, and the answer names the actual
+cause (an abuse-mitigation config that misclassified legitimate traffic) with a
+`[source @ timestamp]` citation on every claim and the source updates listed beneath.
+Unedited; regenerate with `node docs/record-ui.js`.*
 
 ### Why it's different: measured, not claimed
 
