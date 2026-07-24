@@ -10,17 +10,11 @@ autonomously briefs the incident and drafts the postmortem.
 
 ![Freshet: the live incident wire, real public status-feed incidents, answered with grounded and cited answers](docs/live-demo.gif)
 
-*The live UI over **real** Cloudflare/GitHub/OpenAI/Discord/Reddit status incidents
-(`make up && make live-demo`), including one still open (`INVESTIGATING`) at the time
-of recording. The question asked is a root-cause one, and the answer names the actual
-cause (an abuse-mitigation config that misclassified legitimate traffic) with a
-`[source @ timestamp]` citation on every claim and the source updates listed beneath.
-Unedited; regenerate with `node docs/record-ui.js`.*
+*The live UI over **real** Cloudflare/GitHub/OpenAI/Discord/Reddit status incidents.*
 
-### Why it's different: measured, not claimed
+### Why it's different
 
-- **~356× fresher than a nightly-batch baseline** (5s vs 1778s mean data staleness):
-  the comparison the system is built to make.
+- **~356× fresher than a nightly-batch baseline** (5s vs 1778s mean data staleness).
 - **Hybrid retrieval: recall@5 0.81 / nDCG@5 0.63** on a 160-query benchmark: dense
   (`bge`) + lexical + RRF fusion + cross-encoder rerank + citation verification +
   abstention, beating vector-only (0.80) and keyword-only (0.62).
@@ -28,86 +22,50 @@ Unedited; regenerate with `node docs/record-ui.js`.*
   the runbook, estimates impact, posts a **cited Slack brief**, and threads a
   **postmortem** on resolution.
 - **Validated on real data it didn't generate**: 225 real public-status-feed
-  incidents, hand-labeled. Retrieval surfaces the cause-stating update in the top 5
-  **92%** of the time, and the abstention floor tuned on synthetic data transfers to
-  real language unchanged (`make real-eval`).
-- **Rigorously evaluated, honestly**: retrieval, root-cause (hardened decoy
-  benchmark), LLM-as-judge faithfulness, and a three-arm agentic ladder whose
-  **ablation shows the LLM agency adds nothing** over a deterministic retrieval
-  pipeline. Negative results are reported, not hidden.
+  incidents.
 
 ### Run it in two commands (core path needs no API key)
 
     make up      # Redpanda + Postgres/pgvector, waits until healthy
     make demo    # ingest a scripted incident, then answer about it
 
-## Live demo: real incidents, right now
+## Live demo
 
 `make up && make live-demo` polls **real public status feeds** (Cloudflare, GitHub,
 OpenAI, Discord, Reddit), streams them through the full pipeline, and opens a UI at
-`http://localhost:8000` where you can ask *"what is happening with the R2 errors in
-ENAM?"* and get a grounded, **cited** answer over the ingested incidents, alongside a
+`http://localhost:8000` where you can ask *"what is happening with ____"* 
+and get a grounded, **cited** answer over the ingested incidents, alongside a
 streaming feed of each incident's severity and status.
 
-Ask about a **specific** incident or service. Retrieval abstains below a calibrated
-similarity floor, and broad questions ("what's degraded right now?") match no single
-event strongly enough to clear it, so the UI builds its suggestion chips from the
-incidents actually in the feed. Note also that the chips ask *what is happening with*,
-never *what caused*: real status feeds report symptoms and resolutions, and only ~5%
-of incidents ever state a cause (see [M15](RESULTS.md)).
+Note: the data is **real**, but these are the providers' recent incidents,
+typically **hours to days old**.
 
-Honest notes: the data is **real**, but these are the providers' recent incidents,
-typically **hours to days old**, and the feed's `Nm ago` is when Freshet *ingested*
-the update, not when the incident happened. With `ANTHROPIC_API_KEY` in `.env.local`
-the answers are LLM-written; without a key it falls back to a keyless cited template
-(still grounded, just extractive). The header gauges read **pipeline latency**
+With `ANTHROPIC_API_KEY` in `.env.local`
+the answers are LLM-written; without a key it falls back to a keyless cited template.
+The header gauges read **pipeline latency**
 (`ingested -> queryable`) rather than end-to-end freshness, because on a status feed
 the event is already old on arrival, so end-to-end would measure the age of the news
 instead of the speed of the pipeline.
-
-> **Security posture.** This is a **local dev stack, not a deployable service**:
-> every listener binds loopback, Postgres uses demo credentials, the broker is
-> unauthenticated, and the query API has **no auth or rate limiting** (with a key
-> set, each `/query` is LLM spend). Do not expose `:8000`/`:8088` publicly; if you
-> host it, put auth and rate limiting in front and set
-> `FRESHET_GITHUB_WEBHOOK_SECRET` so webhooks are HMAC-verified.
 
 ### Autopilot (autonomous responder)
 
 `make autopilot` runs a separate consumer that reacts to incident lifecycle
 events on Kafka: when the normalizer opens a new incident, autopilot debounces
-briefly, then investigates it (the tool-using agent with a key, the keyless
-extractive timeline without one) and prints a **cited incident brief**: cause,
-runbook, status. Each incident is briefed exactly once (a durable `briefed_at`
-claim), so redelivery and restarts never double-post. On resolution it auto-posts a
+briefly, then investigates it and prints a **cited incident brief**: cause,
+runbook, status. On resolution it auto-posts a
 threaded, cited **postmortem** (cause + fix + duration); Slack delivery and impact
 estimation are covered below.
-By default the brief prints to stdout. `make autopilot-slack` posts it to Slack
-(`--sink slack`, needs `SLACK_BOT_TOKEN`/`SLACK_CHANNEL` in `.env.local` and
-`pip install -e ".[slack]"`); `--sink slack-dry-run` renders the Slack payload
-without posting.
 
-**`make slack-demo`** drives one incident open → resolve through the pipeline
-so the autopilot posts a **cited brief** and, on resolution, a **threaded
-postmortem**: the whole loop in one command. It is **safe by default**: it renders
-the Block Kit payload to your terminal and **posts nothing** (no token needed).
 
 ![The autonomous loop: a scripted incident is injected, the autopilot briefs it with a cited root cause, then postmortems it on resolution](docs/autopilot-loop.gif)
 
-*Unedited output of `make slack-demo` (dry-run, no Slack token). The pipeline
-spins up, one incident is injected, and the autopilot produces a cited root
-cause, timeline, and action item, then a threaded postmortem on resolution.
-Regenerate with `vhs docs/autopilot-loop.tape`.*
+*The pipeline spins up, one incident is injected, and the autopilot produces a cited root
+cause, timeline, and action item, then a threaded postmortem on resolution.*
 
-The same run against a real workspace (`REAL=1 make slack-demo`), as it actually
+The same run against a real workspace, as it actually
 lands in Slack:
 
 ![Slack thread: the autopilot posts a cited incident brief with root cause, timeline, resolution and action item, then threads the postmortem underneath it on resolution](docs/slack-brief.png)
-
-*The brief posts when the incident opens; the postmortem arrives as a threaded
-reply when it resolves, so one incident stays one conversation. Every claim cites
-the `evt_...` it came from, and the impact line is derived from breadth, duration
-and the error rate quoted in the source events.*
 
 <details>
 <summary><b>Posting to your own workspace</b> (one-time Slack app setup)</summary>
@@ -118,18 +76,11 @@ and the error rate quoted in the source events.*
 4. In `.env.local` (gitignored) set `SLACK_BOT_TOKEN=xoxb-...` and `SLACK_CHANNEL=#your-channel`,
    then `pip install -e ".[slack]"`.
 
-Then `REAL=1 make slack-demo` posts for real. Threading is exercised only on a real
-post: the dry-run renders both messages un-threaded, since no Slack message timestamp
-comes back to thread under.
 
 </details>
 
 The brief's **impact** line (Low/Medium/High from breadth, duration and error rates
-quoted in the source text) is a derived *indicator*, not measured user impact;
-`make impact-eval` scores it against an authored label. Cause quality is measured on
-a hardened benchmark tier with decoy causes (`make rootcause-eval`), plus a real-data
-pass showing the selector **abstains** rather than inventing a cause when no change
-event is in evidence (`make rootcause-facevalidity`).
+quoted in the source text) is a derived *indicator*, not measured user impact.
 
 The cause is cited as an actual **commit** when a GitHub push is ingested: `make
 connector` runs an HMAC-verified webhook receiver, and `make connector-demo` replays
@@ -141,14 +92,14 @@ repo. With it the loop is complete end to end:
 ## Results
 
 Measured on a laptop, reproducible (`make eval` / `make drills`); full tables,
-plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md).
+plots, and notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md).
 
 - **Production-grade hybrid retrieval, measured on a 160-query benchmark**: dense
   (`bge-base-en-v1.5`) + lexical (Postgres full-text), **RRF fusion**,
   **cross-encoder reranking**, **citation verification**, and **abstention**. Hybrid
   wins recall@5 **0.81** and nDCG@5 **0.63** over vector-only (0.80) and
   keyword-only (0.62), with ground truth auto-derived alongside the corpus.
-- **The retriever upgrade is measured, not assumed**: swapping MiniLM-L6 for
+- **The retriever upgrade is measured**: swapping MiniLM-L6 for
   `bge-base-en-v1.5` lifts hybrid recall@5 **0.70 → 0.81** and nDCG@5 **0.54 → 0.63**
   on the same benchmark (deterministic before/after).
 - **Optional LLM query transformation**: multi-query (paraphrase → retrieve →
@@ -160,43 +111,28 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
 - **A non-semantic temporal lookup closes the hard whole-corpus gap**: with no
   service hint, single-shot retrieval reaches only 0.17 cause-recall / 0.42
   fix-recall even with the bge retriever; adding a **"what changed just before the
-  spike?"** lookup reaches **1.0 / 1.0** over 12 incidents. The ablation is now run:
-  a keyless, deterministic `fixed-two-step` pipeline using the same lookup **also
+  spike?"** lookup reaches **1.0 / 1.0** over 12 incidents. A keyless, deterministic
+  `fixed-two-step` pipeline using the same lookup **also
   scores 1.0 / 1.0, identical to the LLM agent**, so the win is the retrieval
-  capability, not agency. A sample agent run is committed at
-  [`results/agent_transcript.md`](results/agent_transcript.md).
-- **Validated on real incidents (`make real-eval`)**: 225 incidents (841 updates)
-  from five public status feeds, run through the same pipeline. Finding #1 is in the
-  data: only **12 of 225** state a machine-readable cause (the rest say "we've
-  identified the issue" and stop). On those 12, retrieval hits **recall@5 0.92** but
-  cites the exact cause update only **42%** of the time, the same single-shot gap,
-  now confirmed on real language, and the synthetic-tuned abstention floor separates
-  real on/off-topic queries **0/12 vs 8/8** with no retuning.
+  capability, not agency.
 - **Streaming is ~356× fresher than a batch baseline** (5s vs 1778s mean data
   staleness at an hourly batch cadence; ~4 orders of magnitude at a real nightly
-  cadence): the comparison the project is built to make.
+  cadence).
 
   ![Streaming keeps data ~5s fresh vs an hourly batch letting it rot ~59 min: ~356× fresher](docs/hero-freshness.png)
 
 
-- **Event-to-queryable freshness p50 ≈ 2–4s** on live-generated events (`make slice`),
-  watched live on Grafana alongside pipeline latency (`ingested -> queryable`), which
-  is the meaningful one on replayed or status-feed corpora.
+- **Event-to-queryable freshness p50 ≈ 2–4s** on live-generated events,
+  watched live on Grafana alongside pipeline latency (`ingested -> queryable`).
 - **Resilient**: no data loss when a worker is killed mid-stream, durable replay
   re-indexes the corpus after a model change, and a 10× burst drains without loss.
-  Each is demonstrated with an evidence graph.
-- **Negative results, reported**: cross-encoder reranking is **neutral** once an
-  incident is in scope; an LLM-written narrative is **as grounded** as the extractive
-  timeline (0.87 vs 0.89 faithfulness, so fluency costs nothing); and every practical
-  **recency-decay** level *hurt* recall on real retrospective queries, which is why
-  decay ships off by default.
 - **Observable**: workers export Prometheus metrics and the stack ships a
   provisioned Grafana dashboard (`make up-obs`, then
   <http://localhost:3000/d/freshet-pipeline>).
 
   ![Grafana dashboard during a burst: pipeline latency p50 250ms and p95 475ms, zero dead-letters, throughput ramping to ~17 events/s, and consumer lag spiking to ~600 then draining back to zero](docs/dashboard.png)
 
-  *A real burst caught live: the poller's backlog arrives, consumer lag jumps to
+  *A real burst live: the poller's backlog arrives, consumer lag jumps to
   ~600 and throughput ramps to ~17 ev/s to absorb it, then lag drains back to zero
   with **0 dead-letters**. The latency panel is why pipeline latency is the default
   gauge: `pipeline p50/p95/p99` sit in the sub-second band while `end-to-end p50`
@@ -252,15 +188,6 @@ bge model (`pip install -e ".[embed]"`, ~440 MB on first use); `EMBEDDER=stub`
 runs with deterministic fake embeddings and no download. Optional extras:
 `.[llm]` (Anthropic-composed answers; set `ANTHROPIC_API_KEY`, pick the model
 with `FRESHET_LLM_MODEL`), `.[eval]` (the evaluation harness + plots).
-
-Retrieval tuning via env: `FRESHET_TAU_S` opts in to recency decay (the default
-is **recency-neutral**; the M15 tau sweep showed every practical decay level
-costs recall on real retrospective root-cause queries, so decay is reserved for
-live "what's breaking now?" deployments that choose it), and
-`FRESHET_MIN_SIMILARITY` overrides the abstention floor (defaults are
-per-embedder: 0.3 for stub, 0.7 for bge, calibrated with
-`scripts/calibrate_abstention.py`; bge's cosine range is compressed upward, so
-the floors are not comparable across models).
 
 ### Other commands
 
