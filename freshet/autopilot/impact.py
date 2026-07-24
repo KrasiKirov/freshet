@@ -8,10 +8,22 @@ from __future__ import annotations
 import re
 
 _PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+# Resource-utilisation readings are percentages too, but a busy CPU is not a
+# failing request: counting them let a routine `cpu 50%` metric sample be
+# reported as "source reports ~50% errors" and escalate an incident to High.
+# Excluded by the resource word rather than by matching every error phrasing,
+# since the utilisation vocabulary is far smaller and more stable.
+_UTILISATION_RE = re.compile(
+    r"\b(cpu|memory|mem|ram|disk|storage|heap|swap|utili[sz]ation|usage|"
+    r"saturation|capacity|load)\b", re.I)
 
 
 def max_stated_pct(hit_texts: list[str]) -> float | None:
-    vals = [float(m) for t in hit_texts for m in _PCT_RE.findall(t)]
+    """Largest percentage stated in the retrieved text, ignoring utilisation
+    readings (see _UTILISATION_RE). Returns None when nothing qualifies."""
+    vals = [float(m)
+            for t in hit_texts if not _UTILISATION_RE.search(t)
+            for m in _PCT_RE.findall(t)]
     return max(vals) if vals else None
 
 

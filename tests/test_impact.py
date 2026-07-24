@@ -18,6 +18,18 @@ def test_max_stated_pct_ignores_non_percent_numbers():
     assert max_stated_pct(["deploy v2.15.0 at 12:00, 5xx errors"]) is None
 
 
+def test_max_stated_pct_ignores_utilisation_percentages():
+    """A CPU/memory/disk reading is not an error rate. Counting it inflated a
+    real brief to 'High -- source reports ~50% errors' when the only 50% in the
+    corpus was a routine `cpu 50%` metric sample: an unfaithful claim."""
+    assert max_stated_pct(["cpu 50% on scheduler-api"]) is None
+    assert max_stated_pct(["memory 91% on billing-api"]) is None
+    assert max_stated_pct(["disk usage at 80%"]) is None
+    # the error-rate reading in the same batch must still win
+    assert max_stated_pct(["cpu 50% on scheduler-api",
+                           "5xx error rate crossed 5% (now 11%)"]) == 11.0
+
+
 def test_high_when_pct_high():
     o, r = _span(20)
     assert classify_impact(["a"], o, r, ["now 40%"]) == "High"
