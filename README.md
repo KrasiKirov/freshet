@@ -236,22 +236,6 @@ plots, and honesty notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.
 Every event carries three timestamps: `ts` (occurred), `ingested_at` (received),
 `indexed_at` (queryable). Every freshness number derives from them.
 
-## Why Kafka, why RAG (load-bearing, not decoration)
-
-**Why Kafka.** The input is a continuous, multi-source, high-volume stream.
-Embedding workers scale independently as a **consumer group** (demonstrated:
-[`RESULTS.md`](RESULTS.md) scaling section). Durable **replay** re-indexes history
-after a model or chunking change (demonstrated: [`DRILLS.md`](DRILLS.md) drill 2).
-**Partition-by-service** preserves per-service ordering. At-least-once delivery
-with idempotent upserts means a worker crash costs redelivery, never loss
-(demonstrated: drill 1). It is not a queue stand-in or a cron job.
-
-**Why RAG.** Retrieval is over a large, constantly-changing unstructured corpus,
-grounding answers with citations and recency. Fine-tuning can't track a
-minute-by-minute corpus; retrieval can. The split is explicit: **vectors for the
-semantic/fuzzy parts, SQL for the structured parts** (alert → deploy links,
-incident timelines are joins on ids/timestamps, not vector search).
-
 ## Run
 
     python3 -m venv .venv && source .venv/bin/activate
