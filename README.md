@@ -15,9 +15,10 @@ autonomously briefs the incident and drafts the postmortem.
 ### Why it's different
 
 - **~356× fresher than a nightly-batch baseline** (5s vs 1778s mean data staleness).
-- **Hybrid retrieval: recall@5 0.81 / nDCG@5 0.63** on a 160-query benchmark: dense
-  (`bge`) + lexical + RRF fusion + cross-encoder rerank + citation verification +
-  abstention, beating vector-only (0.80) and keyword-only (0.62).
+- **Hybrid retrieval on a 160-query benchmark**: dense (`bge`) + lexical + RRF
+  fusion + cross-encoder rerank + citation verification + abstention. On recall@5
+  hybrid (0.80) ties vector-only (0.80) and beats keyword-only (0.58); its real win
+  is **ranking**, nDCG@5 **0.62 vs 0.57** and MRR **0.62 vs 0.54**.
 - **Autonomous incident loop**: on an alert it identifies the bad **commit**, pulls
   the runbook, estimates impact, posts a **cited Slack brief**, and threads a
   **postmortem** on resolution.
@@ -96,11 +97,12 @@ plots, and notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md).
 
 - **Production-grade hybrid retrieval, measured on a 160-query benchmark**: dense
   (`bge-base-en-v1.5`) + lexical (Postgres full-text), **RRF fusion**,
-  **cross-encoder reranking**, **citation verification**, and **abstention**. Hybrid
-  wins recall@5 **0.81** and nDCG@5 **0.63** over vector-only (0.80) and
-  keyword-only (0.62), with ground truth auto-derived alongside the corpus.
+  **cross-encoder reranking**, **citation verification**, and **abstention**. On
+  recall@5 hybrid (0.80) ties vector-only (0.80) and clears keyword-only (0.58); the
+  hybrid win is in ranking, nDCG@5 **0.62 vs 0.57** and MRR **0.62 vs 0.54** over
+  vector-only, with ground truth auto-derived alongside the corpus.
 - **The retriever upgrade is measured**: swapping MiniLM-L6 for
-  `bge-base-en-v1.5` lifts hybrid recall@5 **0.70 → 0.81** and nDCG@5 **0.54 → 0.63**
+  `bge-base-en-v1.5` lifts hybrid recall@5 **0.70 → 0.80** and nDCG@5 **0.54 → 0.62**
   on the same benchmark (deterministic before/after).
 - **Optional LLM query transformation**: multi-query (paraphrase → retrieve →
   RRF-fuse) lifts recall@5 **0.78 → 0.83** on a 20-query sample (indicative,
