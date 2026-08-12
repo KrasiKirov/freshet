@@ -144,7 +144,10 @@ plots, and notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md).
 ## Architecture
 
 ```
- synthetic generator ──produce──▶  Kafka: raw.events  (partition key = service)
+ sources ──produce──▶  Kafka: raw.events  (partition key = service)
+   · status-feed poller       (freshet/ingest/: real Cloudflare/GitHub/OpenAI feeds; the live demo)
+   · GitHub webhook receiver  (freshet/connectors/: real push/deploy events, HMAC-verified)
+   · synthetic generator      (freshet/generator/: the scripted demo incident)
                                         │
                                         ▼
                         normalizer (consumer group)
