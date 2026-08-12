@@ -14,7 +14,8 @@ autonomously briefs the incident and drafts the postmortem.
 
 ### Why it's different
 
-- **~356× fresher than a nightly-batch baseline** (5s vs 1778s mean data staleness).
+- **~356× fresher than an hourly-batch baseline** (5s vs 1778s mean data staleness;
+  ~4 orders of magnitude against a nightly cadence).
 - **Hybrid retrieval on a 160-query benchmark**: dense (`bge`) + lexical + RRF
   fusion + cross-encoder rerank + citation verification + abstention. On recall@5
   hybrid (0.80) ties vector-only (0.80) and beats keyword-only (0.58); its real win
