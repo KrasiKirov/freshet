@@ -287,6 +287,18 @@ def hard_incident_events(archetype: Archetype, service: str, start: datetime,
     k_after = rng.randint(0, 3)        # benign changes between cause and spike
     m_failed = rng.randint(0, 2)       # failed remediations between spike and fix
     m_post = rng.randint(0, 2)         # cleanup remediations AFTER recovery
+    # How the resolution is shaped. Without this the real fix is ALWAYS the last
+    # remediation at or before the recovery event, and that single rule scores
+    # 1.000 — saturating the fix task so it cannot distinguish an agent from a
+    # heuristic. These three patterns move the fix's position *relative to the
+    # recovery signal*, so recovery-anchoring alone is no longer sufficient.
+    #   0 clean                     — fix, then recovery
+    #   1 false_recovery            — a failed attempt briefly clears the alert,
+    #                                 errors return, then the real fix
+    #   2 cleanup_before_recovery   — a cleanup lands between the fix and recovery
+    pattern = rng.randint(0, 2)
+    if pattern == 1:
+        m_failed = max(1, m_failed)    # a false recovery needs an attempt to follow
     # `recoverable` is assigned deterministically by the caller (every 4th incident)
     # rather than drawn here: a benchmark's composition should be exact, not subject
     # to sampling luck — a random draw landed on 42.5% out-of-window at seed 1.
@@ -330,8 +342,21 @@ def hard_incident_events(archetype: Archetype, service: str, start: datetime,
     #    naive first-remediation rule is correct)
     for i in range(m_failed):
         events.append(ev(160 + i * 20, i_src, i_type, i_text, ineffective=True))
+    # a failed attempt clears the alert briefly; the errors then return. The alert
+    # that follows the REAL fix is the one that sticks — that is the distinction an
+    # arm has to make, and no fixed offset encodes it.
+    if pattern == 1:
+        events.append(ev(200, EventSource.ALERT, "healthy",
+                         "{service} back below alert threshold; error rate normal",
+                         ineffective=True))
+        events.append(ev(210, EventSource.CHAT, "message",
+                         "alice: {service} errors are back, that didn't hold"))
     fix = ev(240, f_step.source, f_step.type, f_step.text)
     events.append(fix)
+    # a cleanup lands between the fix and the recovery, so "the last remediation
+    # before recovery" is the cleanup rather than the fix
+    if pattern == 2:
+        events.append(ev(280, i_src, i_type, i_text, ineffective=True))
     # the recovery event is the ONLY signal separating the real fix from the
     # neutrally-worded attempts that preceded it
     events.append(ev(330, EventSource.ALERT, "healthy",

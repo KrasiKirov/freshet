@@ -198,36 +198,51 @@ don't know" are different failures for an on-call tool:
 
 | config | cause | cause* | fix | false pos. | correctly abstained |
 |---|---|---|---|---|---|
-| single-shot (keyless) | 0.075 | 0.100 | 0.325 | 32 | 0/10 |
-| fixed-two-step, whole-corpus | 0.050 | 0.067 | 0.075 | 10 | 9/10 |
-| fixed-two-step, service-scoped | 0.175 | 0.233 | 0.350 | 33 | 0/10 |
-| **hardened heuristic (keyless)** | **0.425** | **0.567** | **1.000** | 23 | 0/10 |
-| *gameability guard (blind index rules)* | *≤0.175* | — | *≤0.450* | — | — |
-| *chance ceiling* | *0.250* | — | *0.333* | — | — |
+| single-shot (keyless) | 0.125 | 0.167 | 0.300 | 27 | 3/10 |
+| fixed-two-step, whole-corpus | 0.050 | 0.067 | 0.050 | 5 | 10/10 |
+| fixed-two-step, service-scoped | 0.200 | 0.267 | 0.175 | 32 | 0/10 |
+| **hardened heuristic (keyless)** | **0.425** | **0.567** | **0.825** | 23 | 0/10 |
+| *guard — blind index rules* | *≤0.200* | — | *≤0.425* | — | — |
+| *chance ceiling (blind only)* | *0.250* | — | *0.333* | — | — |
+| *reference — last remediation before final recovery* | — | — | *0.650* | — | — |
 
 **The guard passes, with one number to keep watching.** On cause, every blind index
-rule is at or below the 0.250 ceiling (best: 0.175) — the axis that was previously
-gameable at 1.000 is now dead. On fix, two of three sit at the 0.333 ceiling; the
-third reaches **0.450**, which is 1.6σ above chance at n = 40 (not significant,
-p ≈ 0.12, but it is not "below the ceiling" either and is recorded as such rather
-than rounded away). It reflects the residual 1-in-3 chance that no cleanup
-remediation follows recovery, which leaves the real fix last. Widening the cleanup
-draw would push it down further. The naive service-scoped rule (0.175 / 0.350) is
-statistically indistinguishable from the blind rules — the correct result, since it
-*is* a blind rule.
+rule is at or below the 0.250 ceiling (best: 0.200) — the axis that was previously
+gameable at 1.000 is now dead. On fix, two of three sit at or below the 0.333
+ceiling; the third reaches **0.425**, which is 1.2σ above chance at n = 40 (not
+significant, p ≈ 0.22, but it is not "below the ceiling" either and is recorded as
+such rather than rounded away). The ceiling applies only to *blind* rules; the
+recovery-anchored reference rules read evidence, so beating chance is legitimate
+for them and they are reported separately rather than as gameability signals. The
+naive service-scoped arm (0.200 / 0.175) is statistically indistinguishable from
+the blind rules — the correct result, since it *is* a blind rule.
 
-Two findings, and the second is uncomfortable:
+**Leak (4), caught and closed by this same process.** The first version of this
+table had the hardened heuristic at **fix 1.000**, and it was verified to be
+construction-guaranteed at 40/40: the generator always emitted
+failed-attempts → fix → recovery → cleanup, so "the last remediation at or before
+recovery" inverted that invariant exactly. Better than the original tautology —
+blind rules did fail at ~0.33, so the task discriminated between *rules* — but
+still **saturated**, meaning any recovery-aware arm scores 1.000 and an
+agent-vs-heuristic comparison on that axis is a guaranteed tie. Two wrinkles
+de-saturated it, both drawn from real on-call timelines: a **false recovery** (a
+failed attempt briefly clears the alert, errors return) and a **cleanup landing
+between the fix and the recovery**. The previously perfect rule now scores 0.650,
+and the hardened heuristic 0.825 — headroom restored on both axes.
 
-1. **The fix task does not need an LLM.** A hand-written rule — "the last
-   remediation at or before the recovery event" — scores **1.000**. Agency
-   therefore cannot add anything on fix identification; any agent result there is
-   at best a tie. This is the honest replacement for the old, meaningless 1.000:
-   the number is high because the task is genuinely solvable by a simple evidence
-   rule, and that is now demonstrated rather than assumed.
-2. **The cause task has real headroom, and so does calibration.** The hardened
-   heuristic reaches only **0.567** in-window, and abstains correctly on **0/10**
-   of the out-of-window incidents — it always guesses. Those two numbers are the
-   bar the agent has to clear to justify its cost.
+Where that leaves the comparison:
+
+1. **Both scored tasks now have headroom.** The strongest hand-written baseline
+   reaches **0.567** on cause (in-window) and **0.825** on fix. Neither is
+   saturated, so an agent can beat them, tie them, or lose — all three outcomes are
+   now expressible, which was not true of any earlier version of this benchmark.
+2. **Calibration is the widest gap and the most on-call-relevant.** The hardened
+   heuristic abstains correctly on **0/10** of the out-of-window incidents: it
+   always guesses, because a fixed rule has no notion of "the cause is not in what
+   I can see." Notably the whole-corpus arm gets **10/10** — but only by accident,
+   abstaining on 33/40 incidents overall because its retrieval fails. Deliberate
+   abstention and broken retrieval look identical in that column, which is exactly
+   why false positives are reported next to it.
 
 **The agent arm has not been re-run against this tier.** The previously published
 0.917/1.000 was measured on the gameable corpus and is void; it is removed rather

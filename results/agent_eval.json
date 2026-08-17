@@ -1,41 +1,41 @@
 {
   "configs": {
     "single-shot": {
-      "cause_recall": 0.075,
-      "fix_recall": 0.325,
+      "cause_recall": 0.125,
+      "fix_recall": 0.3,
       "n": 40,
-      "abstained_cause": 5,
-      "abstained_fix": 26,
-      "cause_false_positives": 32,
-      "cause_recall_recoverable": 0.1,
+      "abstained_cause": 8,
+      "abstained_fix": 28,
+      "cause_false_positives": 27,
+      "cause_recall_recoverable": 0.167,
       "unrecoverable_n": 10,
-      "unrecoverable_correctly_abstained": 0
+      "unrecoverable_correctly_abstained": 3
     },
     "fixed-two-step": {
       "cause_recall": 0.05,
-      "fix_recall": 0.075,
+      "fix_recall": 0.05,
       "n": 40,
-      "abstained_cause": 28,
-      "abstained_fix": 28,
-      "cause_false_positives": 10,
+      "abstained_cause": 33,
+      "abstained_fix": 33,
+      "cause_false_positives": 5,
       "cause_recall_recoverable": 0.067,
       "unrecoverable_n": 10,
-      "unrecoverable_correctly_abstained": 9
+      "unrecoverable_correctly_abstained": 10
     },
     "fixed-two-step-scoped": {
-      "cause_recall": 0.175,
-      "fix_recall": 0.35,
+      "cause_recall": 0.2,
+      "fix_recall": 0.175,
       "n": 40,
       "abstained_cause": 0,
       "abstained_fix": 0,
-      "cause_false_positives": 33,
-      "cause_recall_recoverable": 0.233,
+      "cause_false_positives": 32,
+      "cause_recall_recoverable": 0.267,
       "unrecoverable_n": 10,
       "unrecoverable_correctly_abstained": 0
     },
     "hardened-heuristic": {
       "cause_recall": 0.425,
-      "fix_recall": 1.0,
+      "fix_recall": 0.825,
       "n": 40,
       "abstained_cause": 0,
       "abstained_fix": 0,
@@ -46,31 +46,31 @@
     }
   },
   "gameability_guard": {
-    "last-change/first-remediation": {
-      "cause_recall": 0.175,
-      "fix_recall": 0.35,
+    "blind: last-change/first-remediation": {
+      "cause_recall": 0.2,
+      "fix_recall": 0.175,
       "n": 40,
       "abstained_cause": 0,
       "abstained_fix": 0,
-      "cause_false_positives": 33,
-      "cause_recall_recoverable": 0.233,
+      "cause_false_positives": 32,
+      "cause_recall_recoverable": 0.267,
       "unrecoverable_n": 10,
       "unrecoverable_correctly_abstained": 0
     },
-    "2nd-to-last-change/2nd-remediation": {
-      "cause_recall": 0.125,
-      "fix_recall": 0.325,
+    "blind: 2nd-to-last-change/2nd-remediation": {
+      "cause_recall": 0.025,
+      "fix_recall": 0.425,
       "n": 40,
       "abstained_cause": 0,
-      "abstained_fix": 5,
-      "cause_false_positives": 35,
-      "cause_recall_recoverable": 0.167,
+      "abstained_fix": 2,
+      "cause_false_positives": 39,
+      "cause_recall_recoverable": 0.033,
       "unrecoverable_n": 10,
       "unrecoverable_correctly_abstained": 0
     },
-    "first-change/last-remediation": {
+    "blind: first-change/last-remediation": {
       "cause_recall": 0.0,
-      "fix_recall": 0.45,
+      "fix_recall": 0.2,
       "n": 40,
       "abstained_cause": 0,
       "abstained_fix": 0,
@@ -79,13 +79,36 @@
       "unrecoverable_n": 10,
       "unrecoverable_correctly_abstained": 0
     },
+    "evidence: last-remediation-before-FIRST-recovery": {
+      "cause_recall": 0.0,
+      "fix_recall": 0.35,
+      "n": 40,
+      "abstained_cause": 40,
+      "abstained_fix": 0,
+      "cause_false_positives": 0,
+      "cause_recall_recoverable": 0.0,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 10
+    },
+    "evidence: last-remediation-before-LAST-recovery": {
+      "cause_recall": 0.0,
+      "fix_recall": 0.65,
+      "n": 40,
+      "abstained_cause": 40,
+      "abstained_fix": 0,
+      "cause_false_positives": 0,
+      "cause_recall_recoverable": 0.0,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 10
+    },
     "_chance_ceiling": {
       "cause_recall": 0.25,
-      "fix_recall": 0.333
+      "fix_recall": 0.333,
+      "applies_to": "blind rules only"
     }
   },
   "lift": {
-    "fixed_vs_single_cause_recall": -0.025,
+    "fixed_vs_single_cause_recall": -0.075,
     "fixed_vs_single_fix_recall": -0.25
   },
   "n_incidents": 40,

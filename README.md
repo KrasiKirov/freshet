@@ -118,10 +118,13 @@ plots, and notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md).
   abstaining is the correct answer), and ships a permanent **gameability guard**:
   blind index rules scored on every run against an explicit chance ceiling, so
   "this measures reasoning, not layout" is a number rather than a claim. The guard
-  passes. What that buys is a real result: a hand-written evidence rule already
-  solves fix-identification at **1.000** — so agency cannot help there — while
-  leaving genuine headroom on cause (**0.567** in-window) and calibration
-  (**0/10** correct abstentions). See [RESULTS.md](RESULTS.md) M11.
+  passes. Saturation got the same treatment: when a hand-written rule hit a
+  suspicious **1.000** on fix-identification, it turned out to invert the
+  generator's own invariant 40/40, so false recoveries and post-fix cleanups were
+  added until it dropped to 0.825. The strongest keyless baseline now scores
+  **0.567** on cause, **0.825** on fix, and **0/10** on knowing when to abstain —
+  three live numbers an agent can beat, tie, or lose to. See
+  [RESULTS.md](RESULTS.md) M11.
 - **Streaming is ~356× fresher than a batch baseline** (5s vs 1778s mean data
   staleness at an hourly batch cadence; ~4 orders of magnitude at a real nightly
   cadence).

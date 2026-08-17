@@ -111,13 +111,37 @@ def positional_rules(neighbors, spike) -> dict[str, dict]:
     def at(seq, i):
         return seq[i].event_id if -len(seq) <= i < len(seq) else None
 
+    # recovery-anchored variants: "last remediation before the alert cleared" used
+    # to score a saturating 1.000, so it is now measured every run rather than
+    # trusted. `first_healthy` is the trap on false-recovery incidents.
+    healthy = sorted((n for n in neighbors
+                      if n.type == "healthy" and n.ts >= spike.ts),
+                     key=lambda n: n.ts)
+    def last_rem_before(h):
+        if h is None:
+            return None
+        prior = [r for r in rems if r.ts <= h.ts]
+        return prior[-1].event_id if prior else None
+
     return {
-        "last-change/first-remediation": {
+        # BLIND rules use position only and must stay at the chance ceiling —
+        # anything above it means the layout leaks and the benchmark is void.
+        "blind: last-change/first-remediation": {
             "cause_id": at(changes, -1), "fix_id": at(rems, 0)},
-        "2nd-to-last-change/2nd-remediation": {
+        "blind: 2nd-to-last-change/2nd-remediation": {
             "cause_id": at(changes, -2), "fix_id": at(rems, 1)},
-        "first-change/last-remediation": {
+        "blind: first-change/last-remediation": {
             "cause_id": at(changes, 0), "fix_id": at(rems, -1)},
+        # EVIDENCE rules read the recovery signal, so beating chance is legitimate.
+        # They are reported as reference baselines, not gameability indicators —
+        # "last remediation before the alert cleared" scored a saturating 1.000
+        # before false recoveries and post-fix cleanups were introduced.
+        "evidence: last-remediation-before-FIRST-recovery": {
+            "cause_id": None,
+            "fix_id": last_rem_before(healthy[0] if healthy else None)},
+        "evidence: last-remediation-before-LAST-recovery": {
+            "cause_id": None,
+            "fix_id": last_rem_before(healthy[-1] if healthy else None)},
     }
 
 
@@ -146,12 +170,25 @@ def _hardened_heuristic(conn, embedder, truth) -> dict:
     scored = sorted(cands, key=lambda n: (len(toks(n.text) & symptom), n.ts))
     cause = scored[-1] if scored and (toks(scored[-1].text) & symptom) else None
 
-    # fix: the last remediation at or before the recovery event
-    recovery = next((n for n in neighbors
-                     if n.type == "healthy" and n.ts >= spike.ts), None)
-    rems = [n for n in neighbors if n.type in REMEDIATION_TYPES and n.ts >= spike.ts
-            and (recovery is None or n.ts <= recovery.ts)]
-    fix = rems[-1] if rems else None
+    # fix: prefer the remediation that mechanistically undoes the cause (a cert
+    # renewal answers an expired cert, a migration revert answers a migration),
+    # tie-broken by the last remediation before the recovery that *sticks* — the
+    # final healthy event, not a false one. Pure recovery-anchoring used to score a
+    # saturating 1.000, so it is demoted to a tie-break rather than the rule.
+    healthy = sorted((n for n in neighbors
+                      if n.type == "healthy" and n.ts >= spike.ts),
+                     key=lambda n: n.ts)
+    rems = [n for n in neighbors
+            if n.type in REMEDIATION_TYPES and n.ts >= spike.ts]
+    fix = None
+    if rems:
+        ctoks = toks(cause.text) if cause is not None else set()
+        sticks = healthy[-1] if healthy else None
+        fix = max(rems, key=lambda n: (
+            len(toks(n.text) & ctoks),
+            sticks is not None and n.ts <= sticks.ts,
+            n.ts,
+        ))
     return {"cause_id": cause.event_id if cause else None,
             "fix_id": fix.event_id if fix else None}
 
@@ -336,7 +373,8 @@ def main() -> None:
     # equal its offset, so its expected score is 1/(number of possible counts):
     # k_after ∈ 0..3 → 0.25 for cause, m_failed ∈ 0..2 → 0.333 for fix. Anything
     # meaningfully above this means the layout still leaks position.
-    guard["_chance_ceiling"] = {"cause_recall": 0.25, "fix_recall": 0.333}
+    guard["_chance_ceiling"] = {"cause_recall": 0.25, "fix_recall": 0.333,
+                                "applies_to": "blind rules only"}
     lift = {
         "fixed_vs_single_cause_recall": round(fx_agg["cause_recall"] - ss_agg["cause_recall"], 3),
         "fixed_vs_single_fix_recall": round(fx_agg["fix_recall"] - ss_agg["fix_recall"], 3),
