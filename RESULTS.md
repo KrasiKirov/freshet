@@ -199,7 +199,13 @@ in front: (1) the agent arm is **indicative and non-deterministic**; the other t
 arms are keyless and deterministic. (2) The sample is small (12) by design. (3) On
 messier real corpora, where the fixed anchor-on-top-spike heuristic can pick the
 wrong anchor, the agent loop may re-earn its keep; the synthetic benchmark
-cannot show that either way.
+cannot show that either way. (4) The 1.000/1.000 itself is **near-tautological
+and should not be read as a strong result**: the generator plants a
+correctly-typed cause event inside the ±30-min `events_around` window, so once
+step 1 finds the spike, step 2 succeeds mechanically. It is recall with no
+precision counterpart — a wider window can only raise it — so the load-bearing
+findings are the **gap** (single-shot 0.167 → closed) and the
+**agent-equals-deterministic equivalence**, not the absolute score.
 
 Reproduce: `make up && make agent-eval`. Keyless runs score the single-shot and
 fixed-two-step arms (both deterministic); the agent arm needs `ANTHROPIC_API_KEY`.

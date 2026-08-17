@@ -113,11 +113,13 @@ plots, and notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md).
   migration): the generalized timeline, validated service-scoped.
 - **A non-semantic temporal lookup closes the hard whole-corpus gap**: with no
   service hint, single-shot retrieval reaches only 0.17 cause-recall / 0.42
-  fix-recall even with the bge retriever; adding a **"what changed just before the
-  spike?"** lookup reaches **1.0 / 1.0** over 12 incidents. A keyless, deterministic
-  `fixed-two-step` pipeline using the same lookup **also
-  scores 1.0 / 1.0, identical to the LLM agent**, so the win is the retrieval
-  capability, not agency.
+  fix-recall even with the bge retriever; a **"what changed just before the
+  spike?"** lookup anchored on the incident timestamp closes it. The finding
+  isn't the 1.0 / 1.0 that lookup scores over 12 synthetic incidents — that's
+  near-tautological, recall-only over a ±30-min window the generator plants the
+  cause inside — it's the **gap and the equivalence**: a keyless, deterministic
+  `fixed-two-step` pipeline matches the LLM agent **exactly** (+0.0 / +0.0), so
+  the value is the retrieval step, not the agency.
 - **Streaming is ~356× fresher than a batch baseline** (5s vs 1778s mean data
   staleness at an hourly batch cadence; ~4 orders of magnitude at a real nightly
   cadence).
