@@ -111,15 +111,17 @@ plots, and notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md).
 - **Root-cause synthesis recovers the true cause and fix for all 40 incidents
   across all six archetypes** (deploy / config / dependency / resource / cert /
   migration): the generalized timeline, validated service-scoped.
-- **A non-semantic temporal lookup closes the hard whole-corpus gap**: with no
-  service hint, single-shot retrieval reaches only 0.17 cause-recall / 0.42
-  fix-recall even with the bge retriever; a **"what changed just before the
-  spike?"** lookup anchored on the incident timestamp closes it. The finding
-  isn't the 1.0 / 1.0 that lookup scores over 12 synthetic incidents — that's
-  near-tautological, recall-only over a ±30-min window the generator plants the
-  cause inside — it's the **gap and the equivalence**: a keyless, deterministic
-  `fixed-two-step` pipeline matches the LLM agent **exactly** (+0.0 / +0.0), so
-  the value is the retrieval step, not the agency.
+- **The root-cause benchmark is adversarial to its own conclusions**: an earlier
+  version of it was gameable — a blind "second-to-last change" rule scored 1.000
+  and beat the LLM while understanding nothing. It now randomises where the traps
+  sit, hides the cause outside the lookup window on every 4th incident (where
+  abstaining is the correct answer), and ships a permanent **gameability guard**:
+  blind index rules scored on every run against an explicit chance ceiling, so
+  "this measures reasoning, not layout" is a number rather than a claim. The guard
+  passes. What that buys is a real result: a hand-written evidence rule already
+  solves fix-identification at **1.000** — so agency cannot help there — while
+  leaving genuine headroom on cause (**0.567** in-window) and calibration
+  (**0/10** correct abstentions). See [RESULTS.md](RESULTS.md) M11.
 - **Streaming is ~356× fresher than a batch baseline** (5s vs 1778s mean data
   staleness at an hourly batch cadence; ~4 orders of magnitude at a real nightly
   cadence).

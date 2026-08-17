@@ -1,27 +1,100 @@
 {
   "configs": {
     "single-shot": {
-      "cause_recall": 0.167,
-      "fix_recall": 0.417,
-      "n": 12
+      "cause_recall": 0.075,
+      "fix_recall": 0.325,
+      "n": 40,
+      "abstained_cause": 5,
+      "abstained_fix": 26,
+      "cause_false_positives": 32,
+      "cause_recall_recoverable": 0.1,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 0
     },
     "fixed-two-step": {
-      "cause_recall": 1.0,
-      "fix_recall": 1.0,
-      "n": 12
+      "cause_recall": 0.05,
+      "fix_recall": 0.075,
+      "n": 40,
+      "abstained_cause": 28,
+      "abstained_fix": 28,
+      "cause_false_positives": 10,
+      "cause_recall_recoverable": 0.067,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 9
     },
-    "agent": {
-      "cause_recall": 1.0,
+    "fixed-two-step-scoped": {
+      "cause_recall": 0.175,
+      "fix_recall": 0.35,
+      "n": 40,
+      "abstained_cause": 0,
+      "abstained_fix": 0,
+      "cause_false_positives": 33,
+      "cause_recall_recoverable": 0.233,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 0
+    },
+    "hardened-heuristic": {
+      "cause_recall": 0.425,
       "fix_recall": 1.0,
-      "n": 12
+      "n": 40,
+      "abstained_cause": 0,
+      "abstained_fix": 0,
+      "cause_false_positives": 23,
+      "cause_recall_recoverable": 0.567,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 0
+    }
+  },
+  "gameability_guard": {
+    "last-change/first-remediation": {
+      "cause_recall": 0.175,
+      "fix_recall": 0.35,
+      "n": 40,
+      "abstained_cause": 0,
+      "abstained_fix": 0,
+      "cause_false_positives": 33,
+      "cause_recall_recoverable": 0.233,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 0
+    },
+    "2nd-to-last-change/2nd-remediation": {
+      "cause_recall": 0.125,
+      "fix_recall": 0.325,
+      "n": 40,
+      "abstained_cause": 0,
+      "abstained_fix": 5,
+      "cause_false_positives": 35,
+      "cause_recall_recoverable": 0.167,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 0
+    },
+    "first-change/last-remediation": {
+      "cause_recall": 0.0,
+      "fix_recall": 0.45,
+      "n": 40,
+      "abstained_cause": 0,
+      "abstained_fix": 0,
+      "cause_false_positives": 40,
+      "cause_recall_recoverable": 0.0,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 0
+    },
+    "_chance_ceiling": {
+      "cause_recall": 0.25,
+      "fix_recall": 0.333
     }
   },
   "lift": {
-    "fixed_vs_single_cause_recall": 0.833,
-    "fixed_vs_single_fix_recall": 0.583,
-    "agent_vs_fixed_cause_recall": 0.0,
-    "agent_vs_fixed_fix_recall": 0.0
+    "fixed_vs_single_cause_recall": -0.025,
+    "fixed_vs_single_fix_recall": -0.25
   },
-  "n_incidents": 12,
-  "note": "single-shot and fixed-two-step are keyless and deterministic; fixed-two-step is the ablation for the agent's temporal-lookup win; agent runs are indicative and non-deterministic"
+  "n_incidents": 40,
+  "tier": "hard",
+  "provenance": {
+    "seed": 1,
+    "embedder": "bge",
+    "agent_model": null,
+    "run_date": "2026-08-17"
+  },
+  "note": "hard tier (build_hard_benchmark): trap COUNTS are randomised per incident (0-3 benign changes before the spike, 0-2 failed remediations after it), so no fixed index rule can recover the answer \u2014 see `gameability_guard`, every entry of which must sit near chance for the arms above to mean anything. ~1 in 4 incidents place the cause outside the lookup window, where abstaining is correct; `cause_false_positives` is what penalises guessing. All arms except `agent` are keyless and deterministic; `hardened-heuristic` is the strongest hand-written baseline (symptom-vocabulary match + recovery-anchored fix)"
 }

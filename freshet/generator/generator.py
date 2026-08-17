@@ -109,6 +109,9 @@ class IncidentTruth:
     cause_id: str
     fix_id: str
     spike_id: str
+    # Hard tier only: False when the cause is planted outside the ±30-min lookup
+    # window, where abstaining is the calibrated answer. Always True elsewhere.
+    cause_recoverable: bool = True
 
 
 def build_benchmark(seed: int = 1, n_incidents: int = 40, noise_between: int = 6,
@@ -203,11 +206,13 @@ def build_hard_benchmark(seed: int = 1, n_incidents: int = 40, n_volume: int = 1
         archetype = ARCHETYPES[i % len(ARCHETYPES)]
         service = f"{SERVICES[i % len(SERVICES)]}-{i:02d}"
         incident_id = f"INC-{i + 1:04d}"
-        inc_events, cause_id, fix_id, spike_id = hard_incident_events(
-            archetype, service, t + timedelta(seconds=600), incident_id, mint, n_volume)
+        # exactly every 4th incident hides its cause outside the lookup window
+        inc_events, cause_id, fix_id, spike_id, recoverable = hard_incident_events(
+            archetype, service, t + timedelta(seconds=600), incident_id, mint,
+            n_volume, rng=rng, recoverable=(i % 4 != 3))
         events.extend(inc_events)
         truths.append(IncidentTruth(incident_id, service, archetype.name,
-                                    cause_id, fix_id, spike_id))
+                                    cause_id, fix_id, spike_id, recoverable))
         t += timedelta(seconds=4300)   # clear volume(-600s..) + postmortem(+3600s)
     return events, truths
 

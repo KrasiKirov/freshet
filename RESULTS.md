@@ -161,15 +161,27 @@ default, key-gated).
 
 ## M11: multi-step retrieval vs single-shot baseline
 
-> **Framing note (revised in M14, ablation run 2026-07-15):** this was previously
-> sold as "agentic RAG." The honest read is narrower. What it shows is that a
-> **non-semantic temporal lookup** (`get_events_around`, "what happened just
-> before the spike?") closes a gap that single-shot semantic retrieval cannot,
-> not that the LLM agency adds measurable value over a fixed pipeline. The
-> ablation now confirms this: a keyless, deterministic `fixed-two-step` arm
-> (identical whole-corpus search, then `events_around` anchored on the top spike
-> hit) **exactly matches the agent** at 1.000/1.000. The win is the **retrieval
-> capability**, not the agent loop.
+> **Framing note (rebuilt 2026-08-17). This benchmark was wrong three times; the
+> audit trail is the point.** (1) The original *easy* tier gave each incident
+> exactly one cause-typed and one remediation-typed event in the ±30-min window, so
+> both scored tasks were single-candidate. A keyless heuristic "tied" the LLM at
+> 1.000/1.000 — a **tautology**, not a result, and it produced the published claim
+> "agency adds nothing." (2) The first hard tier added a decoy per task but planted
+> both at **constant offsets**, so a blind index rule ("second-to-last change,
+> second remediation") scored **1.000/1.000 and beat the LLM while understanding
+> nothing**. The claim that reasoning beats fixed heuristics was therefore
+> unsupported: one arbitrary rule lost, another arbitrary rule won. (3) Randomising
+> the trap counts fixed the cause axis but left every failed attempt *before* the
+> real fix, so a blind "last remediation" rule still scored **0.931**.
+>
+> The current tier randomises trap counts on both sides (0–3 benign changes before
+> the spike, 0–2 failed remediations after it, 0–2 cleanup remediations after
+> recovery), includes the **zero** case so the naive rule is sometimes right, and
+> hides the cause outside the lookup window on exactly every 4th incident, where
+> abstaining is the calibrated answer. A **gameability guard** — blind index rules,
+> reported on every run against an explicit chance ceiling — now makes
+> ungameability a *measured property* rather than a claim. It is what caught leak
+> (3), and it is permanent so leak (4) cannot ship silently.
 
 M12 measured a sharp gap: at **whole-corpus scale** (no service hint), single-shot
 retrieval scored **0.0 cause-recall** under the old MiniLM retriever. A terse
@@ -178,37 +190,56 @@ incident?" The stronger bge retriever (M14) lifts the baseline but does **not**
 close the gap; the multi-step investigator re-retrieves with the temporal lookup to
 recover the rest.
 
-Measured head-to-head on **12 sampled incidents (2 per archetype)**, all three
-arms at whole-corpus scale, under the bge retriever (agent runs on
-`claude-sonnet-4-6`; run 2026-07-15):
+Measured on all **40 hard-tier incidents** under the bge retriever, keyless arms
+only (2026-08-17). `cause*` is recall on the 30 in-window incidents; the headline
+`cause` column is diluted by the 10 where abstaining is correct. Abstentions are
+reported separately from wrong answers, because naming a bystander and saying "I
+don't know" are different failures for an on-call tool:
 
-| config | cause_recall | fix_recall |
-|---|---|---|
-| single-shot (keyless baseline) | 0.167 | 0.417 |
-| **fixed-two-step (keyless ablation)** | **1.000** | **1.000** |
-| agent (LLM tool loop) | 1.000 | 1.000 |
+| config | cause | cause* | fix | false pos. | correctly abstained |
+|---|---|---|---|---|---|
+| single-shot (keyless) | 0.075 | 0.100 | 0.325 | 32 | 0/10 |
+| fixed-two-step, whole-corpus | 0.050 | 0.067 | 0.075 | 10 | 9/10 |
+| fixed-two-step, service-scoped | 0.175 | 0.233 | 0.350 | 33 | 0/10 |
+| **hardened heuristic (keyless)** | **0.425** | **0.567** | **1.000** | 23 | 0/10 |
+| *gameability guard (blind index rules)* | *≤0.175* | — | *≤0.450* | — | — |
+| *chance ceiling* | *0.250* | — | *0.333* | — | — |
 
-Honest read: the temporal lookup recovers the true cause and fix on **all 12
-incidents across all six archetypes**, and the deterministic `fixed-two-step`
-arm does it **without an LLM**. The agent adds exactly nothing on this benchmark
-(+0.000/+0.000 over the ablation); the entire +0.833/+0.583 lift over single-shot
-belongs to the retrieval capability. The bge upgrade raised the single-shot
-baseline from 0.0/0.25 (MiniLM) to 0.17/0.42 (a better retriever genuinely helps),
-but it still misses most causes, which the temporal lookup recovers. Caveats kept
-in front: (1) the agent arm is **indicative and non-deterministic**; the other two
-arms are keyless and deterministic. (2) The sample is small (12) by design. (3) On
-messier real corpora, where the fixed anchor-on-top-spike heuristic can pick the
-wrong anchor, the agent loop may re-earn its keep; the synthetic benchmark
-cannot show that either way. (4) The 1.000/1.000 itself is **near-tautological
-and should not be read as a strong result**: the generator plants a
-correctly-typed cause event inside the ±30-min `events_around` window, so once
-step 1 finds the spike, step 2 succeeds mechanically. It is recall with no
-precision counterpart — a wider window can only raise it — so the load-bearing
-findings are the **gap** (single-shot 0.167 → closed) and the
-**agent-equals-deterministic equivalence**, not the absolute score.
+**The guard passes, with one number to keep watching.** On cause, every blind index
+rule is at or below the 0.250 ceiling (best: 0.175) — the axis that was previously
+gameable at 1.000 is now dead. On fix, two of three sit at the 0.333 ceiling; the
+third reaches **0.450**, which is 1.6σ above chance at n = 40 (not significant,
+p ≈ 0.12, but it is not "below the ceiling" either and is recorded as such rather
+than rounded away). It reflects the residual 1-in-3 chance that no cleanup
+remediation follows recovery, which leaves the real fix last. Widening the cleanup
+draw would push it down further. The naive service-scoped rule (0.175 / 0.350) is
+statistically indistinguishable from the blind rules — the correct result, since it
+*is* a blind rule.
 
-Reproduce: `make up && make agent-eval`. Keyless runs score the single-shot and
-fixed-two-step arms (both deterministic); the agent arm needs `ANTHROPIC_API_KEY`.
+Two findings, and the second is uncomfortable:
+
+1. **The fix task does not need an LLM.** A hand-written rule — "the last
+   remediation at or before the recovery event" — scores **1.000**. Agency
+   therefore cannot add anything on fix identification; any agent result there is
+   at best a tie. This is the honest replacement for the old, meaningless 1.000:
+   the number is high because the task is genuinely solvable by a simple evidence
+   rule, and that is now demonstrated rather than assumed.
+2. **The cause task has real headroom, and so does calibration.** The hardened
+   heuristic reaches only **0.567** in-window, and abstains correctly on **0/10**
+   of the out-of-window incidents — it always guesses. Those two numbers are the
+   bar the agent has to clear to justify its cost.
+
+**The agent arm has not been re-run against this tier.** The previously published
+0.917/1.000 was measured on the gameable corpus and is void; it is removed rather
+than carried forward. The keyless instrument was validated first precisely because
+it is free — running the agent against a benchmark that fails its own guard would
+have been wasted spend.
+
+Reproduce: `make up && make agent-eval` (hard tier, all 40 incidents; set
+`FRESHET_EVAL_PER_ARCHETYPE=2` for a 12-incident subset). Keyless arms are
+deterministic and reproduce exactly; the agent arm needs `ANTHROPIC_API_KEY`. The
+artifact records seed, embedder, model, run date, the guard, and a paired McNemar
+test against the strongest keyless baseline.
 A sample investigation transcript a keyless clone can read is committed at
 [`results/agent_transcript.md`](results/agent_transcript.md), and
 `make agent-demo` regenerates it.
