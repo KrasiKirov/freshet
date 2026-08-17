@@ -121,9 +121,13 @@ plots, and notes in [`RESULTS.md`](RESULTS.md) and [`DRILLS.md`](DRILLS.md).
   passes. Saturation got the same treatment: when a hand-written rule hit a
   suspicious **1.000** on fix-identification, it turned out to invert the
   generator's own invariant 40/40, so false recoveries and post-fix cleanups were
-  added until it dropped to 0.825. The strongest keyless baseline now scores
-  **0.567** on cause, **0.825** on fix, and **0/10** on knowing when to abstain —
-  three live numbers an agent can beat, tie, or lose to. See
+  added until it dropped to 0.825. On the resulting benchmark the agent beats the
+  strongest keyless baseline on both axes — **0.975 vs 0.425** cause-recall, 1 false
+  positive vs 23, with no incident where the heuristic won (paired McNemar
+  p < 0.001). The mechanism is stated as precisely as the margin: the postmortem
+  naming the cause sits outside the ±30-min window the heuristics are confined to,
+  so what the agent is buying is **retrieval reach, not causal inference** — and the
+  ablation that would separate those is named rather than glossed. See
   [RESULTS.md](RESULTS.md) M11.
 - **Streaming is ~356× fresher than a batch baseline** (5s vs 1778s mean data
   staleness at an hourly batch cadence; ~4 orders of magnitude at a real nightly

@@ -43,6 +43,17 @@
       "cause_recall_recoverable": 0.567,
       "unrecoverable_n": 10,
       "unrecoverable_correctly_abstained": 0
+    },
+    "agent": {
+      "cause_recall": 0.975,
+      "fix_recall": 1.0,
+      "n": 40,
+      "abstained_cause": 0,
+      "abstained_fix": 0,
+      "cause_false_positives": 1,
+      "cause_recall_recoverable": 1.0,
+      "unrecoverable_n": 10,
+      "unrecoverable_correctly_abstained": 0
     }
   },
   "gameability_guard": {
@@ -109,15 +120,31 @@
   },
   "lift": {
     "fixed_vs_single_cause_recall": -0.075,
-    "fixed_vs_single_fix_recall": -0.25
+    "fixed_vs_single_fix_recall": -0.25,
+    "agent_vs_hardened_cause_recall": 0.55,
+    "agent_vs_hardened_cause_recall_recoverable": 0.433,
+    "agent_vs_hardened_fix_recall": 0.175
   },
   "n_incidents": 40,
   "tier": "hard",
   "provenance": {
     "seed": 1,
     "embedder": "bge",
-    "agent_model": null,
+    "agent_model": "claude-sonnet-4-6",
     "run_date": "2026-08-17"
   },
-  "note": "hard tier (build_hard_benchmark): trap COUNTS are randomised per incident (0-3 benign changes before the spike, 0-2 failed remediations after it), so no fixed index rule can recover the answer \u2014 see `gameability_guard`, every entry of which must sit near chance for the arms above to mean anything. ~1 in 4 incidents place the cause outside the lookup window, where abstaining is correct; `cause_false_positives` is what penalises guessing. All arms except `agent` are keyless and deterministic; `hardened-heuristic` is the strongest hand-written baseline (symptom-vocabulary match + recovery-anchored fix)"
+  "note": "hard tier (build_hard_benchmark): trap COUNTS are randomised per incident (0-3 benign changes before the spike, 0-2 failed remediations after it), so no fixed index rule can recover the answer \u2014 see `gameability_guard`, every entry of which must sit near chance for the arms above to mean anything. ~1 in 4 incidents place the cause outside the lookup window, where abstaining is correct; `cause_false_positives` is what penalises guessing. All arms except `agent` are keyless and deterministic; `hardened-heuristic` is the strongest hand-written baseline (symptom-vocabulary match + recovery-anchored fix); agent runs are indicative and non-deterministic (single run)",
+  "paired_test": {
+    "cause_vs_hardened": {
+      "discordant_other_only": 22,
+      "discordant_base_only": 0,
+      "p_value": 0.0
+    },
+    "fix_vs_hardened": {
+      "discordant_other_only": 7,
+      "discordant_base_only": 0,
+      "p_value": 0.0156
+    },
+    "note": "paired McNemar against the strongest keyless baseline; base_only = hardened correct where the agent was not"
+  }
 }

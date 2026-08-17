@@ -201,7 +201,8 @@ don't know" are different failures for an on-call tool:
 | single-shot (keyless) | 0.125 | 0.167 | 0.300 | 27 | 3/10 |
 | fixed-two-step, whole-corpus | 0.050 | 0.067 | 0.050 | 5 | 10/10 |
 | fixed-two-step, service-scoped | 0.200 | 0.267 | 0.175 | 32 | 0/10 |
-| **hardened heuristic (keyless)** | **0.425** | **0.567** | **0.825** | 23 | 0/10 |
+| hardened heuristic (keyless) | 0.425 | 0.567 | 0.825 | 23 | 0/10 |
+| **agent (LLM tool loop)** | **0.975** | **1.000** | **1.000** | **1** | 0/10 |
 | *guard — blind index rules* | *≤0.200* | — | *≤0.425* | — | — |
 | *chance ceiling (blind only)* | *0.250* | — | *0.333* | — | — |
 | *reference — last remediation before final recovery* | — | — | *0.650* | — | — |
@@ -230,25 +231,41 @@ failed attempt briefly clears the alert, errors return) and a **cleanup landing
 between the fix and the recovery**. The previously perfect rule now scores 0.650,
 and the hardened heuristic 0.825 — headroom restored on both axes.
 
-Where that leaves the comparison:
+**Result: the agent wins on both axes, and the margin is significant.** Against the
+strongest keyless baseline, paired McNemar gives **22 discordant pairs on cause,
+all favouring the agent** (p < 0.001) and **7 on fix, all favouring the agent**
+(p = 0.016) — not a single incident where the heuristic was right and the agent
+wrong. Its false-positive count is **1**, against 23 for the heuristic.
 
-1. **Both scored tasks now have headroom.** The strongest hand-written baseline
-   reaches **0.567** on cause (in-window) and **0.825** on fix. Neither is
-   saturated, so an agent can beat them, tie them, or lose — all three outcomes are
-   now expressible, which was not true of any earlier version of this benchmark.
-2. **Calibration is the widest gap and the most on-call-relevant.** The hardened
-   heuristic abstains correctly on **0/10** of the out-of-window incidents: it
-   always guesses, because a fixed rule has no notion of "the cause is not in what
-   I can see." Notably the whole-corpus arm gets **10/10** — but only by accident,
-   abstaining on 33/40 incidents overall because its retrieval fails. Deliberate
-   abstention and broken retrieval look identical in that column, which is exactly
-   why false positives are reported next to it.
+**But read the mechanism before reading the margin.** The agent scores 1.000 on
+in-window cause and 1.000 on fix — it is at the ceiling, so this benchmark can no
+longer measure any further improvement to it. More importantly, the likely source
+of the gap is *retrieval reach*, not causal inference:
 
-**The agent arm has not been re-run against this tier.** The previously published
-0.917/1.000 was measured on the gameable corpus and is void; it is removed rather
-than carried forward. The keyless instrument was validated first precisely because
-it is free — running the agent against a benchmark that fails its own guard would
-have been wasted spend.
+- The postmortem **names the cause in plain text** ("caused by the v2.15.0 deploy")
+  and sits at **+3510s**, outside the ±1800s window every keyless arm is confined
+  to. The agent can search; the heuristics structurally cannot see that document.
+- The tell is the out-of-window incidents: the agent recovers the true cause on
+  **9/10** of the cases where the cause was deliberately planted beyond the lookup
+  window. No amount of reasoning over the window's contents can do that — only
+  going and finding a different document can.
+
+So the honest claim is the project's original thesis, stated precisely: **multi-step
+retrieval reaches evidence a fixed-window heuristic cannot, and that is worth
++0.43 in-window cause-recall and +0.18 fix-recall.** It is *not* evidence that the
+model performs causal inference; on this corpus it does not have to.
+
+Caveats: (1) **single run**, non-deterministic, default temperature — the arm is
+indicative, and 0.975 should not be read as a stable point estimate. (2) The
+`correctly abstained 0/10` column is misleading for the agent: it rarely abstains
+because it usually *finds* the answer, which the 1 false positive confirms. The
+whole-corpus arm's 10/10 is the opposite artifact — it abstains on 33/40 incidents
+because its retrieval fails, and broken retrieval scores identically to calibrated
+restraint in that column. (3) The obvious next experiment, not run here: a
+**postmortem-free variant**. If the agent holds near 1.000 without a document that
+states the answer, the win is inference; if it collapses toward the heuristic, the
+win was lookup. That single ablation would settle the interpretation this table
+cannot.
 
 Reproduce: `make up && make agent-eval` (hard tier, all 40 incidents; set
 `FRESHET_EVAL_PER_ARCHETYPE=2` for a 12-incident subset). Keyless arms are

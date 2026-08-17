@@ -391,8 +391,16 @@ def main() -> None:
     if keyed:
         ag_agg = aggregate(agent_records)
         configs["agent"] = ag_agg
-        lift["agent_vs_scoped_cause_recall"] = round(ag_agg["cause_recall"] - sc_agg["cause_recall"], 3)
-        lift["agent_vs_scoped_fix_recall"] = round(ag_agg["fix_recall"] - sc_agg["fix_recall"], 3)
+        # measured against the STRONGEST keyless baseline, not the naive one:
+        # beating a rule chosen to lose is not evidence for agency
+        hd_agg = configs["hardened-heuristic"]
+        lift["agent_vs_hardened_cause_recall"] = round(
+            ag_agg["cause_recall"] - hd_agg["cause_recall"], 3)
+        lift["agent_vs_hardened_cause_recall_recoverable"] = round(
+            ag_agg.get("cause_recall_recoverable", 0)
+            - hd_agg.get("cause_recall_recoverable", 0), 3)
+        lift["agent_vs_hardened_fix_recall"] = round(
+            ag_agg["fix_recall"] - hd_agg["fix_recall"], 3)
         note += "; agent runs are indicative and non-deterministic (single run)"
     result = {
         "configs": configs,
@@ -411,8 +419,10 @@ def main() -> None:
     }
     if keyed:
         result["paired_test"] = {
-            "comparison": "agent vs fixed-two-step-scoped (cause_hit)",
-            **mcnemar(sc_records, agent_records, "cause_hit"),
+            "cause_vs_hardened": mcnemar(hd_records, agent_records, "cause_hit"),
+            "fix_vs_hardened": mcnemar(hd_records, agent_records, "fix_hit"),
+            "note": ("paired McNemar against the strongest keyless baseline; "
+                     "base_only = hardened correct where the agent was not"),
         }
 
     os.makedirs("results", exist_ok=True)
