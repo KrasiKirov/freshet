@@ -48,7 +48,7 @@ PROMETHEUS_URL = os.environ.get("FRESHET_PROMETHEUS_URL", "http://localhost:9090
 # who opens the UI a few minutes later, which reads as broken rather than idle.
 _Q_LATENCY_P50 = "histogram_quantile(0.50, sum(rate(freshet_pipeline_latency_seconds_bucket[15m])) by (le))"
 _Q_LATENCY_P95 = "histogram_quantile(0.95, sum(rate(freshet_pipeline_latency_seconds_bucket[15m])) by (le))"
-# Consumer groups are named per demo (normalizer/embedder, live-norm/live-emb,
+# Consumer groups are named per demo (stream/embedder, live-norm/live-emb,
 # sd-norm/sd-emb, drill-emb...), so match on the role substring rather than
 # pinning exact names — otherwise lag silently reads empty outside `make api`.
 _Q_CONSUMER_LAG = (

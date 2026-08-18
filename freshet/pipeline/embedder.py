@@ -27,7 +27,10 @@ from freshet.pipeline.metrics import (
     PIPELINE_LATENCY,
     start_metrics_server,
 )
-from freshet.pipeline.normalizer import NORMALIZED_TOPIC
+
+# Produced by the Flink dedup job (freshet/stream/dedup_job.py). The poller is
+# stateless and writes raw.incidents; everything downstream of dedup reads this.
+NORMALIZED_TOPIC = "normalized.updates"
 
 
 def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorRecord]:

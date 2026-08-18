@@ -1,6 +1,6 @@
 """Canonical data contract for the Freshet incident-intelligence pipeline.
 
-Everything downstream (normalizer, embedder, query layer, eval) depends on these
+Everything downstream (ingest, embedder, query layer, eval) depends on these
 schemas, so they are deliberately small and explicit. The three timestamps on
 ``Event`` (``ts``, ``ingested_at``, ``indexed_at``) are the basis for every
 freshness metric in the eval harness — do not remove them.

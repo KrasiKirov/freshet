@@ -1,4 +1,4 @@
-"""Incident lifecycle events: the normalizer emits one when an incident actually
+"""Incident lifecycle events: emitted when an incident actually
 transitions (opens or resolves); the autopilot consumer reads them. Kept tiny and
 self-contained — the consumer re-reads full detail from Postgres when it acts."""
 

@@ -41,7 +41,7 @@ class BufferedProducer:
     commit consumer offsets must call flush_checked() first (see consume_loop's
     pre_commit hook) so a failed produce can never be silently committed past.
     Compared to produce_sync's per-message flush, this amortises the delivery
-    wait over a whole commit batch — the normalizer's measured ~100 ev/s
+    wait over a whole commit batch — the pipeline's measured ~100 ev/s
     ceiling was exactly this flush-per-event cost."""
 
     def __init__(self, brokers: str):
