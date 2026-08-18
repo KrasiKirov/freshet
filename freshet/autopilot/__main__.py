@@ -2,8 +2,10 @@
 
     python -m freshet.autopilot --brokers localhost:9092
 
-Loads ANTHROPIC_API_KEY from the environment (make autopilot sources .env.local);
-runs keyless via the extractive timeline when no key is present."""
+Incident briefs are always the keyless extractive timeline. Loads ANTHROPIC_API_KEY
+from the environment (make autopilot sources .env.local) to enable LLM narrative
+synthesis for postmortems on resolved incidents; falls back to the keyless
+extractive timeline without a key."""
 
 from __future__ import annotations
 
@@ -38,8 +40,9 @@ def main() -> None:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
-    mode = "agent" if os.environ.get("ANTHROPIC_API_KEY") else "keyless timeline"
-    print(f"[autopilot] listening on {LIFECYCLE_TOPIC} (window={args.window_s}s, mode={mode})")
+    postmortem = "LLM narrative" if os.environ.get("ANTHROPIC_API_KEY") else "keyless timeline"
+    print(f"[autopilot] listening on {LIFECYCLE_TOPIC} "
+         f"(window={args.window_s}s, briefs=keyless timeline, postmortem={postmortem})")
 
     try:
         consume_loop(
