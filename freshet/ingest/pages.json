@@ -1,0 +1,170 @@
+[
+  {
+    "provider": "asana",
+    "url": "https://status.asana.com/history.atom"
+  },
+  {
+    "provider": "atlassian",
+    "url": "https://status.atlassian.com/history.atom"
+  },
+  {
+    "provider": "bitbucket",
+    "url": "https://bitbucket.status.atlassian.com/history.atom"
+  },
+  {
+    "provider": "bitrise",
+    "url": "https://status.bitrise.io/history.atom"
+  },
+  {
+    "provider": "box",
+    "url": "https://status.box.com/history.atom"
+  },
+  {
+    "provider": "circleci",
+    "url": "https://status.circleci.com/history.atom"
+  },
+  {
+    "provider": "cloudamqp",
+    "url": "https://status.cloudamqp.com/history.atom"
+  },
+  {
+    "provider": "cloudflare",
+    "url": "https://www.cloudflarestatus.com/history.atom"
+  },
+  {
+    "provider": "cloudinary",
+    "url": "https://status.cloudinary.com/history.atom"
+  },
+  {
+    "provider": "confluent",
+    "url": "https://status.confluent.cloud/history.atom"
+  },
+  {
+    "provider": "contentful",
+    "url": "https://www.contentfulstatus.com/history.atom"
+  },
+  {
+    "provider": "datadog",
+    "url": "https://status.datadoghq.com/history.atom"
+  },
+  {
+    "provider": "discord",
+    "url": "https://discordstatus.com/history.atom"
+  },
+  {
+    "provider": "dropbox",
+    "url": "https://status.dropbox.com/history.atom"
+  },
+  {
+    "provider": "elastic",
+    "url": "https://status.elastic.co/history.atom"
+  },
+  {
+    "provider": "figma",
+    "url": "https://status.figma.com/history.atom"
+  },
+  {
+    "provider": "fly",
+    "url": "https://status.flyio.net/history.atom"
+  },
+  {
+    "provider": "github",
+    "url": "https://www.githubstatus.com/history.atom"
+  },
+  {
+    "provider": "grafana",
+    "url": "https://status.grafana.com/history.atom"
+  },
+  {
+    "provider": "hashicorp",
+    "url": "https://status.hashicorp.com/history.atom"
+  },
+  {
+    "provider": "hubspot",
+    "url": "https://status.hubspot.com/history.atom"
+  },
+  {
+    "provider": "jfrog",
+    "url": "https://status.jfrog.io/history.atom"
+  },
+  {
+    "provider": "launchdarkly",
+    "url": "https://status.launchdarkly.com/history.atom"
+  },
+  {
+    "provider": "linode",
+    "url": "https://status.linode.com/history.atom"
+  },
+  {
+    "provider": "mongodb",
+    "url": "https://status.mongodb.com/history.atom"
+  },
+  {
+    "provider": "netlify",
+    "url": "https://www.netlifystatus.com/history.atom"
+  },
+  {
+    "provider": "newrelic",
+    "url": "https://status.newrelic.com/history.atom"
+  },
+  {
+    "provider": "npm",
+    "url": "https://status.npmjs.org/history.atom"
+  },
+  {
+    "provider": "openai",
+    "url": "https://status.openai.com/history.atom"
+  },
+  {
+    "provider": "postman",
+    "url": "https://status.getpostman.com/history.atom"
+  },
+  {
+    "provider": "pusher",
+    "url": "https://status.pusher.com/history.atom"
+  },
+  {
+    "provider": "reddit",
+    "url": "https://www.redditstatus.com/history.atom"
+  },
+  {
+    "provider": "render",
+    "url": "https://status.render.com/history.atom"
+  },
+  {
+    "provider": "segment",
+    "url": "https://status.segment.com/history.atom"
+  },
+  {
+    "provider": "sentry",
+    "url": "https://status.sentry.io/history.atom"
+  },
+  {
+    "provider": "snyk",
+    "url": "https://status.snyk.io/history.atom"
+  },
+  {
+    "provider": "squarespace",
+    "url": "https://status.squarespace.com/history.atom"
+  },
+  {
+    "provider": "supabase",
+    "url": "https://status.supabase.com/history.atom"
+  },
+  {
+    "provider": "trello",
+    "url": "https://trello.status.atlassian.com/history.atom"
+  },
+  {
+    "provider": "twilio",
+    "url": "https://status.twilio.com/history.atom"
+  },
+  {
+    "provider": "vercel",
+    "url": "https://www.vercel-status.com/history.atom"
+  },
+  {
+    "provider": "zoom",
+    "url": "https://status.zoom.us/history.atom"
+  }
+]
