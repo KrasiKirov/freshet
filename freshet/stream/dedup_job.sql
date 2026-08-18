@@ -43,13 +43,14 @@ CREATE TABLE raw_incidents (
 );
 
 CREATE TABLE normalized_updates (
-  provider      STRING,
-  incident_id   STRING,
-  update_id     STRING,
-  created_at    TIMESTAMP_LTZ(3),
-  status        STRING,
-  text          STRING,
-  incident_name STRING
+  event_id     STRING,
+  ts           TIMESTAMP_LTZ(3),
+  ingested_at  TIMESTAMP_LTZ(3),
+  service      STRING,
+  source       STRING,
+  type         STRING,
+  incident_id  STRING,
+  text         STRING
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'normalized.updates',
@@ -78,7 +79,17 @@ BEGIN
 -- 1. Deduplication. The poller re-delivers everything each sweep; keep the FIRST
 --    arrival of each (provider, incident, update) and drop every repeat.
 INSERT INTO normalized_updates
-SELECT provider, incident_id, update_id, created_at, status, text, incident_name
+-- Emits the project's canonical Event shape (freshet/common/schemas.py), which is
+-- what the embedder, retrieval and Autopilot all speak. `ingested_at` is our
+-- processing time, so the gap to `ts` is the poll wait we do not control.
+SELECT provider || ':' || incident_id || ':' || update_id AS event_id,
+       created_at   AS ts,
+       proc_time    AS ingested_at,
+       provider     AS service,
+       'alert'      AS source,
+       'status_update' AS type,
+       incident_id,
+       incident_name || ': ' || text AS text
 FROM (
   SELECT *, ROW_NUMBER() OVER (
              PARTITION BY provider, incident_id, update_id

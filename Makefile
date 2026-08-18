@@ -81,6 +81,9 @@ stream: flink-dist ##run
 stream-stop: ##run
 	@$(FLINK_HOME)/bin/stop-cluster.sh
 
+embedder: ##run
+	$(PYTHON) -m freshet.pipeline.embedder
+
 poller: ##run
 	$(PYTHON) -m freshet.ingest.poller
 
@@ -95,3 +98,5 @@ autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
 
+freshness: ##eval
+	$(PYTHON) -m freshet.eval.freshness

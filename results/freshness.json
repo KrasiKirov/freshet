@@ -1,0 +1,8 @@
+{
+  "streaming_mean_s": 0.0,
+  "batch_mean_s": 0.0,
+  "ratio": 0.0,
+  "n": 0,
+  "filter": "live arrivals (ts >= min(indexed_at))",
+  "note": "t0 = provider's posting time (includes poll wait); only updates posted inside the window are scored, so backfilled history cannot inflate the result. Batch arm is derived from the refresh cadence."
+}

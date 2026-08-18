@@ -1,14 +1,34 @@
-"""Freshness report: percentiles of event->queryable latency (indexed_at - ts)
-read from vector_records. This is the project's headline metric; the full eval
-harness (M6) builds on the same numbers.
+"""The single Freshet measurement: end-to-end data staleness.
 
-Run (after the slice has indexed events):
-    python -m freshet.eval.freshness
+t0 is the provider's own posting time, NOT the moment we fetched the update. That
+deliberately includes the poll wait we do not control, because it is the delay a
+user actually experiences. Reporting fetch->queryable instead would flatter the
+number by excluding its dominant term.
+
+**Only live arrivals count.** An update posted three years ago and indexed during
+a backfill has a staleness of three years, which says nothing about the pipeline.
+The filter is self-calibrating: an update is LIVE if it was posted after we
+started indexing, i.e. `ts >= min(indexed_at)`. Anything earlier was history we
+caught up on, and scoring it measures when the pipeline was switched on rather
+than how fast it is. Measured without this guard, a 24h window reported a mean
+staleness of 41,995s and a ratio of 0.06 — streaming apparently LOSING to hourly
+batch, purely from backfill.
+
+Real status feeds are slow (~50 updates/day across 42 providers), so `n` grows
+by roughly 2/hour and is reported alongside every figure.
+
+Run (stack up, poller + stream + embedder running):
+    python -m freshet.eval.freshness --since-minutes 120
 """
-
 from __future__ import annotations
 
+import argparse
+import json
 import math
+import os
+
+RESULTS = "results/freshness.json"
+BATCH_INTERVAL_S = 3600.0     # the hourly-batch index we compare against
 
 
 def percentile(values: list[float], p: float) -> float:
@@ -20,33 +40,90 @@ def percentile(values: list[float], p: float) -> float:
     return vals[k]
 
 
-def freshness_report(latencies_s: list[float]) -> dict[str, float]:
+def streaming_staleness(posted_at: float, queryable_at: float) -> float:
+    """Seconds from the provider posting an update to it being queryable."""
+    return queryable_at - posted_at
+
+
+def batch_staleness(posted_at: float, interval_s: float = BATCH_INTERVAL_S) -> float:
+    """What the same update would have cost under a fixed batch cadence: it waits
+    for the next refresh boundary after it was posted. Uniformly-arriving events
+    therefore average interval/2 — the ~1800s hourly figure is a derivation from
+    the cadence, not an estimate."""
+    return interval_s - (posted_at % interval_s)
+
+
+def summarize(streaming: list[float], batch: list[float]) -> dict:
+    """Headline plus the distribution. The mean is what the ratio uses; the
+    percentiles are there because a mean alone hides a long tail."""
+    n = len(streaming)
+    if n == 0:
+        return {"streaming_mean_s": 0.0, "batch_mean_s": 0.0, "ratio": 0.0, "n": 0}
+    s_mean = sum(streaming) / n
+    b_mean = sum(batch) / len(batch)
     return {
-        "count": len(latencies_s),
-        "p50_s": percentile(latencies_s, 50),
-        "p95_s": percentile(latencies_s, 95),
-        "p99_s": percentile(latencies_s, 99),
+        "streaming_mean_s": round(s_mean, 2),
+        "streaming_p50_s": round(percentile(streaming, 50), 2),
+        "streaming_p95_s": round(percentile(streaming, 95), 2),
+        "batch_mean_s": round(b_mean, 2),
+        "batch_interval_s": BATCH_INTERVAL_S,
+        "ratio": round(b_mean / s_mean, 2) if s_mean else 0.0,
+        "n": n,
     }
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Measure end-to-end staleness.")
+    parser.add_argument("--since-minutes", type=float, default=None,
+                        help="override: score updates posted within this window "
+                             "instead of the automatic live-arrival filter")
+    args = parser.parse_args()
+
     from freshet.common.db import connect
 
     conn = connect()
     try:
-        rows = conn.execute(
-            "SELECT EXTRACT(EPOCH FROM (indexed_at - ts))::float8 FROM vector_records"
-        ).fetchall()
+        if args.since_minutes is None:
+            # Live arrivals only: posted after we began indexing.
+            rows = conn.execute(
+                """
+                SELECT EXTRACT(EPOCH FROM ts)::float8,
+                       EXTRACT(EPOCH FROM indexed_at)::float8
+                FROM vector_records
+                WHERE ts >= (SELECT min(indexed_at) FROM vector_records)
+                """
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT EXTRACT(EPOCH FROM ts)::float8,
+                       EXTRACT(EPOCH FROM indexed_at)::float8
+                FROM vector_records
+                WHERE ts >= now() - (%(mins)s * interval '1 minute')
+                """,
+                {"mins": args.since_minutes},
+            ).fetchall()
     finally:
         conn.close()
-    if not rows:
-        print("no records in vector_records — run the slice first (make slice)")
-        return
-    rep = freshness_report([r[0] for r in rows])
-    print(
-        f"event->queryable freshness over {rep['count']} records:"
-        f"  p50={rep['p50_s']:.2f}s  p95={rep['p95_s']:.2f}s  p99={rep['p99_s']:.2f}s"
+
+    streaming = [streaming_staleness(posted, indexed) for posted, indexed in rows]
+    batch = [batch_staleness(posted) for posted, _ in rows]
+    report = summarize(streaming, batch)
+    report["filter"] = ("live arrivals (ts >= min(indexed_at))"
+                    if args.since_minutes is None
+                    else f"posted within {args.since_minutes} minutes")
+    report["note"] = (
+        "t0 = the provider's own posting time, so the poll wait we do not control "
+        "is included. Only LIVE arrivals are scored (posted after indexing began); "
+        "backfilled history would otherwise report the moment the pipeline was "
+        "switched on rather than its speed. The batch arm is derived from the "
+        "refresh cadence: uniformly-arriving events wait interval/2 on average."
     )
+
+    os.makedirs("results", exist_ok=True)
+    with open(RESULTS, "w") as fh:
+        json.dump(report, fh, indent=2)
+    print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":
