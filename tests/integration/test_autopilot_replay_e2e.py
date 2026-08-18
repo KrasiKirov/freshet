@@ -15,17 +15,9 @@ from collections import Counter
 
 import pytest
 
-from freshet.common.db import connect
 from tests.integration.conftest_replay import seed_from_replay
 
 pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-def conn():
-    c = connect()
-    yield c
-    c.close()
 
 
 def _busiest_provider(rows) -> str:

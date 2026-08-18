@@ -8,8 +8,42 @@ real embedding semantics (abstention, retrieval quality) construct bge
 explicitly and guard with importorskip("sentence_transformers") instead.
 """
 import os
+from pathlib import Path
 
+import psycopg
 import pytest
+
+# Integration tests wipe and reseed the corpus, so they MUST NOT run against the
+# working database — a test run would otherwise destroy whatever the live poller
+# had indexed. Everything here targets a dedicated database instead, created on
+# first use from the same db/init.sql the real one uses.
+ADMIN_DSN = "postgresql://freshet:freshet@localhost:5433/postgres"
+TEST_DB = os.environ.get("FRESHET_TEST_DB", "freshet_test")
+TEST_DSN = os.environ.get(
+    "FRESHET_TEST_DSN", f"postgresql://freshet:freshet@localhost:5433/{TEST_DB}")
+
+
+def _ensure_test_db() -> str:
+    """Create the test database and apply the schema if it does not exist."""
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+        exists = admin.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s", (TEST_DB,)).fetchone()
+        if not exists:
+            admin.execute(f'CREATE DATABASE "{TEST_DB}"')
+    schema = Path("db/init.sql").read_text()
+    with psycopg.connect(TEST_DSN, autocommit=True) as fresh:
+        fresh.execute(schema)
+    return TEST_DSN
+
+
+@pytest.fixture
+def conn():
+    """A connection to the dedicated test database. Safe to wipe."""
+    from freshet.common.db import connect
+
+    c = connect(_ensure_test_db())
+    yield c
+    c.close()
 
 
 @pytest.fixture

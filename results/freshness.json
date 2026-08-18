@@ -4,5 +4,5 @@
   "ratio": 0.0,
   "n": 0,
   "filter": "live arrivals (ts >= min(indexed_at))",
-  "note": "t0 = provider's posting time (includes poll wait); only updates posted inside the window are scored, so backfilled history cannot inflate the result. Batch arm is derived from the refresh cadence."
+  "note": "t0 = the provider's own posting time, so the poll wait we do not control is included. Only LIVE arrivals are scored (posted after indexing began); backfilled history would otherwise report the moment the pipeline was switched on rather than its speed. The batch arm is derived from the refresh cadence: uniformly-arriving events wait interval/2 on average."
 }
