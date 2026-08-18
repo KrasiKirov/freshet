@@ -136,18 +136,21 @@ def findings_from_updates(service: str, status: str, hits,
 def render_brief(f: Findings) -> str:
     title = "POSTMORTEM" if f.status == "resolved" else "INCIDENT BRIEF"
     lines = [f"=== {title} — {f.service} ({f.status}) ==="]
+    # The summary is generated prose; the cause is a verbatim provider quote.
+    # They are complementary, so both render — the narrative no longer replaces
+    # the cause line the way it did when it was the only LLM output.
     if f.narrative:
         lines.append("")
         lines.append(f.narrative)
-    else:
-        if f.cause_text:
-            lines.append(f"Cause: {f.cause_text} — {f.cause_cite}")
-        else:
-            lines.append("Cause: not identified from retrieved evidence")
-        if f.fix_text:
-            lines.append(f"Resolution: {f.fix_text} — {f.fix_cite}")
-        else:
-            lines.append("Resolution: not identified from retrieved evidence")
+        lines.append("")
+    if f.cause_text:
+        lines.append(f"Cause: {f.cause_text} — {f.cause_cite}")
+    elif not f.narrative:
+        lines.append("Cause: not identified from retrieved evidence")
+    if f.fix_text:
+        lines.append(f"Resolution: {f.fix_text} — {f.fix_cite}")
+    elif not f.narrative:
+        lines.append("Resolution: not identified from retrieved evidence")
     if f.updates:
         lines.append("Updates:")
         lines.extend(f"  {line}" for line in f.updates)

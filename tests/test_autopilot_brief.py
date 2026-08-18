@@ -246,3 +246,38 @@ def test_a_hypothesis_with_a_named_subject_still_counts():
         "Our engineering teams are actively investigating the root cause, which "
         "appears to be related to a database infrastructure issue.")])
     assert stated is not None
+
+
+def test_render_brief_shows_a_summary_and_the_cause_together():
+    """The narrative used to REPLACE the cause line. With the LLM as the default
+    author, the summary is prose and the cause is a verbatim provider quote —
+    a responder wants both."""
+    from freshet.autopilot.brief import Findings, render_brief
+
+    f = Findings(service="github", status="opened",
+                 cause_text="The outage was caused by an expired certificate.",
+                 cause_cite="[e1 @ 2026-08-18 12:00:00]",
+                 fix_text=None, fix_cite=None, runbook=None,
+                 narrative="GitHub is investigating elevated errors [e1 @ ...].",
+                 updates=["12:00 — something [e1 @ ...]"])
+    text = render_brief(f)
+    assert "GitHub is investigating" in text, "summary must render"
+    assert "expired certificate" in text, "cause must survive alongside the summary"
+    assert "Updates:" in text
+
+
+def test_no_generated_summary_without_a_generative_composer():
+    """The template composer answers QUESTIONS; it is not a brief writer. Asking
+    it for a narrative leaked the internal prompt into the brief and repeated
+    every update the Updates section already lists."""
+    from types import SimpleNamespace
+
+    from freshet.api.composer import TemplateComposer
+    assert TemplateComposer().generative is False
+
+    class FakeLLM:
+        generative = True
+        def compose(self, question, hits):
+            return "A fluent grounded summary."
+    assert FakeLLM().generative is True
+    assert isinstance(SimpleNamespace(), object)

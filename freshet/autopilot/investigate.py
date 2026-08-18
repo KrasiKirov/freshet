@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,6 +15,12 @@ from freshet.autopilot.brief import (
 )
 from freshet.autopilot.impact import estimate_impact
 
+log = logging.getLogger(__name__)
+
+
+class _NotGenerative(Exception):
+    """No LLM composer available, so no narrative is generated."""
+
 _RUNBOOK_SQL = ("SELECT text FROM vector_records WHERE service = %s AND type = 'runbook'"
                 " ORDER BY ts LIMIT 1")
 _INCIDENT_META_SQL = "SELECT opened_at, resolved_at FROM incidents WHERE incident_id = %s"
@@ -22,24 +29,25 @@ _INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_i
 # an incident's updates are a known, complete set, and retrieval filters only by
 # service — so a search would happily cite the provider's OTHER incidents.
 _INCIDENT_UPDATES_SQL = (
-    "SELECT DISTINCT ON (event_id) event_id, ts, text FROM vector_records"
+    "SELECT DISTINCT ON (event_id) event_id, ts, text, source FROM vector_records"
     " WHERE incident_id = %s ORDER BY event_id, ts DESC")
 
 
 @dataclass(frozen=True)
 class _Update:
-    """Minimal shape `cite_hit` and `findings_from_updates` need."""
+    """Minimal shape `cite_hit`, `findings_from_updates` and the composer need."""
 
     event_id: str
     ts: datetime
     text: str
+    source: str = "alert"
 
 
 def fetch_incident_updates(conn, incident_id: str) -> list[_Update]:
     """Every indexed update belonging to one incident. Deduplicated by event_id
     because a long update chunks into several rows."""
     rows = conn.execute(_INCIDENT_UPDATES_SQL, (incident_id,)).fetchall()
-    return [_Update(event_id=r[0], ts=r[1], text=r[2]) for r in rows]
+    return [_Update(event_id=r[0], ts=r[1], text=r[2], source=r[3]) for r in rows]
 
 
 def fetch_runbook(conn, service: str) -> str | None:
@@ -56,7 +64,8 @@ def _impact_for(conn, incident_id: str, service: str, hits) -> str:
     return estimate_impact(services, opened_at, resolved_at, [h.text for h in hits])
 
 
-def gather_findings(conn, embedder, service: str, incident_id: str, status: str) -> Findings:
+def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
+                    *, composer=None) -> Findings:
     runbook = fetch_runbook(conn, service)
     from freshet.api.retrieval import hybrid_search
     from freshet.api.synthesis import build_timeline
@@ -75,6 +84,22 @@ def gather_findings(conn, embedder, service: str, incident_id: str, status: str)
         stated = cause_from_updates(own)
         if stated:
             f.cause_text, f.cause_cite = stated
+    # Generation: the "G" in RAG, and the default path. The composer grounds a
+    # short summary in this incident's own updates and every citation it emits is
+    # verified against them. It summarises only — the Cause line stays a verbatim
+    # provider quote, so the model never gets to diagnose.
+    if own:
+        from freshet.api.composer import make_composer
+        composer = composer or make_composer()
+        try:
+            if not getattr(composer, "generative", False):
+                raise _NotGenerative
+            f.narrative = composer.compose(
+                f"What is happening with {service}? Summarise in two sentences.", own)
+        except _NotGenerative:
+            pass                      # keyless: the Updates section IS the summary
+        except Exception as exc:      # never let generation break an alert
+            log.warning("summary generation failed (%r); brief renders without it", exc)
     f.impact = _impact_for(conn, incident_id, service, res.hits)
     return f
 

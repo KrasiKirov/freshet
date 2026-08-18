@@ -9,12 +9,38 @@ in, so neither composer needs to invent a refusal.
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 from typing import Protocol
 
 from freshet.api.retrieval import RetrievedHit
 
 NO_EVIDENCE = "I don't have enough indexed evidence to answer that."
+
+log = logging.getLogger(__name__)
+_CITATION = re.compile(r"\s*\[([^\[\]@]+)@[^\[\]]*\]")
+
+
+def verify_citations(answer: str, hits) -> str:
+    """Strip any citation whose event_id was not in the provided evidence.
+
+    The model is instructed to cite only what it is given, but instruction is not
+    enforcement. Since the LLM is the default author of the Slack brief, a
+    fabricated citation would reach a responder looking authoritative and be
+    unverifiable — so citations are checked against the evidence set rather than
+    trusted. Prose is preserved; only the false citation is removed.
+    """
+    allowed = {h.event_id for h in hits}
+
+    def keep(match: re.Match) -> str:
+        cited = match.group(1).strip()
+        if cited in allowed:
+            return match.group(0)
+        log.warning("dropped fabricated citation: %s", cited)
+        return ""
+
+    return _CITATION.sub(keep, answer)
 
 
 def _citation(h: RetrievedHit) -> str:
@@ -22,10 +48,18 @@ def _citation(h: RetrievedHit) -> str:
 
 
 class Composer(Protocol):
+    # True only for composers that GENERATE prose. Callers that want a summary
+    # (rather than an answer to a question) must skip non-generative composers:
+    # the extractive template answers a question by listing evidence, which in a
+    # brief just repeats the timeline and leaks the prompt.
+    generative: bool
+
     def compose(self, question: str, hits: list[RetrievedHit]) -> str: ...
 
 
 class TemplateComposer:
+    generative = False
+
     """Deterministic, dependency-free, no API key. The default."""
 
     def compose(self, question: str, hits: list[RetrievedHit]) -> str:
@@ -50,13 +84,17 @@ _SYSTEM = (
 
 
 class AnthropicComposer:
+    generative = True
+
     """Fluent grounded answers via the Anthropic API. Lazy-imports the SDK so the
     keyless core never depends on it. Model is FRESHET_LLM_MODEL or sonnet-4-6."""
 
-    def __init__(self, model: str | None = None):
-        import anthropic  # lazy: only when an Anthropic composer is actually built
+    def __init__(self, model: str | None = None, client=None):
+        if client is None:
+            import anthropic  # lazy: only when an Anthropic composer is built
 
-        self._client = anthropic.Anthropic()
+            client = anthropic.Anthropic()
+        self._client = client
         self._model = model or os.environ.get("FRESHET_LLM_MODEL", "claude-sonnet-4-6")
 
     def compose(self, question: str, hits: list[RetrievedHit]) -> str:
@@ -75,7 +113,8 @@ class AnthropicComposer:
                 "content": f"Question: {question}\n\nEvents:\n{context}",
             }],
         )
-        return next((b.text for b in resp.content if b.type == "text"), "")
+        answer = next((b.text for b in resp.content if b.type == "text"), "")
+        return verify_citations(answer, hits)
 
 
 def make_composer(kind: str = "auto") -> Composer:
@@ -85,9 +124,15 @@ def make_composer(kind: str = "auto") -> Composer:
         return TemplateComposer()
     if kind == "anthropic":
         return AnthropicComposer()
+    # LLM-first: generation is the "G" in RAG and the default path. The template
+    # composer remains a real fallback so CI and the demo run without a key, but
+    # a missing key is a DEGRADED mode and says so rather than failing silently.
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
             return AnthropicComposer()
-        except Exception:
+        except Exception as exc:
+            log.warning("LLM composer unavailable (%s); falling back to template", exc)
             return TemplateComposer()
+    log.warning("ANTHROPIC_API_KEY not set — using the extractive template composer. "
+                "Answers will be deterministic but not fluent.")
     return TemplateComposer()
