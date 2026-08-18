@@ -53,11 +53,8 @@ def keyword_only_event_ids(
 def hybrid_event_ids(
     conn, embedder: Embedder, question: str, k: int,
     service: str | None = None, since: datetime | None = None,
-    tau_s: float | None = None,
 ) -> list[str]:
     kwargs: dict[str, Any] = {"min_similarity": 0.0}  # eval measures ranking; abstention gated elsewhere
-    if tau_s is not None:
-        kwargs["tau_s"] = tau_s       # recency-neutral for deterministic benchmark eval
     result = hybrid_search(
         conn, embedder, question, k=_CAND, service=service, since=since, **kwargs,
     )

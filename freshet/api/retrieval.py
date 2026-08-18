@@ -1,19 +1,13 @@
 """Hybrid retrieval: a pgvector cosine arm and a Postgres full-text arm, fused
-with reciprocal-rank fusion, recency-weighted, and gated by an abstention
-threshold. The SQL builders interpolate only their own literal fragments; every
+with reciprocal-rank fusion and gated by an abstention threshold. The SQL builders interpolate only their own literal fragments; every
 user value travels as a bound parameter.
 """
 
 from __future__ import annotations
 
-import math
-import os
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from freshet.api.rerank import Reranker
+from datetime import datetime, timedelta
+from typing import Any
 
 from freshet.pipeline.embedding import Embedder, vec_literal
 
@@ -82,11 +76,6 @@ def reciprocal_rank_fusion(
     return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
 
 
-def recency_weight(age_s: float, tau_s: float) -> float:
-    """Exponential decay in (0, 1]: 1.0 at age 0, halving roughly every
-    tau_s*ln2 seconds. Freshness-first retrieval leans on this."""
-    return math.exp(-max(0.0, age_s) / tau_s)
-
 
 def should_abstain(similarities: list[float], min_similarity: float) -> bool:
     """Abstain when nothing is retrieved or the best cosine similarity is below
@@ -99,25 +88,12 @@ def should_abstain(similarities: list[float], min_similarity: float) -> bool:
 
 
 
-# Recency-neutral by default, decided by measurement (RESULTS M15 recency
-# sweep): on real hand-labeled status-feed incidents (median event age ~44
-# days), EVERY practical decay level costs recall on retrospective root-cause
-# queries — recall@5 drops from 0.917 (neutral) to 0.833 even at tau=365d, and
-# to 0.25–0.50 at hours/days scale (the old 30m demo default underflowed every
-# score to 0.0, silently degenerating to RRF tie order). Decay's hypothesized
-# value is live "what's breaking right now?" ranking, which has no labeled
-# queries yet — so it is opt-in via FRESHET_TAU_S, not an unmeasured default.
-DEFAULT_TAU_S = 1e12
 # Fallback abstention floor (MiniLM-calibrated). When the embedder carries a
 # per-model `min_similarity` attribute (see pipeline.embedding), that wins —
 # bge's compressed cosine distribution makes 0.3 effectively "never abstain".
 DEFAULT_MIN_SIMILARITY = 0.3
 ARM_K = 20                   # per-arm candidate depth before fusion
 
-
-def _default_tau_s() -> float:
-    override = os.environ.get("FRESHET_TAU_S")
-    return float(override) if override else DEFAULT_TAU_S
 
 
 def _default_min_similarity(embedder) -> float:
@@ -185,16 +161,9 @@ def hybrid_search(
     k: int = 5,
     service: str | None = None,
     since: datetime | None = None,
-    tau_s: float | None = None,
     min_similarity: float | None = None,
-    now: datetime | None = None,
-    reranker: Reranker | None = None,
-    rerank_pool: int = 30,
 ) -> HybridResult:
-    # None -> resolve defaults: tau from FRESHET_TAU_S (else recency-neutral —
-    # see DEFAULT_TAU_S), abstention floor from the embedder's per-model attribute.
-    if tau_s is None:
-        tau_s = _default_tau_s()
+    # None -> abstention floor from the embedder's per-model attribute.
     if min_similarity is None:
         min_similarity = _default_min_similarity(embedder)
     [qvec] = embedder.encode_query([question])
@@ -211,27 +180,20 @@ def hybrid_search(
     kw_map = _rows_to_map(kw_rows, 8)     # rank is now column index 8
     fused = reciprocal_rank_fusion([[r[0] for r in vec_rows], [r[0] for r in kw_rows]])
 
-    stamp = now or datetime.now(UTC)
     hits: list[RetrievedHit] = []
     for chunk_id, rrf_score in fused:
         row, _ = vec_map.get(chunk_id) or kw_map[chunk_id]
         similarity = vec_map[chunk_id][1] if chunk_id in vec_map else 0.0
-        age = (stamp - row[3]).total_seconds()   # row[3] is ts
         hits.append(
             RetrievedHit(
                 chunk_id=row[0], event_id=row[1], service=row[2], ts=row[3],
                 indexed_at=row[4], source=row[5], text=row[6], type=row[7],
                 similarity=similarity,
-                score=rrf_score * recency_weight(age, tau_s),
+                score=rrf_score,
             )
         )
 
     hits.sort(key=lambda h: h.score, reverse=True)
     retrieval_topk = hits[:k]
-    # abstention keys off retrieval similarities (unchanged), independent of rerank
     abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
-    if reranker is not None:
-        hits = reranker.rerank(question, hits[:rerank_pool])[:k]
-    else:
-        hits = retrieval_topk
-    return HybridResult(hits=hits, abstained=abstained)
+    return HybridResult(hits=retrieval_topk, abstained=abstained)

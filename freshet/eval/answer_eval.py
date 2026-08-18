@@ -38,7 +38,7 @@ def main() -> None:
     from freshet.api.synthesis import build_timeline, synthesize_narrative
     from freshet.common.db import connect
     from freshet.eval import judge
-    from freshet.eval.run_eval import _EVAL_TAU_S, index_corpus
+    from freshet.eval.run_eval import index_corpus
     from freshet.generator.generator import build_benchmark
     from freshet.pipeline.embedding import make_embedder
 
@@ -60,7 +60,7 @@ def main() -> None:
     for service in services.values():
         q = f"what caused the {service} incident and how was it resolved?"
         res = hybrid_search(conn, embedder, q, k=8, service=service,
-                            min_similarity=0.0, tau_s=_EVAL_TAU_S)
+                            min_similarity=0.0)
         tl = build_timeline(res.hits)
         answers = {"extractive": tl.render(), "narrative": synthesize_narrative(tl)}
         for cfg, answer in answers.items():

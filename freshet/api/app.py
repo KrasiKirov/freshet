@@ -6,7 +6,6 @@ Run:
     uvicorn freshet.api.app:app --port 8000
 Config via env: FRESHET_DSN, FRESHET_EMBEDDER (bge|stub),
 FRESHET_COMPOSER (auto|template|anthropic), FRESHET_LLM_MODEL, ANTHROPIC_API_KEY,
-FRESHET_TAU_S (opt-in recency decay; default is recency-neutral — see RESULTS M15),
 FRESHET_MIN_SIMILARITY (abstention floor; default is per-embedder).
 """
 
@@ -21,7 +20,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -82,7 +81,6 @@ class QueryRequest(BaseModel):
     k: int = Field(default=5, ge=1, le=50)
     service: str | None = None
     since: datetime | None = None
-    multi_query: bool = False
 
 
 class Hit(BaseModel):
@@ -170,18 +168,9 @@ def _to_hit(h: RetrievedHit) -> Hit:
 @app.post("/query", response_model=QueryResponse)
 def query(req: QueryRequest, deps=Depends(get_deps)) -> QueryResponse:
     conn, embedder, composer = deps
-    if req.multi_query:
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            raise HTTPException(status_code=400,
-                                detail="multi_query requires ANTHROPIC_API_KEY")
-        from freshet.api.multiquery import multi_query_search
-        result = multi_query_search(
-            conn, embedder, req.question, k=req.k, service=req.service, since=req.since
-        )
-    else:
-        result = hybrid_search(
-            conn, embedder, req.question, k=req.k, service=req.service, since=req.since
-        )
+    result = hybrid_search(
+        conn, embedder, req.question, k=req.k, service=req.service, since=req.since
+    )
     if result.abstained:
         return QueryResponse(answer=ABSTAIN_MESSAGE, abstained=True, hits=[])
     answer = composer.compose(req.question, result.hits)

@@ -45,7 +45,7 @@ def score_modes(conn, embedder, corpus, queries) -> dict[str, dict[str, float]]:
     mode_fns = {
         "vector": lambda q: modes.vector_only_event_ids(conn, embedder, q, K),
         "keyword": lambda q: modes.keyword_only_event_ids(conn, q, K),
-        "hybrid": lambda q: modes.hybrid_event_ids(conn, embedder, q, K, tau_s=_EVAL_TAU_S),
+        "hybrid": lambda q: modes.hybrid_event_ids(conn, embedder, q, K),
     }
     out: dict[str, dict[str, float]] = {}
     for mode, fn in mode_fns.items():

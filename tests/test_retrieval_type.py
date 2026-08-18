@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from freshet.api.retrieval import RetrievedHit, hybrid_search
+from freshet.api.retrieval import RetrievedHit
 from freshet.pipeline.embedding import EMBEDDING_DIM
 
 
@@ -31,10 +31,6 @@ class _FakeEmbedder:
         return self.encode(texts)
 
 
-class _ReverseReranker:
-    def rerank(self, query, hits):
-        return list(reversed(hits))
-
 
 def _rows():
     ts = datetime(2026, 6, 6, 12, tzinfo=UTC)
@@ -45,12 +41,3 @@ def _rows():
     ]
 
 
-def test_hybrid_search_exposes_type_and_reranks():
-    conn, emb = _FakeConn(_rows()), _FakeEmbedder()
-    base = hybrid_search(conn, emb, "why did it break", k=2, min_similarity=0.0)
-    assert base.hits[0].type in {"deploy_started", "rollback"}
-    base_order = [h.event_id for h in base.hits]
-
-    reranked = hybrid_search(conn, emb, "why did it break", k=2,
-                             min_similarity=0.0, reranker=_ReverseReranker())
-    assert [h.event_id for h in reranked.hits] == list(reversed(base_order))

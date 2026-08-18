@@ -44,26 +44,6 @@ def test_rrf_rewards_agreement_across_arms():
     assert scores == sorted(scores, reverse=True)
 
 
-def test_recency_weight_decays_with_age():
-    from freshet.api.retrieval import recency_weight
-
-    now_w = recency_weight(0.0, tau_s=3600.0)
-    old_w = recency_weight(7200.0, tau_s=3600.0)
-    assert now_w == 1.0
-    assert 0.0 < old_w < now_w
-    assert abs(old_w - pow(2.718281828, -2.0)) < 1e-3
-
-
-def test_default_tau_is_neutral_for_realistic_ages():
-    """Why the default is recency-neutral (RESULTS M15): at the old 30m demo
-    tau, a median-age real event (~44 days) underflowed to weight 0.0 exactly —
-    every score tied at zero and ranking silently degenerated to RRF tie order.
-    The neutral default must keep such events at full weight."""
-    from freshet.api.retrieval import DEFAULT_TAU_S, recency_weight
-
-    median_real_age_s = 44 * 86400.0
-    assert recency_weight(median_real_age_s, tau_s=1800.0) == 0.0   # the old bug
-    assert recency_weight(median_real_age_s, DEFAULT_TAU_S) > 0.99  # neutral now
 
 
 def test_should_abstain_on_weak_similarity():
@@ -141,14 +121,6 @@ def test_hybrid_search_uses_embedder_min_similarity():
     assert hybrid_search(FakeConn(), HighFloorEmbedder(), "q", k=5,
                          min_similarity=0.0).abstained is False
 
-
-def test_default_tau_env_override(monkeypatch):
-    from freshet.api.retrieval import DEFAULT_TAU_S, _default_tau_s
-
-    monkeypatch.delenv("FRESHET_TAU_S", raising=False)
-    assert _default_tau_s() == DEFAULT_TAU_S
-    monkeypatch.setenv("FRESHET_TAU_S", "86400")
-    assert _default_tau_s() == 86400.0
 
 
 def test_hybrid_search_abstains_when_similarity_weak():

@@ -60,7 +60,7 @@ UNRELATED = [
 
 def max_topk_similarity(conn, embedder, query: str, k: int = 5) -> float:
     res = hybrid_search(conn, embedder, query, k=k, service=None,
-                        min_similarity=0.0, tau_s=_EVAL_TAU_S)
+                        min_similarity=0.0)
     return max((h.similarity for h in res.hits), default=0.0)
 
 
