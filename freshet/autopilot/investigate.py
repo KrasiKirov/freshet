@@ -8,6 +8,7 @@ from datetime import datetime
 
 from freshet.autopilot.brief import (
     Findings,
+    cause_from_updates,
     findings_from_timeline,
     findings_from_updates,
 )
@@ -68,6 +69,12 @@ def gather_findings(conn, embedder, service: str, incident_id: str, status: str)
     # sourced by direct lookup so the brief cannot cite a different incident.
     own = fetch_incident_updates(conn, incident_id)
     f.updates = findings_from_updates(service, status, own, runbook).updates
+    # Change events give the strongest cause, but status feeds have none. Fall
+    # back to the provider's own words IF an update actually states a cause.
+    if not f.cause_text:
+        stated = cause_from_updates(own)
+        if stated:
+            f.cause_text, f.cause_cite = stated
     f.impact = _impact_for(conn, incident_id, service, res.hits)
     return f
 

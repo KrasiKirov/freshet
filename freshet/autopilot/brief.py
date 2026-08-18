@@ -5,6 +5,7 @@ heuristic (freshet/autopilot/impact.py) and rendered here when present."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 
@@ -40,6 +41,70 @@ def findings_from_timeline(tl, status: str, runbook: str | None) -> Findings:
         runbook=runbook,
         narrative=None,
     )
+
+
+# Phrases where a provider actually NAMES a cause. Deliberately narrow: an
+# update saying "we have identified the issue" announces progress, not a cause,
+# and reporting it as one would be inventing content the provider never gave.
+_CAUSE_MARKERS = (
+    "caused by", "root cause", "due to", "as a result of",
+    "identified the source of", "identified the cause of",
+    "stemmed from", "triggered by", "resulted from",
+)
+# Sentences that mention a cause without giving one. Every entry below is a real
+# string observed in the feeds, and each was surfaced as a "cause" before these
+# filters existed:
+#   - a promised future write-up ("a detailed root cause analysis will be shared")
+#   - an announcement that the cause was FOUND, without naming it
+#     ("we have identified the root cause and reverted the impacted change")
+#   - a generic placeholder object ("identified the source of the issue")
+_PROMISSORY = re.compile(
+    r"will be (shared|provided|published|available)|will (follow|share|provide)"
+    r"|as soon as it is available|analysis will|postmortem will"
+    # "investigations are on-going into the root cause, and updates will
+    # continue to be provided" — reports that work continues, names nothing
+    r"|updates will|will continue", re.I)
+_FOUND_BUT_UNNAMED = re.compile(
+    # "identified the root cause and reverted..." — found it, never said what
+    r"identified the (?:root cause|cause)(?!\s+of\s)"
+    # "identified the source of the issue ..." — a placeholder, not a name
+    r"|identified the (?:source|cause) of (?:the|this)\s",
+    re.I)
+_SENTENCE = re.compile(r"[^.!?]+[.!?]")
+
+
+def _cause_sentence(text: str) -> str | None:
+    """The single sentence in which a cause is stated, or None.
+
+    Quoting one sentence keeps the brief honest and short: the surrounding
+    apology and postmortem promise are not the cause.
+    """
+    flat = " ".join(text.split())
+    for sentence in _SENTENCE.findall(flat):
+        stripped = sentence.strip()
+        lowered = stripped.lower()
+        if not any(marker in lowered for marker in _CAUSE_MARKERS):
+            continue
+        if _PROMISSORY.search(stripped):
+            continue          # a promise of an RCA is not an RCA
+        if _FOUND_BUT_UNNAMED.search(stripped):
+            continue          # "we found the cause" does not say what it was
+        return stripped
+    return None
+
+
+def cause_from_updates(hits) -> tuple[str, str] | None:
+    """Quote the provider's own words when an update states a cause.
+
+    Returns (sentence, citation), or None when nothing states a cause — which is
+    the common case on status feeds and must stay that way. The EARLIEST such
+    statement wins: later updates tend to repeat it in summary form.
+    """
+    for hit in sorted(hits, key=lambda h: h.ts):
+        sentence = _cause_sentence(hit.text)
+        if sentence:
+            return sentence, cite_hit(hit)
+    return None
 
 
 MAX_UPDATES = 4              # a Slack brief has to stay skimmable

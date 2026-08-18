@@ -110,3 +110,26 @@ def test_the_brief_only_cites_the_incident_it_is_about(conn, emb):
     assert cited, "expected cited update lines"
     for line in cited:
         assert incident_id in line, f"brief cites a DIFFERENT incident: {line}"
+
+
+def test_a_stated_cause_is_surfaced_when_the_provider_gives_one(conn, emb):
+    """Across 300 real updates at least one provider states a cause in its own
+    words ("caused by", "due to", ...). Those briefs must show it rather than
+    "not identified"; briefs for incidents with no stated cause must not."""
+    rows = seed_from_replay(conn, emb, limit=300)
+
+    from freshet.autopilot.brief import cause_from_updates
+    from freshet.autopilot.investigate import fetch_incident_updates, gather_findings
+
+    with_cause = 0
+    for incident_id in {r["incident_id"] for r in rows}:
+        updates = fetch_incident_updates(conn, incident_id)
+        if not updates or cause_from_updates(updates) is None:
+            continue
+        with_cause += 1
+        service = next(r["provider"] for r in rows if r["incident_id"] == incident_id)
+        findings = gather_findings(conn, emb, service, incident_id, status="resolved")
+        assert findings.cause_text, f"{incident_id}: cause stated but not surfaced"
+        assert findings.cause_cite and "@" in findings.cause_cite
+
+    assert with_cause > 0, "expected at least one real incident to state a cause"
