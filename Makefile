@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: help up down db-init test test-integration api autopilot
+.PHONY: help up down db-init test test-integration poller api autopilot
 
 .DEFAULT_GOAL := help
 
@@ -57,6 +57,9 @@ test-integration: ##dev
 
 # Serve the query API on :8000 (stack must be up; FRESHET_EMBEDDER=stub to skip model).
 # Sources .env.local so ANTHROPIC_API_KEY enables the LLM answer composer.
+poller: ##run
+	$(PYTHON) -m freshet.ingest.poller
+
 api: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
