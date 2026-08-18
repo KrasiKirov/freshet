@@ -1,10 +1,27 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval rootcause-facevalidity answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval real-eval live-demo autopilot autopilot-slack connector connector-demo slack-demo
+.PHONY: help up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval rootcause-facevalidity answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval real-eval live-demo autopilot autopilot-slack connector connector-demo slack-demo
+
+.DEFAULT_GOAL := help
+
+# `make` with no argument lists what exists, grouped. There are ~29 targets;
+# without this the only way to discover them is to read the file.
+help: ##meta
+	@echo "Freshet — make targets"
+	@for g in stack dev run demo eval; do \
+		case $$g in \
+			stack) label="Stack lifecycle";; dev) label="Tests and checks";; \
+			run) label="Long-running services";; demo) label="Demos (things to watch)";; \
+			eval) label="Evaluations (things to measure)";; \
+		esac; \
+		echo ""; echo "  $$label:"; \
+		grep -E "^[a-z][a-z-]*: ##$$g$$" $(MAKEFILE_LIST) | sed "s/: ##.*//" | sort | sed "s/^/    make /"; \
+	done
+	@echo ""
 
 # Bring the stack up and block until both containers report healthy.
-up:
+up: ##stack
 	$(COMPOSE) up -d
 	@echo "waiting for services to be healthy..."
 	@i=0; until [ "$$(docker inspect -f '{{.State.Health.Status}}' freshet-redpanda 2>/dev/null)" = "healthy" ] \
@@ -22,131 +39,131 @@ up:
 	@echo "topics ready (3 partitions)."
 
 # Bring up the stack plus Prometheus (:9090) and Grafana (:3000).
-up-obs:
+up-obs: ##stack
 	COMPOSE_PROFILES=obs $(MAKE) up
 
 # Tear down and drop the Postgres volume.
-down:
+down: ##stack
 	COMPOSE_PROFILES=obs $(COMPOSE) down -v
 
 # Apply the schema to a running stack (idempotent).
-db-init:
+db-init: ##stack
 	docker exec -i freshet-postgres psql -v ON_ERROR_STOP=1 -U freshet -d freshet < db/init.sql
 
 # Run the unit tests (no broker needed; integration tests are excluded by pytest addopts).
-test:
+test: ##dev
 	$(PYTHON) -m pytest -q
 
 # Integration tests against the running stack (make up first).
-test-integration:
+test-integration: ##dev
 	$(PYTHON) -m pytest -q -m integration
 
 
 # Serve the query API on :8000 (stack must be up; FRESHET_EMBEDDER=stub to skip model).
 # Sources .env.local so ANTHROPIC_API_KEY enables the LLM answer composer.
-api:
+api: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
 
 # Autopilot: consume incident.lifecycle and print a cited brief per new incident.
 # Sources .env.local so ANTHROPIC_API_KEY enables the full agent (keyless otherwise).
-autopilot:
+autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
 
 # Autopilot posting to Slack. Sources .env.local for SLACK_BOT_TOKEN/SLACK_CHANNEL
 # (and ANTHROPIC_API_KEY). Posts only because --sink slack is explicit.
-autopilot-slack:
+autopilot-slack: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092 --sink slack
 
 # Run the vertical-slice demo end to end (make up first; EMBEDDER=stub to skip model).
-slice:
+slice: ##demo
 	bash scripts/run_slice.sh
 
 # One-command demo: ingest the scripted incident, then answer a question about it.
-demo:
+demo: ##demo
 	bash scripts/run_demo.sh
 
 # Re-index the whole corpus under a fresh consumer group (e.g. after a model
 # change). Reads normalized.events from the beginning; idempotent upserts
 # overwrite rows in place. EMBEDDER=stub skips the model download.
-replay:
+replay: ##demo
 	$(PYTHON) -m freshet.pipeline.embedder --brokers localhost:9092 --group reindex-$$(date +%s) --embedder $${EMBEDDER:-bge} --metrics-port 0 --idle-timeout 10
 
 # Throughput demo: WORKERS=1 make scale-demo, then WORKERS=3 make scale-demo.
-scale-demo:
+scale-demo: ##demo
 	bash scripts/run_scaling_demo.sh
 
 # Regenerate the committed eval artifacts (results/). Needs the stack up and
 # .[embed] .[eval] installed. Deterministic: same inputs -> same numbers.
-eval:
+eval: ##eval
 	$(PYTHON) -m freshet.eval.run_eval
 
 # Run the failure drills (stack up; .[embed] .[eval]). Writes results/drill_*.png
 # and asserts no data loss. Live + timing-sensitive — run deliberately.
-drills:
+drills: ##eval
 	$(PYTHON) -m freshet.eval.drills
 
 
 # Stream the richer corpus, then print a cited root-cause timeline (keyless demo).
-rootcause-demo:
+rootcause-demo: ##demo
 	bash scripts/run_rootcause_demo.sh
 
 # Keyless completeness eval: hybrid vs hybrid+rerank on cause/fix capture (results/).
-rootcause-eval:
+rootcause-eval: ##eval
 	$(PYTHON) -m freshet.eval.rootcause
 
 # Real-data face validity: ingest the committed status-feed incidents and show the
 # cause selector abstains (symptom-only). Keyless. LIVE=1 polls the live feeds.
-rootcause-facevalidity:
+rootcause-facevalidity: ##eval
 	bash scripts/run_rootcause_facevalidity.sh
 
 # Key-gated: extractive timeline vs LLM narrative on faithfulness + relevance (results/).
-answer-eval:
+answer-eval: ##eval
 	$(PYTHON) -m freshet.eval.answer_eval
 
 # Agent vs single-shot vs fixed-two-step ablation (results/). The single-shot and
 # fixed-two-step arms are keyless + deterministic; the agent arm needs a key.
-agent-eval:
+agent-eval: ##eval
 	$(PYTHON) -m freshet.eval.agent_eval
 
 # Key-gated: investigate one benchmark incident and save the investigation transcript (results/).
-agent-demo:
+agent-demo: ##demo
 	$(PYTHON) scripts/run_agent_demo.py
 
 # Deterministic MiniLM-vs-bge retrieval comparison (stack up, fresh vector(768) DB).
-embedding-compare:
+embedding-compare: ##eval
 	$(PYTHON) scripts/run_embedding_compare.py
 
 # Key-gated: multi-query vs single-query retrieval recall (needs a key + fresh DB).
-multiquery-eval:
+multiquery-eval: ##eval
 	$(PYTHON) -m freshet.eval.multiquery_eval
 
 # Keyless: impact heuristic agreement vs the authored impact benchmark (results/).
-impact-eval:
+impact-eval: ##eval
 	$(PYTHON) -m freshet.eval.impact_eval
 
 # Real-data validation: hand-labeled public Statuspage incidents (committed
 # snapshots + labels in freshet/eval/fixtures/real/). Keyless; needs the stack.
-real-eval:
+real-eval: ##eval
 	$(PYTHON) -m freshet.eval.real_eval
 
 # Live demo: ingest REAL public status-feed incidents through the pipeline + open the UI.
-live-demo:
+live-demo: ##demo
 	bash scripts/run_live_demo.sh
 
 # Run the connector webhook receiver on :8088 (sources .env.local for the HMAC secret).
-connector:
+connector: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m uvicorn freshet.connectors.webhook:app --port 8088
 
 # Commit-signal demo (stack up): replay a GitHub push + spike -> brief cites the SHA.
-connector-demo:
+connector-demo: ##demo
 	bash scripts/run_connector_demo.sh
 
 # One-command Slack demo (stack up): drive one incident open -> resolve so the
 # autopilot posts a cited brief + threaded postmortem. DRY-RUN by default (renders
 # the payload, posts nothing, no token); REAL=1 make slack-demo posts for real.
-slack-demo:
+slack-demo: ##demo
 	bash scripts/run_slack_demo.sh

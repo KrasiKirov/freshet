@@ -104,15 +104,41 @@ class Archetype:
     name: str
     steps: list[Step]
     queries: list[tuple[str, frozenset[str]]]
+    # --- hard-tier fields ---------------------------------------------------
+    # These describe how this archetype is made *adversarial*, and they live here
+    # rather than in parallel name-keyed dicts so that adding an archetype cannot
+    # silently omit one: the constructor requires them. (They previously lived in
+    # four separate module-level dicts, where a missing entry surfaced as a
+    # KeyError at corpus-generation time with no test to catch it.)
+    #
+    # symptom:          spike text whose mechanism matches THIS cause (pool
+    #                   exhaustion follows a pool resize, OOM follows a leak), so
+    #                   the cause is recoverable by reasoning rather than position.
+    # cause_signature:  how the postmortem names the cause.
+    # benign_decoy:     (source, type, text) of a plausible unrelated change.
+    # ineffective_fix:  (source, type, text) of a remediation that does not work.
+    #                   Its type is deliberately never this archetype's real fix
+    #                   type, so ground truth stays unambiguous.
+    # Hard tier only — the easy tier keeps its generic shared spike text, so
+    # `build_benchmark` output (and every published M12/M14 number) is unchanged.
+    symptom: str
+    cause_signature: str
+    benign_decoy: tuple[EventSource, str, str]
+    ineffective_fix: tuple[EventSource, str, str]
 
 
-def _archetype(name, change, fix, queries) -> Archetype:
+def _archetype(name, change, fix, queries, *, symptom, cause_signature,
+               benign_decoy, ineffective_fix) -> Archetype:
     """Build an archetype from its distinguishing change/fix (each a
     (source, type, text) tuple). Shared steps (spike, chat, recovery, postmortem)
-    are identical across archetypes so retrieval is tested on the cause/fix vocab."""
+    are identical across archetypes so retrieval is tested on the cause/fix vocab.
+    The keyword-only hard-tier fields are required: a new archetype cannot be
+    declared without saying how it is made adversarial."""
     c_src, c_type, c_text = change
     f_src, f_type, f_text = fix
-    return Archetype(name=name, queries=queries, steps=[
+    return Archetype(name=name, queries=queries, symptom=symptom,
+                     cause_signature=cause_signature, benign_decoy=benign_decoy,
+                     ineffective_fix=ineffective_fix, steps=[
         Step(0,    c_src,                 c_type,         "change",      c_text),
         Step(90,   EventSource.ALERT,     "error_spike",  "spike",
              "5xx error rate on {service} crossed 5% (now 11%)", Severity.SEV2),
@@ -139,108 +165,83 @@ ARCHETYPES: list[Archetype] = [
                _Q(("what deploy caused the {service} incident?", {"deploy_started", "error_spike"}),
                   ("how was the {service} outage resolved?", {"rollback", "healthy"}),
                   ("root cause of the {service} incident", {"rca"}),
-                  ("{service} error rate spike", {"error_spike"}))),
+                  ("{service} error rate spike", {"error_spike"})),
+               symptom="5xx error rate on {service} crossed 5% (now 11%)",
+               cause_signature="the v2.15.0 deploy",
+               benign_decoy=(EventSource.DEPLOY, "deploy_started",
+                                  "Deploy v2.14.2 of {service} started by ci-bot"),
+               ineffective_fix=(EventSource.DEPLOY, "scaled_up",
+                                     "Scaled {service} up to 8 replicas")),
     _archetype("config_change",
                (EventSource.DEPLOY, "config_changed", "Config change applied to {service}: pool size 8 -> 64"),
                (EventSource.DEPLOY, "config_reverted", "Reverted the {service} config change"),
                _Q(("what config change caused the {service} incident?", {"config_changed", "error_spike"}),
                   ("how was the {service} outage resolved?", {"config_reverted", "healthy"}),
                   ("root cause of the {service} incident", {"rca"}),
-                  ("{service} error rate spike", {"error_spike"}))),
+                  ("{service} error rate spike", {"error_spike"})),
+               symptom="{service} connection pool saturated; requests queueing and timing out",
+               cause_signature="the connection pool size change (8 -> 64)",
+               benign_decoy=(EventSource.DEPLOY, "config_changed",
+                                  "Config change applied to {service}: log level info -> debug"),
+               ineffective_fix=(EventSource.DEPLOY, "scaled_up",
+                                     "Scaled {service} up to 8 replicas")),
     _archetype("dependency_outage",
                (EventSource.ALERT, "dependency_down", "Upstream dependency for {service} is down (timeouts)"),
                (EventSource.DEPLOY, "dependency_failover", "Failed {service} over to the standby dependency"),
                _Q(("what dependency failure caused the {service} incident?", {"dependency_down", "error_spike"}),
                   ("how was the {service} outage resolved?", {"dependency_failover", "healthy"}),
                   ("root cause of the {service} incident", {"rca"}),
-                  ("{service} error rate spike", {"error_spike"}))),
+                  ("{service} error rate spike", {"error_spike"})),
+               symptom="upstream dependency timeouts on {service}: 40% of calls failing",
+               cause_signature="the upstream dependency outage",
+               benign_decoy=(EventSource.DEPLOY, "config_changed",
+                                  "Config change applied to {service}: enable request tracing"),
+               ineffective_fix=(EventSource.DEPLOY, "scaled_up",
+                                     "Scaled {service} up to 8 replicas")),
     _archetype("resource_exhaustion",
                (EventSource.DEPLOY, "memory_leak_shipped", "Deploy shipped a memory leak to {service} (RSS climbing)"),
                (EventSource.DEPLOY, "scaled_up", "Scaled {service} up and restarted the leaking pods"),
                _Q(("what caused the {service} memory/resource incident?", {"memory_leak_shipped", "error_spike"}),
                   ("how was the {service} outage resolved?", {"scaled_up", "healthy"}),
                   ("root cause of the {service} incident", {"rca"}),
-                  ("{service} error rate spike", {"error_spike"}))),
+                  ("{service} error rate spike", {"error_spike"})),
+               symptom="{service} RSS at 98% of limit; pods OOMKilled repeatedly",
+               cause_signature="the deploy that shipped the memory leak",
+               benign_decoy=(EventSource.DEPLOY, "deploy_started",
+                                  "Deploy v3.01.1 of {service} started by ci-bot"),
+               ineffective_fix=(EventSource.DEPLOY, "config_reverted",
+                                     "Reverted a recent {service} logging config toggle")),
     _archetype("cert_expiry",
                (EventSource.ALERT, "cert_expired", "TLS certificate for {service} expired; handshakes failing"),
                (EventSource.DEPLOY, "cert_renewed", "Renewed and deployed the {service} TLS certificate"),
                _Q(("what caused the {service} TLS/auth incident?", {"cert_expired", "error_spike"}),
                   ("how was the {service} outage resolved?", {"cert_renewed", "healthy"}),
                   ("root cause of the {service} incident", {"rca"}),
-                  ("{service} error rate spike", {"error_spike"}))),
+                  ("{service} error rate spike", {"error_spike"})),
+               symptom="TLS handshake failures on {service}: certificate verify failed",
+               cause_signature="the expired TLS certificate",
+               benign_decoy=(EventSource.DEPLOY, "config_changed",
+                                  "Config change applied to {service}: rotate non-TLS API key"),
+               ineffective_fix=(EventSource.DEPLOY, "scaled_up",
+                                     "Scaled {service} up to 8 replicas")),
     _archetype("bad_migration",
                (EventSource.DEPLOY, "migration_applied", "Schema migration applied to {service} (locking writes)"),
                (EventSource.DEPLOY, "migration_reverted", "Reverted the {service} schema migration"),
                _Q(("what migration caused the {service} incident?", {"migration_applied", "error_spike"}),
                   ("how was the {service} outage resolved?", {"migration_reverted", "healthy"}),
                   ("root cause of the {service} incident", {"rca"}),
-                  ("{service} error rate spike", {"error_spike"}))),
+                  ("{service} error rate spike", {"error_spike"})),
+               symptom="{service} write latency spiked; queries blocked on table locks",
+               cause_signature="the schema migration that locked writes",
+               benign_decoy=(EventSource.DEPLOY, "migration_applied",
+                                  "Schema migration applied to {service} (add nullable column)"),
+               ineffective_fix=(EventSource.DEPLOY, "scaled_up",
+                                     "Scaled {service} up to 8 replicas")),
 ]
 
 
-# A benign, same-archetype change (real but harmless) whose text is near-duplicate
-# vocab to the archetype's BAD change, keyed by archetype name. Interposed between the
-# bad change and the spike so naive last-before-spike mis-picks it.
-# INEFFECTIVE remediations attempted between the spike and the real fix — the
-# on-call reflex that doesn't resolve anything. Deliberately NEUTRAL text: nothing
-# says "this failed", so an arm cannot win by adjective-matching. The only evidence
-# separating these from the real fix is temporal — the `healthy` recovery event
-# follows the REAL fix. Each uses a remediation type that is NOT that archetype's
-# real fix type, so ground truth stays unambiguous.
-_INEFFECTIVE_FIX: dict[str, tuple[EventSource, str, str]] = {
-    "deploy_regression":   (EventSource.DEPLOY, "scaled_up",
-                            "Scaled {service} up to 8 replicas"),
-    "config_change":       (EventSource.DEPLOY, "scaled_up",
-                            "Scaled {service} up to 8 replicas"),
-    "dependency_outage":   (EventSource.DEPLOY, "scaled_up",
-                            "Scaled {service} up to 8 replicas"),
-    "resource_exhaustion": (EventSource.DEPLOY, "config_reverted",
-                            "Reverted a recent {service} logging config toggle"),
-    "cert_expiry":         (EventSource.DEPLOY, "scaled_up",
-                            "Scaled {service} up to 8 replicas"),
-    "bad_migration":       (EventSource.DEPLOY, "scaled_up",
-                            "Scaled {service} up to 8 replicas"),
-}
 
-# Mechanism-matched symptom text: the spike describes a failure mode that is
-# coherent with the TRUE cause (pool exhaustion follows a pool-size change, OOM
-# follows a memory leak, TLS errors follow an expired cert) and incoherent with the
-# benign decoys. This is what makes the cause recoverable by reasoning rather than
-# by position, once the positional signal is randomised away.
-_SYMPTOM: dict[str, str] = {
-    "deploy_regression":   "5xx error rate on {service} crossed 5% (now 11%)",
-    "config_change":       "{service} connection pool saturated; requests queueing and timing out",
-    "dependency_outage":   "upstream dependency timeouts on {service}: 40% of calls failing",
-    "resource_exhaustion": "{service} RSS at 98% of limit; pods OOMKilled repeatedly",
-    "cert_expiry":         "TLS handshake failures on {service}: certificate verify failed",
-    "bad_migration":       "{service} write latency spiked; queries blocked on table locks",
-}
 
-# The postmortem names the CAUSE's signature (real postmortems do), so the cause is
-# identifiable from evidence. It deliberately does NOT name the fix — that stays
-# recoverable only from the recovery event's position, keeping the fix task honest.
-_CAUSE_SIGNATURE: dict[str, str] = {
-    "deploy_regression":   "the v2.15.0 deploy",
-    "config_change":       "the connection pool size change (8 -> 64)",
-    "dependency_outage":   "the upstream dependency outage",
-    "resource_exhaustion": "the deploy that shipped the memory leak",
-    "cert_expiry":         "the expired TLS certificate",
-    "bad_migration":       "the schema migration that locked writes",
-}
-_BENIGN_DECOY: dict[str, tuple[EventSource, str, str]] = {
-    "deploy_regression":   (EventSource.DEPLOY, "deploy_started",
-                            "Deploy v2.14.2 of {service} started by ci-bot"),
-    "config_change":       (EventSource.DEPLOY, "config_changed",
-                            "Config change applied to {service}: log level info -> debug"),
-    "dependency_outage":   (EventSource.DEPLOY, "config_changed",
-                            "Config change applied to {service}: enable request tracing"),
-    "resource_exhaustion": (EventSource.DEPLOY, "deploy_started",
-                            "Deploy v3.01.1 of {service} started by ci-bot"),
-    "cert_expiry":         (EventSource.DEPLOY, "config_changed",
-                            "Config change applied to {service}: rotate non-TLS API key"),
-    "bad_migration":       (EventSource.DEPLOY, "migration_applied",
-                            "Schema migration applied to {service} (add nullable column)"),
-}
 
 # Generic same-service benign changes for retrieval volume (before the bad change).
 _VOLUME_CHANGES = [
@@ -280,8 +281,8 @@ def hard_incident_events(archetype: Archetype, service: str, start: datetime,
     rng = rng or random.Random(0)
     c_step = archetype.steps[0]                 # role == "change" (the BAD change)
     f_step = next(s for s in archetype.steps if s.role == "remediation")
-    b_src, b_type, b_text = _BENIGN_DECOY[archetype.name]
-    i_src, i_type, i_text = _INEFFECTIVE_FIX[archetype.name]
+    b_src, b_type, b_text = archetype.benign_decoy
+    i_src, i_type, i_text = archetype.ineffective_fix
 
     # Draw the layout up front so the rng consumption is fixed per incident.
     k_after = rng.randint(0, 3)        # benign changes between cause and spike
@@ -332,7 +333,7 @@ def hard_incident_events(archetype: Archetype, service: str, start: datetime,
         events.append(ev(15 * (i + 1), b_src, b_type, b_text, benign=True))
     # 4) spike / chat / remediation / recovery / postmortem
     spike = ev(90, EventSource.ALERT, "error_spike",
-               _SYMPTOM[archetype.name], Severity.SEV2)
+               archetype.symptom, Severity.SEV2)
     events.append(spike)
     events.append(ev(120, EventSource.CHAT, "message",
                      "alice: errors on {service} just spiked — investigating"))
@@ -371,6 +372,6 @@ def hard_incident_events(archetype: Archetype, service: str, start: datetime,
     # but deliberately not the fix's, so fix identification stays a reasoning task
     events.append(ev(3600, EventSource.POSTMORTEM, "rca",
                      f"Postmortem: the {{service}} incident was caused by "
-                     f"{_CAUSE_SIGNATURE[archetype.name]}, and was resolved once the "
+                     f"{archetype.cause_signature}, and was resolved once the "
                      "responsible change was undone. Action item: add a guard."))
     return events, bad.event_id, fix.event_id, spike.event_id, recoverable

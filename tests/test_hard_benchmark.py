@@ -92,3 +92,21 @@ def test_in_scope_events_exceed_k_so_retrieval_matters():
     for t in truths:
         n = sum(1 for e in events if e.service == t.service)
         assert n > 12   # eval uses k=12; retrieval must select
+
+
+def test_every_archetype_declares_its_hard_tier_fields():
+    """These four used to live in parallel name-keyed dicts, so adding an
+    archetype and forgetting one surfaced as a KeyError at corpus-generation time
+    with nothing to catch it. They are constructor-required fields now; this test
+    is the backstop that they are also non-empty and internally consistent."""
+    from freshet.generator.scenarios import ARCHETYPES
+
+    for a in ARCHETYPES:
+        assert a.symptom, a.name
+        assert a.cause_signature, a.name
+        assert a.benign_decoy and len(a.benign_decoy) == 3, a.name
+        assert a.ineffective_fix and len(a.ineffective_fix) == 3, a.name
+        real_fix_type = next(s.type for s in a.steps if s.role == "remediation")
+        # the ineffective remediation must never share the real fix's type,
+        # otherwise ground truth for the fix task becomes ambiguous
+        assert a.ineffective_fix[1] != real_fix_type, a.name

@@ -161,27 +161,13 @@ default, key-gated).
 
 ## M11: multi-step retrieval vs single-shot baseline
 
-> **Framing note (rebuilt 2026-08-17). This benchmark was wrong three times; the
-> audit trail is the point.** (1) The original *easy* tier gave each incident
-> exactly one cause-typed and one remediation-typed event in the ±30-min window, so
-> both scored tasks were single-candidate. A keyless heuristic "tied" the LLM at
-> 1.000/1.000 — a **tautology**, not a result, and it produced the published claim
-> "agency adds nothing." (2) The first hard tier added a decoy per task but planted
-> both at **constant offsets**, so a blind index rule ("second-to-last change,
-> second remediation") scored **1.000/1.000 and beat the LLM while understanding
-> nothing**. The claim that reasoning beats fixed heuristics was therefore
-> unsupported: one arbitrary rule lost, another arbitrary rule won. (3) Randomising
-> the trap counts fixed the cause axis but left every failed attempt *before* the
-> real fix, so a blind "last remediation" rule still scored **0.931**.
->
-> The current tier randomises trap counts on both sides (0–3 benign changes before
-> the spike, 0–2 failed remediations after it, 0–2 cleanup remediations after
-> recovery), includes the **zero** case so the naive rule is sometimes right, and
-> hides the cause outside the lookup window on exactly every 4th incident, where
-> abstaining is the calibrated answer. A **gameability guard** — blind index rules,
-> reported on every run against an explicit chance ceiling — now makes
-> ungameability a *measured property* rather than a claim. It is what caught leak
-> (3), and it is permanent so leak (4) cannot ship silently.
+> **This benchmark was wrong three times before it was right.** The full audit
+> trail — what each version measured instead of what it claimed, and how each leak
+> was caught — is in the [appendix](#appendix-how-the-root-cause-benchmark-was-validated).
+> The short version: earlier tiers were tautological, then game-able by a blind
+> index rule that beat the LLM while understanding nothing. Everything below is
+> measured on the rebuilt tier, whose gameability guard passes.
+
 
 M12 measured a sharp gap: at **whole-corpus scale** (no service hint), single-shot
 retrieval scored **0.0 cause-recall** under the old MiniLM retriever. A terse
@@ -217,19 +203,6 @@ recovery-anchored reference rules read evidence, so beating chance is legitimate
 for them and they are reported separately rather than as gameability signals. The
 naive service-scoped arm (0.200 / 0.175) is statistically indistinguishable from
 the blind rules — the correct result, since it *is* a blind rule.
-
-**Leak (4), caught and closed by this same process.** The first version of this
-table had the hardened heuristic at **fix 1.000**, and it was verified to be
-construction-guaranteed at 40/40: the generator always emitted
-failed-attempts → fix → recovery → cleanup, so "the last remediation at or before
-recovery" inverted that invariant exactly. Better than the original tautology —
-blind rules did fail at ~0.33, so the task discriminated between *rules* — but
-still **saturated**, meaning any recovery-aware arm scores 1.000 and an
-agent-vs-heuristic comparison on that axis is a guaranteed tie. Two wrinkles
-de-saturated it, both drawn from real on-call timelines: a **false recovery** (a
-failed attempt briefly clears the alert, errors return) and a **cleanup landing
-between the fix and the recovery**. The previously perfect rule now scores 0.650,
-and the hardened heuristic 0.825 — headroom restored on both axes.
 
 **Result: the agent wins on both axes, and the margin is significant.** Against the
 strongest keyless baseline, paired McNemar gives **22 discordant pairs on cause,
@@ -446,3 +419,51 @@ their 3 partitions, so start from `make up`, not a single-partition dev stack.
 p50 ≈ 2–4 s, p95 ≈ 6–8 s over 69 live events (`make slice`; printed by
 `freshet.eval.freshness`). This measured streaming freshness is the floor used
 for the M6 streaming-vs-batch comparison above.
+
+
+## Appendix: how the root-cause benchmark was validated
+
+This is kept because the failures are more instructive than the final number. Each
+version below was *published* before the flaw in it was found.
+
+**The three invalidations.** (1) The original *easy* tier gave each incident
+exactly one cause-typed and one remediation-typed event in the ±30-min window, so
+both scored tasks were single-candidate. A keyless heuristic "tied" the LLM at
+1.000/1.000 — a **tautology**, not a result, and it produced the published claim
+"agency adds nothing." (2) The first hard tier added a decoy per task but planted
+both at **constant offsets**, so a blind index rule ("second-to-last change,
+second remediation") scored **1.000/1.000 and beat the LLM while understanding
+nothing**. The claim that reasoning beats fixed heuristics was therefore
+unsupported: one arbitrary rule lost, another arbitrary rule won. (3) Randomising
+the trap counts fixed the cause axis but left every failed attempt *before* the
+real fix, so a blind "last remediation" rule still scored **0.931**.
+
+The current tier randomises trap counts on both sides (0–3 benign changes before
+the spike, 0–2 failed remediations after it, 0–2 cleanup remediations after
+recovery), includes the **zero** case so the naive rule is sometimes right, and
+hides the cause outside the lookup window on exactly every 4th incident, where
+abstaining is the calibrated answer. A **gameability guard** — blind index rules,
+reported on every run against an explicit chance ceiling — now makes
+ungameability a *measured property* rather than a claim. It is what caught leak
+(3), and it is permanent so leak (4) cannot ship silently.
+
+**Leak (4), caught and closed by this same process.** The first version of this
+table had the hardened heuristic at **fix 1.000**, and it was verified to be
+construction-guaranteed at 40/40: the generator always emitted
+failed-attempts → fix → recovery → cleanup, so "the last remediation at or before
+recovery" inverted that invariant exactly. Better than the original tautology —
+blind rules did fail at ~0.33, so the task discriminated between *rules* — but
+still **saturated**, meaning any recovery-aware arm scores 1.000 and an
+agent-vs-heuristic comparison on that axis is a guaranteed tie. Two wrinkles
+de-saturated it, both drawn from real on-call timelines: a **false recovery** (a
+failed attempt briefly clears the alert, errors return) and a **cleanup landing
+between the fix and the recovery**. The previously perfect rule now scores 0.650,
+and the hardened heuristic 0.825 — headroom restored on both axes.
+
+
+**Why the guard is permanent.** Leaks (2) and (3) were both found by scoring blind
+index rules, not by inspection — and (3) was found *after* (2) had already been
+"fixed". A benchmark that cannot be checked for gameability will eventually become
+game-able again, so `positional_rules` (see `freshet/eval/stats.py`) runs on every
+execution and its output ships in `results/agent_eval.json`. If any blind rule
+climbs above the chance ceiling, the arms in M11 are void and the artifact says so.

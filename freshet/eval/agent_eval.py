@@ -1,36 +1,42 @@
-"""Agent vs single-shot vs fixed-two-step eval over a 12-incident sample.
+"""Root-cause attribution: LLM agent vs deterministic baselines, on the hard tier.
 
-Runs on the HARD benchmark tier (`build_hard_benchmark`): every incident carries
-a benign decoy change interposed between the true cause and the spike — the LAST
-change before the spike, engineered to trap a naive "latest change wins"
-heuristic. This makes the ablation discriminate instead of saturating: on the
-easy tier a single in-window cause makes step 2 near-tautological (it scores
-1.0/1.0 mechanically); the decoy removes that guarantee, so the number now
-reflects whether an arm can tell the real cause from a plausible bystander.
+Runs on `build_hard_benchmark`, which is adversarial by construction: benign
+changes are interposed between the true cause and the spike, ineffective
+remediations precede the real fix, and the *counts* of both are randomised per
+incident (including zero) so no fixed index rule can recover the answer. On ~1 in
+4 incidents the cause is planted outside the lookup window, where abstaining is
+the calibrated answer.
 
-Three arms, all whole-corpus (no service hint):
-  1. single-shot  — one hybrid search + extractive timeline (keyless, deterministic)
-  2. fixed-two-step — the ABLATION: the same temporal lookup the agent uses
-     (`events_around`), driven by a deterministic two-step pipeline with no LLM.
-     Its heuristic picks the latest change before the spike, so the decoy is
-     designed to fool it — the gap to the agent measures what reasoning buys.
-  3. agent — the tool-calling LLM loop (key-gated, non-deterministic), which can
-     read the corroborating chat/postmortem to reject the benign decoy.
+Arms (all keyless and deterministic except `agent`):
+  1. single-shot          — one hybrid search + extractive timeline
+  2. fixed-two-step       — whole-corpus anchor, then the naive positional rules
+  3. fixed-two-step-scoped— same, with the service filter, isolating rule failure
+                            from retrieval failure
+  4. hardened-heuristic   — the strongest hand-written baseline: symptom-vocabulary
+                            matching for the cause, recovery-anchored fix. This is
+                            the bar the agent has to clear.
+  5. agent                — the tool-calling LLM loop (key-gated, non-deterministic)
+
+Every run also scores `positional_rules` (see eval/stats.py) — blind index rules
+that must sit at the chance ceiling. If they do not, the benchmark has become
+game-able and the arms above are void. That guard exists because an earlier
+version of this corpus was game-able at 1.000.
 
 Run (stack up, corpus indexed):
     python -m freshet.eval.agent_eval
-Keyless runs score arms 1–2 only; with ANTHROPIC_API_KEY set, all three.
+Keyless runs score arms 1-4; with ANTHROPIC_API_KEY set, all five.
+Set FRESHET_EVAL_PER_ARCHETYPE=2 for a 12-incident subset to bound API spend.
 """
 from __future__ import annotations
 
 import json
 import os
 from datetime import UTC, datetime
-from math import comb
 
 from freshet.api.retrieval import events_around, hybrid_search
 from freshet.api.synthesis import _CAUSE_TYPES, _ROLE_BY_TYPE, build_timeline
 from freshet.common.schemas import REMEDIATION_TYPES
+from freshet.eval.stats import mcnemar, positional_rules
 
 RESULTS = "results/agent_eval.json"
 
@@ -92,59 +98,6 @@ def aggregate(records: list[dict]) -> dict:
     return out
 
 
-def positional_rules(neighbors, spike) -> dict[str, dict]:
-    """GAMEABILITY GUARD — reported on every run, never used as a result.
-
-    A suite of blind index rules that encode no understanding whatsoever: they just
-    pick the Nth change/remediation around the spike. If ANY of them scores above
-    chance, the benchmark has a fixed layout and is measuring knowledge of the
-    generator rather than reasoning — which is exactly the flaw that made the
-    earlier fixed-position corpus worthless. All of these must sit near chance.
-    """
-    changes = sorted((n for n in neighbors
-                      if n.type in _CAUSE_TYPES and n.ts <= spike.ts
-                      and n.event_id != spike.event_id), key=lambda n: n.ts)
-    rems = sorted((n for n in neighbors
-                   if n.type in REMEDIATION_TYPES and n.ts >= spike.ts),
-                  key=lambda n: n.ts)
-
-    def at(seq, i):
-        return seq[i].event_id if -len(seq) <= i < len(seq) else None
-
-    # recovery-anchored variants: "last remediation before the alert cleared" used
-    # to score a saturating 1.000, so it is now measured every run rather than
-    # trusted. `first_healthy` is the trap on false-recovery incidents.
-    healthy = sorted((n for n in neighbors
-                      if n.type == "healthy" and n.ts >= spike.ts),
-                     key=lambda n: n.ts)
-    def last_rem_before(h):
-        if h is None:
-            return None
-        prior = [r for r in rems if r.ts <= h.ts]
-        return prior[-1].event_id if prior else None
-
-    return {
-        # BLIND rules use position only and must stay at the chance ceiling —
-        # anything above it means the layout leaks and the benchmark is void.
-        "blind: last-change/first-remediation": {
-            "cause_id": at(changes, -1), "fix_id": at(rems, 0)},
-        "blind: 2nd-to-last-change/2nd-remediation": {
-            "cause_id": at(changes, -2), "fix_id": at(rems, 1)},
-        "blind: first-change/last-remediation": {
-            "cause_id": at(changes, 0), "fix_id": at(rems, -1)},
-        # EVIDENCE rules read the recovery signal, so beating chance is legitimate.
-        # They are reported as reference baselines, not gameability indicators —
-        # "last remediation before the alert cleared" scored a saturating 1.000
-        # before false recoveries and post-fix cleanups were introduced.
-        "evidence: last-remediation-before-FIRST-recovery": {
-            "cause_id": None,
-            "fix_id": last_rem_before(healthy[0] if healthy else None)},
-        "evidence: last-remediation-before-LAST-recovery": {
-            "cause_id": None,
-            "fix_id": last_rem_before(healthy[-1] if healthy else None)},
-    }
-
-
 def _hardened_heuristic(conn, embedder, truth) -> dict:
     """The STRONGEST reasonable keyless baseline — the bar the agent must clear.
 
@@ -191,23 +144,6 @@ def _hardened_heuristic(conn, embedder, truth) -> dict:
         ))
     return {"cause_id": cause.event_id if cause else None,
             "fix_id": fix.event_id if fix else None}
-
-
-def mcnemar(base_records: list[dict], other_records: list[dict], key: str) -> dict:
-    """Exact two-sided McNemar test on paired per-incident outcomes.
-
-    The arms score the same incidents, so the comparison is paired and only the
-    discordant pairs carry signal. At n=12 an unpaired proportion test would be
-    hopeless; the paired test can still resolve a one-sided difference."""
-    b = sum(1 for x, y in zip(base_records, other_records, strict=True)
-            if y.get(key) and not x.get(key))      # other correct, base wrong
-    c = sum(1 for x, y in zip(base_records, other_records, strict=True)
-            if x.get(key) and not y.get(key))      # base correct, other wrong
-    n = b + c
-    p = 1.0 if n == 0 else min(
-        1.0, 2 * sum(comb(n, k) for k in range(min(b, c) + 1)) / 2 ** n)
-    return {"discordant_other_only": b, "discordant_base_only": c,
-            "p_value": round(p, 4)}
 
 
 def _single_shot(conn, embedder, truth) -> dict:

@@ -55,11 +55,11 @@ def _noise_event(rng: random.Random, ts: datetime) -> Event:
     )
 
 
-def build_corpus_events(seed: int = 1, n_incidents: int = 5, noise_between: int = 8,
-                        start: datetime | None = None, spacing_s: float = 5.0) -> list[Event]:
-    """A richer, seeded corpus: one runbook per service, then N incident arcs on
-    rotating services, each preceded by background noise. Deterministic under seed;
-    event ids minted from the seeded RNG so the whole corpus is byte-reproducible."""
+def _seeded_corpus(seed: int, start: datetime | None):
+    """Shared opening for every corpus builder: a seeded RNG, an id minter drawing
+    from that same RNG (so a whole corpus is byte-reproducible under its seed), and
+    the per-service runbooks the corpus opens with. All three builders repeated
+    these twelve lines verbatim."""
     rng = random.Random(seed)
     start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC)
 
@@ -70,14 +70,30 @@ def build_corpus_events(seed: int = 1, n_incidents: int = 5, noise_between: int 
     for rb in build_runbooks(start, SERVICES):
         rb.event_id = mint()
         events.append(rb)
+    return rng, start, mint, events
+
+
+def _emit_noise(events, rng, mint, t, count, spacing_s):
+    """Append `count` background-noise events, returning the advanced clock. RNG
+    draw order is preserved exactly, so corpora stay byte-identical."""
+    for _ in range(count):
+        ev = _noise_event(rng, t)
+        ev.event_id = mint()
+        events.append(ev)
+        t += timedelta(seconds=spacing_s)
+    return t
+
+
+def build_corpus_events(seed: int = 1, n_incidents: int = 5, noise_between: int = 8,
+                        start: datetime | None = None, spacing_s: float = 5.0) -> list[Event]:
+    """A richer, seeded corpus: one runbook per service, then N incident arcs on
+    rotating services, each preceded by background noise. Deterministic under seed;
+    event ids minted from the seeded RNG so the whole corpus is byte-reproducible."""
+    rng, start, mint, events = _seeded_corpus(seed, start)
 
     t = start
     for i in range(n_incidents):
-        for _ in range(noise_between):
-            ev = _noise_event(rng, t)
-            ev.event_id = mint()
-            events.append(ev)
-            t += timedelta(seconds=spacing_s)
+        t = _emit_noise(events, rng, mint, t, noise_between, spacing_s)
         service = SERVICES[i % len(SERVICES)]
         for ev in build_scenario(t, f"INC-{i + 1:04d}", service=service):
             ev.event_id = mint()
@@ -120,25 +136,12 @@ def build_benchmark(seed: int = 1, n_incidents: int = 40, noise_between: int = 6
     """A varied, benchmark-scale corpus: one runbook per service, then N incidents
     rotating across the archetype registry and services, each preceded by noise.
     Deterministic under seed; records per-incident cause/fix/spike ids as it builds."""
-    rng = random.Random(seed)
-    start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC)
-
-    def mint() -> str:
-        return f"evt_{rng.getrandbits(48):012x}"
-
-    events: list[Event] = []
-    for rb in build_runbooks(start, SERVICES):
-        rb.event_id = mint()
-        events.append(rb)
+    rng, start, mint, events = _seeded_corpus(seed, start)
 
     truths: list[IncidentTruth] = []
     t = start
     for i in range(n_incidents):
-        for _ in range(noise_between):
-            ev = _noise_event(rng, t)
-            ev.event_id = mint()
-            events.append(ev)
-            t += timedelta(seconds=spacing_s)
+        t = _emit_noise(events, rng, mint, t, noise_between, spacing_s)
 
         archetype = ARCHETYPES[i % len(ARCHETYPES)]
         # unique service per incident so a service-scoped root-cause query targets
@@ -184,25 +187,12 @@ def build_hard_benchmark(seed: int = 1, n_incidents: int = 40, n_volume: int = 1
     untouched — this is a separate tier, so only the rootcause eval moves."""
     from freshet.generator.scenarios import hard_incident_events
 
-    rng = random.Random(seed)
-    start = start or datetime(2026, 6, 6, 8, 0, 0, tzinfo=UTC)
-
-    def mint() -> str:
-        return f"evt_{rng.getrandbits(48):012x}"
-
-    events: list[Event] = []
-    for rb in build_runbooks(start, SERVICES):
-        rb.event_id = mint()
-        events.append(rb)
+    rng, start, mint, events = _seeded_corpus(seed, start)
 
     truths: list[IncidentTruth] = []
     t = start
     for i in range(n_incidents):
-        for _ in range(6):
-            ev = _noise_event(rng, t)
-            ev.event_id = mint()
-            events.append(ev)
-            t += timedelta(seconds=5.0)
+        t = _emit_noise(events, rng, mint, t, 6, 5.0)
         archetype = ARCHETYPES[i % len(ARCHETYPES)]
         service = f"{SERVICES[i % len(SERVICES)]}-{i:02d}"
         incident_id = f"INC-{i + 1:04d}"
