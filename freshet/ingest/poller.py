@@ -112,7 +112,9 @@ def to_message(update: IncidentUpdate) -> dict:
         "provider": update.provider,
         "incident_id": update.incident_id,
         "update_id": update.update_id,
-        "created_at": update.created_at.isoformat(),
+        # RFC3339 with a literal Z, not "+00:00": Flink's ISO-8601 JSON parser
+        # yields NULL for the offset form, and a NULL rowtime kills the job.
+        "created_at": update.created_at.isoformat().replace("+00:00", "Z"),
         "status": update.status,
         "text": update.text,
         "incident_name": update.incident_name,

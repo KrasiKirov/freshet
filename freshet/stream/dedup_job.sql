@@ -1,0 +1,110 @@
+-- Freshet stream job: dedup, incident lifecycle, and correlated-degradation bursts.
+--
+-- Written in Flink SQL, not PyFlink, because PyFlink cannot be installed on this
+-- machine: apache-flink requires apache-beam, which publishes no macOS ARM64
+-- wheel for any version. The Flink distribution itself is pure JVM and runs
+-- natively, so the job is expressed declaratively and needs no Python at all.
+--
+-- Why Flink earns its place here:
+--   1. The poller is stateless and re-emits every update on every 60s sweep.
+--      The deduplication below is CHECKPOINTED keyed state, so each update
+--      reaches the embedder exactly once and that guarantee survives a restart.
+--   2. Deduping UPSTREAM of the embedder means unchanged text is never
+--      re-embedded. At 42 feeds polled every 60s that is ~1,440 redundant
+--      embeddings per incident per day.
+--
+-- An event-time burst window ("N providers degrading at once") was designed and
+-- then DELETED: measured against 3.1 years of real data it fired zero times at
+-- 5min/>=3 providers, because 42 providers are too few for simultaneous
+-- degradation. It existed to justify the tool rather than to serve the
+-- objective. At ~2000 providers it would be worth revisiting.
+-- Embedding stays out of this job so it can scale on its own axis.
+
+CREATE TABLE raw_incidents (
+  provider      STRING,
+  incident_id   STRING,
+  update_id     STRING,
+  created_at    TIMESTAMP_LTZ(3),
+  status        STRING,
+  text          STRING,
+  incident_name STRING,
+  proc_time     AS PROCTIME(),
+  -- 30s tolerance absorbs pollers whose sweeps are staggered against each other
+  WATERMARK FOR created_at AS created_at - INTERVAL '30' SECOND
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'raw.incidents',
+  'properties.bootstrap.servers' = 'localhost:9092',
+  'properties.group.id' = 'freshet-stream',
+  'scan.startup.mode' = 'earliest-offset',
+  'format' = 'json',
+  'json.timestamp-format.standard' = 'ISO-8601',
+  'json.ignore-parse-errors' = 'true'
+);
+
+CREATE TABLE normalized_updates (
+  provider      STRING,
+  incident_id   STRING,
+  update_id     STRING,
+  created_at    TIMESTAMP_LTZ(3),
+  status        STRING,
+  text          STRING,
+  incident_name STRING
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'normalized.updates',
+  'properties.bootstrap.servers' = 'localhost:9092',
+  'format' = 'json',
+  'json.timestamp-format.standard' = 'ISO-8601'
+);
+
+CREATE TABLE incident_lifecycle (
+  incident_id STRING,
+  service     STRING,
+  status      STRING,
+  ts          TIMESTAMP_LTZ(3),
+  title       STRING
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'incident.lifecycle',
+  'properties.bootstrap.servers' = 'localhost:9092',
+  'format' = 'json',
+  'json.timestamp-format.standard' = 'ISO-8601'
+);
+
+EXECUTE STATEMENT SET
+BEGIN
+
+-- 1. Deduplication. The poller re-delivers everything each sweep; keep the FIRST
+--    arrival of each (provider, incident, update) and drop every repeat.
+INSERT INTO normalized_updates
+SELECT provider, incident_id, update_id, created_at, status, text, incident_name
+FROM (
+  SELECT *, ROW_NUMBER() OVER (
+             PARTITION BY provider, incident_id, update_id
+             ORDER BY proc_time ASC) AS seq
+  FROM raw_incidents
+  WHERE created_at IS NOT NULL   -- a single unparseable record must not kill the job
+)
+WHERE seq = 1;
+
+-- 2. Incident lifecycle, for the Autopilot. v1 had to INFER this by correlating
+--    event types; the feeds state it outright, so it is a CASE over the update's
+--    own status. Intermediate states (monitoring, in progress) signal nothing —
+--    firing on those would re-brief the same incident repeatedly.
+INSERT INTO incident_lifecycle
+SELECT incident_id, provider AS service,
+       CASE WHEN LOWER(status) IN ('investigating', 'identified') THEN 'opened'
+            ELSE 'resolved' END AS status,
+       created_at AS ts, incident_name AS title
+FROM (
+  SELECT *, ROW_NUMBER() OVER (
+             PARTITION BY provider, incident_id, update_id
+             ORDER BY proc_time ASC) AS seq
+  FROM raw_incidents
+  WHERE created_at IS NOT NULL
+)
+WHERE seq = 1
+  AND LOWER(status) IN ('investigating', 'identified', 'resolved', 'completed');
+
+END;

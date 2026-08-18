@@ -87,3 +87,17 @@ def test_a_page_that_returns_garbage_is_skipped_not_fatal():
         return 200, {}, "<not-xml"
 
     assert poll_once(PAGES, fetch, ConditionalCache()) == []
+
+
+def test_wire_timestamp_is_rfc3339_with_a_literal_z():
+    """Flink's ISO-8601 JSON parser returns NULL for the "+00:00" offset form,
+    and a NULL rowtime fails the whole streaming job. This is a wire contract."""
+    from freshet.ingest.poller import to_message
+
+    def fetch(url, headers):
+        return 200, {}, _feed("i1", "2026-08-18T11:42:00Z")
+
+    [update] = poll_once(PAGES[:1], fetch, ConditionalCache())
+    stamp = to_message(update)["created_at"]
+    assert stamp.endswith("Z"), stamp
+    assert "+00:00" not in stamp

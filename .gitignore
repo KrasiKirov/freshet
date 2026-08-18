@@ -46,3 +46,5 @@ tasks/
 # Local Claude Code config (launch configs etc.)
 .claude/
 .superpowers/
+.venv-flink/
+.flink/
