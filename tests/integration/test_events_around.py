@@ -15,13 +15,13 @@ def conn():
 
 def test_events_around_returns_service_time_window(conn):
     from freshet.api.retrieval import events_around
-    from freshet.eval.rootcause import _index_corpus
+    from freshet.eval.run_eval import index_corpus
     from freshet.generator.generator import build_benchmark
     from freshet.pipeline.embedding import make_embedder
 
     events, truths = build_benchmark(seed=1, n_incidents=4)
     emb = make_embedder("stub")
-    _index_corpus(conn, emb, events)
+    index_corpus(conn, emb, events)
 
     t = truths[0]
     spike = next(e for e in events if e.event_id == t.spike_id)

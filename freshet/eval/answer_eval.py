@@ -38,14 +38,14 @@ def main() -> None:
     from freshet.api.synthesis import build_timeline, synthesize_narrative
     from freshet.common.db import connect
     from freshet.eval import judge
-    from freshet.eval.rootcause import _EVAL_TAU_S, _index_corpus
+    from freshet.eval.run_eval import _EVAL_TAU_S, index_corpus
     from freshet.generator.generator import build_benchmark
     from freshet.pipeline.embedding import make_embedder
 
     embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
     conn = connect()
     events, truths = build_benchmark(seed=1, n_incidents=30)
-    _index_corpus(conn, embedder, events)
+    index_corpus(conn, embedder, events)
     # sample one incident from each of the first 5 distinct archetypes (cost control)
     sample, seen = [], set()
     for t in truths:

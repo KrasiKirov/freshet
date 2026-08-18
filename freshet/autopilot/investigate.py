@@ -1,27 +1,14 @@
-"""Gather incident findings for the brief. Mirrors the composer's `auto` pattern:
-run the full tool-using agent when a key is present, else the keyless extractive
-timeline — so the loop always runs and CI stays green."""
+"""Gather incident findings for the brief via the keyless extractive timeline."""
 
 from __future__ import annotations
 
 import os
-from collections import namedtuple
-from datetime import timedelta
 
-from freshet.autopilot.brief import (
-    Findings,
-    findings_from_investigation,
-    findings_from_timeline,
-)
+from freshet.autopilot.brief import Findings, findings_from_timeline
 from freshet.autopilot.impact import estimate_impact
-
-# Tiny stand-in carrying only what cite_hit needs (event_id, ts, text) — avoids
-# constructing the 10-field RetrievedHit just to cite an event by id.
-_Hit = namedtuple("_Hit", ["event_id", "ts", "text"])
 
 _RUNBOOK_SQL = ("SELECT text FROM vector_records WHERE service = %s AND type = 'runbook'"
                 " ORDER BY ts LIMIT 1")
-_LOOKUP_SQL = "SELECT event_id, ts, text FROM vector_records WHERE event_id = %s LIMIT 1"
 _INCIDENT_META_SQL = "SELECT opened_at, resolved_at FROM incidents WHERE incident_id = %s"
 _INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_id = %s"
 
@@ -29,11 +16,6 @@ _INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_i
 def fetch_runbook(conn, service: str) -> str | None:
     row = conn.execute(_RUNBOOK_SQL, (service,)).fetchone()
     return row[0] if row else None
-
-
-def lookup_hit(conn, event_id: str) -> _Hit | None:
-    row = conn.execute(_LOOKUP_SQL, (event_id,)).fetchone()
-    return _Hit(event_id=row[0], ts=row[1], text=row[2]) if row else None
 
 
 def _impact_for(conn, incident_id: str, service: str, hits) -> str:
@@ -45,34 +27,8 @@ def _impact_for(conn, incident_id: str, service: str, hits) -> str:
     return estimate_impact(services, opened_at, resolved_at, [h.text for h in hits])
 
 
-# Pre-incident buffer for scoping the agent: wide enough that the causal change
-# (deploy/config/migration) preceding the spike stays in range, narrow enough
-# that a previous incident on the same service does not.
-_INVESTIGATION_LOOKBACK = timedelta(hours=2)
-
-
-def _incident_since(conn, incident_id: str):
-    row = conn.execute("SELECT opened_at FROM incidents WHERE incident_id = %s",
-                       (incident_id,)).fetchone()
-    return (row[0] - _INVESTIGATION_LOOKBACK) if row and row[0] else None
-
-
-def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
-                    *, client=None) -> Findings:
+def gather_findings(conn, embedder, service: str, incident_id: str, status: str) -> Findings:
     runbook = fetch_runbook(conn, service)
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            from freshet.api.agent import investigate
-            since = _incident_since(conn, incident_id)
-            inv = investigate(conn, embedder, service, client=client, since=since)
-            cause_hit = lookup_hit(conn, inv.cause_id) if inv.cause_id else None
-            fix_hit = lookup_hit(conn, inv.fix_id) if inv.fix_id else None
-            f = findings_from_investigation(inv, service, status, cause_hit, fix_hit, runbook)
-            hits = [h for h in (cause_hit, fix_hit) if h]
-            f.impact = _impact_for(conn, incident_id, service, hits)
-            return f
-        except Exception as exc:  # degrade, never crash the loop
-            print(f"[autopilot] agent failed ({exc!r}); falling back to keyless timeline")
     from freshet.api.retrieval import hybrid_search
     from freshet.api.synthesis import build_timeline
     q = f"what caused the {service} incident and how was it resolved?"

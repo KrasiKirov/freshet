@@ -39,20 +39,6 @@ def findings_from_timeline(tl, status: str, runbook: str | None) -> Findings:
     )
 
 
-def findings_from_investigation(inv, service: str, status: str,
-                                cause_hit, fix_hit, runbook: str | None) -> Findings:
-    return Findings(
-        service=service,
-        status=status,
-        cause_text=cause_hit.text if cause_hit else None,
-        cause_cite=cite_hit(cause_hit) if cause_hit else None,
-        fix_text=fix_hit.text if fix_hit else None,
-        fix_cite=cite_hit(fix_hit) if fix_hit else None,
-        runbook=runbook,
-        narrative=inv.narrative,
-    )
-
-
 def render_brief(f: Findings) -> str:
     title = "POSTMORTEM" if f.status == "resolved" else "INCIDENT BRIEF"
     lines = [f"=== {title} — {f.service} ({f.status}) ==="]

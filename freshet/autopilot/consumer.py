@@ -43,7 +43,7 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
         if not claim_incident(conn, ev.incident_id):
             print(f"[autopilot] {ev.incident_id} already briefed — skipping")
             return
-        findings = gather_findings(conn, embedder, ev.service, ev.incident_id, "open", client=client)
+        findings = gather_findings(conn, embedder, ev.service, ev.incident_id, "open")
         ts = sink.deliver(findings)
         if ts:
             conn.execute(_SET_SLACK_TS_SQL, (ts, ev.incident_id))

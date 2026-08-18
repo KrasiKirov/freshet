@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: help up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills rootcause-demo rootcause-eval rootcause-facevalidity answer-eval agent-eval agent-demo embedding-compare multiquery-eval impact-eval real-eval live-demo autopilot autopilot-slack connector connector-demo slack-demo
+.PHONY: help up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills answer-eval embedding-compare multiquery-eval impact-eval real-eval live-demo autopilot autopilot-slack connector connector-demo slack-demo
 
 .DEFAULT_GOAL := help
 
@@ -66,7 +66,8 @@ api: ##run
 	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
 
 # Autopilot: consume incident.lifecycle and print a cited brief per new incident.
-# Sources .env.local so ANTHROPIC_API_KEY enables the full agent (keyless otherwise).
+# Sources .env.local so ANTHROPIC_API_KEY enables LLM postmortem narrative synthesis
+# (keyless extractive timeline otherwise).
 autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
@@ -106,31 +107,9 @@ drills: ##eval
 	$(PYTHON) -m freshet.eval.drills
 
 
-# Stream the richer corpus, then print a cited root-cause timeline (keyless demo).
-rootcause-demo: ##demo
-	bash scripts/run_rootcause_demo.sh
-
-# Keyless completeness eval: hybrid vs hybrid+rerank on cause/fix capture (results/).
-rootcause-eval: ##eval
-	$(PYTHON) -m freshet.eval.rootcause
-
-# Real-data face validity: ingest the committed status-feed incidents and show the
-# cause selector abstains (symptom-only). Keyless. LIVE=1 polls the live feeds.
-rootcause-facevalidity: ##eval
-	bash scripts/run_rootcause_facevalidity.sh
-
 # Key-gated: extractive timeline vs LLM narrative on faithfulness + relevance (results/).
 answer-eval: ##eval
 	$(PYTHON) -m freshet.eval.answer_eval
-
-# Agent vs single-shot vs fixed-two-step ablation (results/). The single-shot and
-# fixed-two-step arms are keyless + deterministic; the agent arm needs a key.
-agent-eval: ##eval
-	$(PYTHON) -m freshet.eval.agent_eval
-
-# Key-gated: investigate one benchmark incident and save the investigation transcript (results/).
-agent-demo: ##demo
-	$(PYTHON) scripts/run_agent_demo.py
 
 # Deterministic MiniLM-vs-bge retrieval comparison (stack up, fresh vector(768) DB).
 embedding-compare: ##eval
