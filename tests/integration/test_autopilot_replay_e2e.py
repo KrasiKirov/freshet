@@ -45,18 +45,9 @@ def test_a_brief_is_produced_for_a_real_incident(conn, emb):
         assert "]" in line and "@" in line, f"malformed citation: {line}"
 
 
-def test_documents_the_gap_autopilot_cites_nothing_on_real_feeds(conn, emb):
-    """A DOCUMENTED LIMITATION, not a passing feature.
-
-    Autopilot's Findings model is cause/fix shaped: it was built for a corpus
-    containing deploy -> rollback events. Real status updates contain neither, so
-    build_timeline correctly declines, and the brief renders with no citations at
-    all. The behaviour is honest but nearly contentless.
-
-    This test pins the current reality so the gap is visible in CI instead of
-    being discovered in a demo. When Autopilot is reworked to summarise and cite
-    the incident UPDATES themselves, this test should start failing — and that
-    failure is the signal to delete it."""
+def test_the_brief_cites_real_updates(conn, emb):
+    """The gap Task 14 pinned is closed: a brief over real status-feed data now
+    carries cited updates instead of three "not identified" lines."""
     rows = seed_from_replay(conn, emb, limit=300)
     service = _busiest_provider(rows)
     incident_id = next(r["incident_id"] for r in reversed(rows) if r["provider"] == service)
@@ -65,8 +56,12 @@ def test_documents_the_gap_autopilot_cites_nothing_on_real_feeds(conn, emb):
     from freshet.autopilot.investigate import gather_findings
 
     text = render_brief(gather_findings(conn, emb, service, incident_id, status="opened"))
-    assert "Cause: not identified" in text
-    assert "[" not in text, "if this fails, Autopilot now cites evidence — good, delete this test"
+    assert "Updates:" in text
+    cited = [ln for ln in text.splitlines() if "[" in ln]
+    assert cited, "the brief must cite the updates it reports"
+    for line in cited:
+        assert "]" in line and "@" in line, f"malformed citation: {line}"
+
 
 
 def test_a_cause_is_never_invented_from_real_updates(conn, emb):
@@ -97,3 +92,21 @@ def test_retrieval_finds_the_incident_it_was_asked_about(conn, emb):
                            min_similarity=0.0)
     assert result.hits, f"no hits for {service}"
     assert all(h.service == service for h in result.hits)
+
+
+def test_the_brief_only_cites_the_incident_it_is_about(conn, emb):
+    """A brief for incident X must not cite incident Y. Retrieval filters by
+    SERVICE, so a similarity search happily returns a provider's other incidents;
+    the update timeline must be a direct lookup of this incident's own updates."""
+    rows = seed_from_replay(conn, emb, limit=300)
+    service = _busiest_provider(rows)
+    incident_id = next(r["incident_id"] for r in reversed(rows) if r["provider"] == service)
+
+    from freshet.autopilot.brief import render_brief
+    from freshet.autopilot.investigate import gather_findings
+
+    text = render_brief(gather_findings(conn, emb, service, incident_id, status="opened"))
+    cited = [ln for ln in text.splitlines() if ln.strip().startswith(("0", "1", "2"))]
+    assert cited, "expected cited update lines"
+    for line in cited:
+        assert incident_id in line, f"brief cites a DIFFERENT incident: {line}"

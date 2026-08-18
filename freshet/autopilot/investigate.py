@@ -3,14 +3,42 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
+from datetime import datetime
 
-from freshet.autopilot.brief import Findings, findings_from_timeline
+from freshet.autopilot.brief import (
+    Findings,
+    findings_from_timeline,
+    findings_from_updates,
+)
 from freshet.autopilot.impact import estimate_impact
 
 _RUNBOOK_SQL = ("SELECT text FROM vector_records WHERE service = %s AND type = 'runbook'"
                 " ORDER BY ts LIMIT 1")
 _INCIDENT_META_SQL = "SELECT opened_at, resolved_at FROM incidents WHERE incident_id = %s"
 _INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_id = %s"
+# The brief's update timeline is a DIRECT lookup, not a similarity search:
+# an incident's updates are a known, complete set, and retrieval filters only by
+# service — so a search would happily cite the provider's OTHER incidents.
+_INCIDENT_UPDATES_SQL = (
+    "SELECT DISTINCT ON (event_id) event_id, ts, text FROM vector_records"
+    " WHERE incident_id = %s ORDER BY event_id, ts DESC")
+
+
+@dataclass(frozen=True)
+class _Update:
+    """Minimal shape `cite_hit` and `findings_from_updates` need."""
+
+    event_id: str
+    ts: datetime
+    text: str
+
+
+def fetch_incident_updates(conn, incident_id: str) -> list[_Update]:
+    """Every indexed update belonging to one incident. Deduplicated by event_id
+    because a long update chunks into several rows."""
+    rows = conn.execute(_INCIDENT_UPDATES_SQL, (incident_id,)).fetchall()
+    return [_Update(event_id=r[0], ts=r[1], text=r[2]) for r in rows]
 
 
 def fetch_runbook(conn, service: str) -> str | None:
@@ -35,6 +63,11 @@ def gather_findings(conn, embedder, service: str, incident_id: str, status: str)
     res = hybrid_search(conn, embedder, q, k=12, service=service)
     tl = build_timeline(res.hits)
     f = findings_from_timeline(tl, status, runbook)
+    # Cause/fix is kept for corpora that contain change events; the update
+    # timeline is ADDED, not substituted, because status feeds have none. It is
+    # sourced by direct lookup so the brief cannot cite a different incident.
+    own = fetch_incident_updates(conn, incident_id)
+    f.updates = findings_from_updates(service, status, own, runbook).updates
     f.impact = _impact_for(conn, incident_id, service, res.hits)
     return f
 

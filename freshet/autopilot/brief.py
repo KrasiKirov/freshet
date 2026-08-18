@@ -5,7 +5,7 @@ heuristic (freshet/autopilot/impact.py) and rendered here when present."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -20,6 +20,9 @@ class Findings:
     narrative: str | None
     meta: str | None = None
     impact: str | None = None
+    # Newest-first, pre-cited update lines. Status feeds carry no change events,
+    # so cause/fix is often empty and this is the brief's actual content.
+    updates: list[str] = field(default_factory=list)
 
 
 def cite_hit(hit) -> str:
@@ -39,6 +42,32 @@ def findings_from_timeline(tl, status: str, runbook: str | None) -> Findings:
     )
 
 
+MAX_UPDATES = 4              # a Slack brief has to stay skimmable
+_MAX_UPDATE_CHARS = 200
+
+
+def findings_from_updates(service: str, status: str, hits,
+                          runbook: str | None) -> Findings:
+    """Brief the incident's own updates, newest first, each cited.
+
+    Status feeds state what is happening in the provider's own words but contain
+    no change events, so `findings_from_timeline` correctly declines to name a
+    cause — and "no cause found" is not a useful brief on its own. This reports
+    what the feed actually said, which is only possible because those updates
+    were indexed seconds after being posted.
+    """
+    newest = sorted(hits, key=lambda h: h.ts, reverse=True)[:MAX_UPDATES]
+    lines = []
+    for hit in newest:
+        text = " ".join(hit.text.split())
+        if len(text) > _MAX_UPDATE_CHARS:
+            text = text[:_MAX_UPDATE_CHARS].rstrip() + "..."
+        lines.append(f"{hit.ts:%H:%M} — {text} {cite_hit(hit)}")
+    return Findings(service=service, status=status, cause_text=None, cause_cite=None,
+                    fix_text=None, fix_cite=None, runbook=runbook, narrative=None,
+                    updates=lines)
+
+
 def render_brief(f: Findings) -> str:
     title = "POSTMORTEM" if f.status == "resolved" else "INCIDENT BRIEF"
     lines = [f"=== {title} — {f.service} ({f.status}) ==="]
@@ -54,6 +83,9 @@ def render_brief(f: Findings) -> str:
             lines.append(f"Resolution: {f.fix_text} — {f.fix_cite}")
         else:
             lines.append("Resolution: not identified from retrieved evidence")
+    if f.updates:
+        lines.append("Updates:")
+        lines.extend(f"  {line}" for line in f.updates)
     lines.append(f"Runbook: {f.runbook}" if f.runbook else "Runbook: none found")
     if f.meta:
         lines.append(f.meta)
