@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 
-.PHONY: help up up-obs down db-init test test-integration api slice demo replay scale-demo eval drills answer-eval embedding-compare multiquery-eval impact-eval real-eval live-demo autopilot autopilot-slack connector connector-demo slack-demo
+.PHONY: help up down db-init test test-integration api autopilot
 
 .DEFAULT_GOAL := help
 
@@ -10,13 +10,14 @@ PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 help: ##meta
 	@echo "Freshet — make targets"
 	@for g in stack dev run demo eval; do \
+		list=$$(grep -E "^[a-z][a-z-]*: ##$$g$$" $(MAKEFILE_LIST) | sed "s/: ##.*//" | sort); \
+		[ -z "$$list" ] && continue; \
 		case $$g in \
 			stack) label="Stack lifecycle";; dev) label="Tests and checks";; \
 			run) label="Long-running services";; demo) label="Demos (things to watch)";; \
 			eval) label="Evaluations (things to measure)";; \
 		esac; \
-		echo ""; echo "  $$label:"; \
-		grep -E "^[a-z][a-z-]*: ##$$g$$" $(MAKEFILE_LIST) | sed "s/: ##.*//" | sort | sed "s/^/    make /"; \
+		echo ""; echo "  $$label:"; echo "$$list" | sed "s/^/    make /"; \
 	done
 	@echo ""
 
@@ -38,10 +39,6 @@ up: ##stack
 	@docker exec freshet-redpanda rpk topic create raw.events normalized.events deadletter.events incident.lifecycle -p 3 >/dev/null 2>&1 || true
 	@echo "topics ready (3 partitions)."
 
-# Bring up the stack plus Prometheus (:9090) and Grafana (:3000).
-up-obs: ##stack
-	COMPOSE_PROFILES=obs $(MAKE) up
-
 # Tear down and drop the Postgres volume.
 down: ##stack
 	COMPOSE_PROFILES=obs $(COMPOSE) down -v
@@ -58,7 +55,6 @@ test: ##dev
 test-integration: ##dev
 	$(PYTHON) -m pytest -q -m integration
 
-
 # Serve the query API on :8000 (stack must be up; FRESHET_EMBEDDER=stub to skip model).
 # Sources .env.local so ANTHROPIC_API_KEY enables the LLM answer composer.
 api: ##run
@@ -72,77 +68,3 @@ autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
 
-# Autopilot posting to Slack. Sources .env.local for SLACK_BOT_TOKEN/SLACK_CHANNEL
-# (and ANTHROPIC_API_KEY). Posts only because --sink slack is explicit.
-autopilot-slack: ##run
-	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
-	$(PYTHON) -m freshet.autopilot --brokers localhost:9092 --sink slack
-
-# Run the vertical-slice demo end to end (make up first; EMBEDDER=stub to skip model).
-slice: ##demo
-	bash scripts/run_slice.sh
-
-# One-command demo: ingest the scripted incident, then answer a question about it.
-demo: ##demo
-	bash scripts/run_demo.sh
-
-# Re-index the whole corpus under a fresh consumer group (e.g. after a model
-# change). Reads normalized.events from the beginning; idempotent upserts
-# overwrite rows in place. EMBEDDER=stub skips the model download.
-replay: ##demo
-	$(PYTHON) -m freshet.pipeline.embedder --brokers localhost:9092 --group reindex-$$(date +%s) --embedder $${EMBEDDER:-bge} --metrics-port 0 --idle-timeout 10
-
-# Throughput demo: WORKERS=1 make scale-demo, then WORKERS=3 make scale-demo.
-scale-demo: ##demo
-	bash scripts/run_scaling_demo.sh
-
-# Regenerate the committed eval artifacts (results/). Needs the stack up and
-# .[embed] .[eval] installed. Deterministic: same inputs -> same numbers.
-eval: ##eval
-	$(PYTHON) -m freshet.eval.run_eval
-
-# Run the failure drills (stack up; .[embed] .[eval]). Writes results/drill_*.png
-# and asserts no data loss. Live + timing-sensitive — run deliberately.
-drills: ##eval
-	$(PYTHON) -m freshet.eval.drills
-
-
-# Key-gated: extractive timeline vs LLM narrative on faithfulness + relevance (results/).
-answer-eval: ##eval
-	$(PYTHON) -m freshet.eval.answer_eval
-
-# Deterministic MiniLM-vs-bge retrieval comparison (stack up, fresh vector(768) DB).
-embedding-compare: ##eval
-	$(PYTHON) scripts/run_embedding_compare.py
-
-# Key-gated: multi-query vs single-query retrieval recall (needs a key + fresh DB).
-multiquery-eval: ##eval
-	$(PYTHON) -m freshet.eval.multiquery_eval
-
-# Keyless: impact heuristic agreement vs the authored impact benchmark (results/).
-impact-eval: ##eval
-	$(PYTHON) -m freshet.eval.impact_eval
-
-# Real-data validation: hand-labeled public Statuspage incidents (committed
-# snapshots + labels in freshet/eval/fixtures/real/). Keyless; needs the stack.
-real-eval: ##eval
-	$(PYTHON) -m freshet.eval.real_eval
-
-# Live demo: ingest REAL public status-feed incidents through the pipeline + open the UI.
-live-demo: ##demo
-	bash scripts/run_live_demo.sh
-
-# Run the connector webhook receiver on :8088 (sources .env.local for the HMAC secret).
-connector: ##run
-	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
-	$(PYTHON) -m uvicorn freshet.connectors.webhook:app --port 8088
-
-# Commit-signal demo (stack up): replay a GitHub push + spike -> brief cites the SHA.
-connector-demo: ##demo
-	bash scripts/run_connector_demo.sh
-
-# One-command Slack demo (stack up): drive one incident open -> resolve so the
-# autopilot posts a cited brief + threaded postmortem. DRY-RUN by default (renders
-# the payload, posts nothing, no token); REAL=1 make slack-demo posts for real.
-slack-demo: ##demo
-	bash scripts/run_slack_demo.sh
