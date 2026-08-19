@@ -111,5 +111,13 @@ autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
 
+label-live: ##eval
+	@# Curate cause labels from the LIVE index (LLM judge; output is draft).
+	$(PYTHON) -m freshet.eval.label_live
+
+retrieval-eval: ##eval
+	@# Indexes the labeled fixture corpus into a DEDICATED freshet_eval database.
+	$(PYTHON) -m freshet.eval.retrieval_eval
+
 freshness: ##eval
 	$(PYTHON) -m freshet.eval.freshness

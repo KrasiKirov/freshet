@@ -1,0 +1,45 @@
+{
+  "source": "live index",
+  "corpus": {
+    "labeled": 81,
+    "providers": 28,
+    "curated": "draft"
+  },
+  "arms": {
+    "hybrid": {
+      "recall@5": 0.654,
+      "mrr": 0.462,
+      "top1_cite": 0.346,
+      "n": 81
+    },
+    "vector_only": {
+      "recall@5": 0.63,
+      "mrr": 0.461,
+      "top1_cite": 0.358,
+      "n": 81
+    },
+    "keyword_only": {
+      "recall@5": 0.556,
+      "mrr": 0.36,
+      "top1_cite": 0.235,
+      "n": 81
+    },
+    "blind_recent": {
+      "recall@5": 0.0,
+      "mrr": 0.0,
+      "top1_cite": 0.0,
+      "n": 81
+    }
+  },
+  "gameability_guard": {
+    "blind_recall@5": 0.0,
+    "hybrid_minus_blind": 0.654,
+    "verdict": "meaningful"
+  },
+  "abstention": {
+    "on_corpus_abstained": 13,
+    "on_corpus_total": 81,
+    "off_corpus_abstained": 6,
+    "off_corpus_total": 6
+  }
+}

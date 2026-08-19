@@ -30,6 +30,51 @@ cadence the figure should land near **58×** (~31s vs ~1800s), of which ~30s is
 poll cadence and ~1s is this pipeline — but that is an expectation, and it stays
 labelled as one until `n` supports it.
 
+## Retrieval quality
+
+`make retrieval-eval` (frozen corpus) and `RETRIEVAL_EVAL_SOURCE=live make retrieval-eval`.
+
+v2 shipped with no retrieval measurement at all, which made every retrieval change
+unfalsifiable. Two corpora, both real provider text — no synthetic data:
+
+| | frozen fixture | live index |
+|---|---|---|
+| incidents | 225 (5 providers) | ~1,180 (42 providers) |
+| labeled | **12**, human-reviewed | **81**, LLM-judged (draft) |
+| reproducible anywhere | yes | no — needs a populated index |
+
+**Live index, n = 81** — the larger sample, and the one that separates the arms:
+
+| arm | recall@5 | MRR | top-1 cite |
+|---|---|---|---|
+| **hybrid (shipped)** | **0.654** | 0.462 | 0.346 |
+| vector-only | 0.630 | 0.461 | **0.358** |
+| keyword-only | 0.556 | 0.360 | 0.235 |
+| *blind recency (guard)* | *0.000* | *0.000* | *0.000* |
+
+**Frozen fixture, n = 12**: hybrid 0.917 / 0.583 / 0.417 — statistically identical to
+v1's 0.917 / 0.576 / 0.417 on the same corpus, which is the check that v2's retrieval
+did not regress when rerank, multi-query and recency decay were deleted. At n = 12 the
+arms are indistinguishable (vector-only shows a higher MRR); at n = 81 hybrid leads on
+recall@5, which is the evidence for keeping it.
+
+**The guard.** A query-blind ranker (recency order, ignores the question) is scored
+every run and reported next to the system. v1's root-cause benchmark was game-able —
+a positional rule that understood nothing scored 1.000 — so a benchmark that a blind
+rule can win is treated as void. It scores 0.000 here.
+
+**Abstention on real language**: 0/12 on-corpus abstentions on the fixture, 13/81 on the
+live set (the system declines 16% of labeled questions), and 6/6 off-corpus questions
+abstain.
+
+**Honest limits.** The live labels are `curated: draft`: candidates are shortlisted by
+cause marker, then an LLM judges whether each update NAMES a cause (it never sees the
+query or the ranking), and each question is generated from the incident TITLE alone so
+it cannot encode which update is the answer. Spot-checking shows real errors — at least
+one symptom restatement labeled as a cause, and several questions that ask about
+symptoms rather than causes. 0.654 is therefore a floor, not a clean measurement, until
+the labels are human-reviewed.
+
 ## Measured on the live pipeline
 
 | | |

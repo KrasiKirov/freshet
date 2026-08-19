@@ -1,0 +1,45 @@
+{
+  "corpus": {
+    "updates": 841,
+    "incidents": 225,
+    "labeled": 12,
+    "curated": "reviewed"
+  },
+  "arms": {
+    "hybrid": {
+      "recall@5": 0.917,
+      "mrr": 0.583,
+      "top1_cite": 0.417,
+      "n": 12
+    },
+    "vector_only": {
+      "recall@5": 0.917,
+      "mrr": 0.649,
+      "top1_cite": 0.5,
+      "n": 12
+    },
+    "keyword_only": {
+      "recall@5": 0.917,
+      "mrr": 0.632,
+      "top1_cite": 0.417,
+      "n": 12
+    },
+    "blind_recent": {
+      "recall@5": 0.0,
+      "mrr": 0.0,
+      "top1_cite": 0.0,
+      "n": 12
+    }
+  },
+  "gameability_guard": {
+    "blind_recall@5": 0.0,
+    "hybrid_minus_blind": 0.917,
+    "verdict": "meaningful"
+  },
+  "abstention": {
+    "on_corpus_abstained": 0,
+    "on_corpus_total": 12,
+    "off_corpus_abstained": 6,
+    "off_corpus_total": 6
+  }
+}
