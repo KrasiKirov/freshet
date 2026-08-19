@@ -48,3 +48,37 @@ def test_st_encode_query_applies_instruction(monkeypatch):
     assert captured["texts"] == [
         "Represent this sentence for searching relevant passages: hello"
     ]
+
+
+def test_thread_capping_survives_a_missing_torch(monkeypatch):
+    """CI installs neither torch nor sentence_transformers. A hard `import torch`
+    turned a CPU nicety into an ImportError for anyone without the [embed] extra."""
+    import builtins
+
+    from freshet.pipeline.embedding import _cap_torch_threads
+
+    real_import = builtins.__import__
+
+    def _no_torch(name, *a, **k):
+        if name == "torch":
+            raise ImportError("No module named 'torch'")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _no_torch)
+    _cap_torch_threads()          # must not raise
+
+
+def test_capping_is_skipped_when_disabled(monkeypatch):
+    monkeypatch.setenv("FRESHET_TORCH_THREADS", "0")
+    import builtins
+
+    from freshet.pipeline.embedding import _cap_torch_threads
+    real_import = builtins.__import__
+
+    def _boom(name, *a, **k):
+        if name == "torch":
+            raise AssertionError("torch must not be imported when capping is off")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _boom)
+    _cap_torch_threads()

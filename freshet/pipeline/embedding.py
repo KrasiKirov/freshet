@@ -67,6 +67,23 @@ def _apply_query_instruction(instruction: str, texts: list[str]) -> list[str]:
     return [f"{instruction} {t}" for t in texts]
 
 
+def _cap_torch_threads() -> None:
+    """Stop bge taking every core — it shares the machine with the user's work.
+
+    torch is a transitive dependency of sentence_transformers, but the tests stub
+    SentenceTransformer and run without either installed, so a hard import here
+    turned a CPU nicety into an import error for anyone without the [embed] extra.
+    """
+    threads = int(os.environ.get("FRESHET_TORCH_THREADS", "2"))
+    if threads <= 0:
+        return
+    try:
+        import torch
+    except ImportError:
+        return
+    torch.set_num_threads(threads)
+
+
 class SentenceTransformerEmbedder:
     """Real local embeddings. Lazy import; first use downloads the model.
     query_instruction (if set) is prepended only to query-side encodes."""
@@ -74,15 +91,9 @@ class SentenceTransformerEmbedder:
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
                  query_instruction: str = "",
                  min_similarity: float = MIN_SIMILARITY_MINILM):
-        import torch
         from sentence_transformers import SentenceTransformer
 
-        # bge saturates every core by default. This process shares a laptop with
-        # the user's actual work, and embedding a handful of updates a minute
-        # does not need the whole machine.
-        threads = int(os.environ.get("FRESHET_TORCH_THREADS", "2"))
-        if threads > 0:
-            torch.set_num_threads(threads)
+        _cap_torch_threads()
         self.model = SentenceTransformer(model_name)
         self.name = model_name
         self.query_instruction = query_instruction
