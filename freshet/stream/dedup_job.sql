@@ -30,7 +30,7 @@ CREATE TABLE raw_incidents (
   incident_name STRING,
   proc_time     AS PROCTIME(),
   -- 30s tolerance absorbs pollers whose sweeps are staggered against each other
-  WATERMARK FOR created_at AS created_at - INTERVAL '30' SECOND
+  WATERMARK FOR created_at AS created_at - INTERVAL '90' SECOND
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'raw.incidents',
@@ -117,22 +117,39 @@ FROM (
 WHERE seq = 1;
 
 -- 2. Incident lifecycle, for the Autopilot. v1 had to INFER this by correlating
---    event types; the feeds state it outright, so it is a CASE over the update's
---    own status. Intermediate states (monitoring, in progress) signal nothing —
---    firing on those would re-brief the same incident repeatedly.
+--    event types; the feeds state it outright.
+--
+--    FIRST-open and FIRST-resolve only. Deduping per UPDATE (as this used to)
+--    emitted 'opened' for every investigating/identified update, so a long
+--    incident fired the lifecycle repeatedly — the Autopilot re-claimed it on
+--    each one and only the delivery guard stopped a duplicate brief. Partitioning
+--    by (provider, incident_id) instead of (.., update_id) means one open and one
+--    resolve per incident, which is what the surface actually means.
+--    'monitoring' counts as open: some providers never post investigating.
 INSERT INTO incident_lifecycle
-SELECT incident_id, provider AS service,
-       CASE WHEN LOWER(status) IN ('investigating', 'identified') THEN 'opened'
-            ELSE 'resolved' END AS `type`,
+SELECT incident_id, provider AS service, 'opened' AS `type`,
        created_at AS ts, incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (
-             PARTITION BY provider, incident_id, update_id
-             ORDER BY proc_time ASC) AS seq
+             PARTITION BY provider, incident_id
+             ORDER BY created_at ASC, proc_time ASC) AS seq
   FROM raw_incidents
   WHERE created_at IS NOT NULL
+    AND LOWER(status) IN ('investigating', 'identified', 'monitoring')
 )
-WHERE seq = 1
-  AND LOWER(status) IN ('investigating', 'identified', 'resolved', 'completed');
+WHERE seq = 1;
+
+INSERT INTO incident_lifecycle
+SELECT incident_id, provider AS service, 'resolved' AS `type`,
+       created_at AS ts, incident_name AS title
+FROM (
+  SELECT *, ROW_NUMBER() OVER (
+             PARTITION BY provider, incident_id
+             ORDER BY created_at ASC, proc_time ASC) AS seq
+  FROM raw_incidents
+  WHERE created_at IS NOT NULL
+    AND LOWER(status) IN ('resolved', 'completed')
+)
+WHERE seq = 1;
 
 END;

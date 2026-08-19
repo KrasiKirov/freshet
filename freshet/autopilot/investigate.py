@@ -24,10 +24,20 @@ _INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_i
 # The brief's update timeline is a DIRECT lookup, not a similarity search:
 # an incident's updates are a known, complete set, and retrieval filters only by
 # service — so a search would happily cite the provider's OTHER incidents.
+# Long updates are chunked, so DISTINCT ON (event_id) returned ONE chunk and the
+# brief never saw the rest — a cause stated in chunk 1 was invisible. Reassemble
+# the update by concatenating its chunks in order. The index is cast to int
+# because chunk_id sorts lexically otherwise, putting `_10` before `_2`.
 _INCIDENT_UPDATES_SQL = (
-    "SELECT DISTINCT ON (event_id) event_id, ts, text, service, type, source"
+    "SELECT event_id,"
+    "       max(ts) AS ts,"
+    "       string_agg(text, ' ' ORDER BY (regexp_match(chunk_id, '_(\\d+)$'))[1]::int)"
+    "         AS text,"
+    "       min(service) AS service, min(type) AS type, min(source) AS source"
     " FROM vector_records"
-    " WHERE incident_id = %s ORDER BY event_id, ts DESC")
+    " WHERE incident_id = %s"
+    " GROUP BY event_id"
+    " ORDER BY max(ts) DESC")
 
 
 @dataclass(frozen=True)

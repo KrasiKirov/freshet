@@ -122,7 +122,7 @@ class RetrievedHit:
     text: str
     type: str
     similarity: float   # measured cosine, whichever arm found the hit
-    score: float        # fused RRF score * recency weight
+    score: float        # fused RRF score (recency decay was deleted)
     # Optional and last: the chunk is always present, the incident's name is not
     # (legacy rows predate the column). Defaulting keeps every existing caller valid.
     title: str | None = None
