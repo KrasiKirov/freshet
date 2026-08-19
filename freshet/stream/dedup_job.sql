@@ -131,8 +131,15 @@ SELECT incident_id, provider AS service, 'opened' AS `type`,
        created_at AS ts, incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (
+             -- ORDER BY a SINGLE time attribute: this is what Flink recognises
+             -- as deduplication (keep-first), which is append-only and so can
+             -- feed a Kafka sink. Adding a second sort key makes it a general
+             -- Rank, whose changelog contains updates, and the sink rejects the
+             -- job outright with "doesn't support consuming update and delete
+             -- changes". proc_time (not created_at) keeps emission immediate
+             -- rather than waiting on the 90s watermark.
              PARTITION BY provider, incident_id
-             ORDER BY created_at ASC, proc_time ASC) AS seq
+             ORDER BY proc_time ASC) AS seq
   FROM raw_incidents
   WHERE created_at IS NOT NULL
     AND LOWER(status) IN ('investigating', 'identified', 'monitoring')
@@ -144,8 +151,15 @@ SELECT incident_id, provider AS service, 'resolved' AS `type`,
        created_at AS ts, incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (
+             -- ORDER BY a SINGLE time attribute: this is what Flink recognises
+             -- as deduplication (keep-first), which is append-only and so can
+             -- feed a Kafka sink. Adding a second sort key makes it a general
+             -- Rank, whose changelog contains updates, and the sink rejects the
+             -- job outright with "doesn't support consuming update and delete
+             -- changes". proc_time (not created_at) keeps emission immediate
+             -- rather than waiting on the 90s watermark.
              PARTITION BY provider, incident_id
-             ORDER BY created_at ASC, proc_time ASC) AS seq
+             ORDER BY proc_time ASC) AS seq
   FROM raw_incidents
   WHERE created_at IS NOT NULL
     AND LOWER(status) IN ('resolved', 'completed')

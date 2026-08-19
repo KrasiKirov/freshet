@@ -42,10 +42,15 @@ def test_neither_projection_can_fire_twice_for_one_incident():
         assert "WHERE seq = 1" in block, f"{kind} must keep only the first row"
 
 
-def test_the_first_row_is_chosen_by_event_time():
-    # proc_time alone would let a replayed sweep decide which update is 'first'.
+def test_the_first_row_is_chosen_by_a_single_time_attribute():
+    """Flink only recognises ROW_NUMBER as deduplication (append-only) when the
+    ORDER BY is one time attribute. Two sort keys make it a general Rank, whose
+    changelog carries updates, and the Kafka sink then refuses the job:
+    "doesn't support consuming update and delete changes"."""
     for kind in ("opened", "resolved"):
-        assert "ORDER BY created_at ASC, proc_time ASC" in _projection(kind)
+        block = _projection(kind)
+        assert "ORDER BY proc_time ASC)" in block
+        assert "created_at ASC," not in block, "a second sort key breaks the sink"
 
 
 def test_open_and_resolve_statuses_do_not_overlap():
