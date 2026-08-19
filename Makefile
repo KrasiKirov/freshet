@@ -1,5 +1,10 @@
 COMPOSE := docker compose
-PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
+# Prefer the repo's own virtualenv. Every run target imports project dependencies
+# (confluent_kafka, psycopg, ...), and a bare `python3` on PATH is the system
+# interpreter, which does not have them — so an unactivated shell failed with
+# ModuleNotFoundError. Falls back to PATH (CI installs into its own env), and
+# `make PYTHON=/path/to/python` still overrides both.
+PYTHON := $(if $(wildcard $(CURDIR)/.venv/bin/python),$(CURDIR)/.venv/bin/python,$(shell command -v python3 2>/dev/null || command -v python))
 
 .PHONY: help up down db-init test test-integration poller api autopilot
 
