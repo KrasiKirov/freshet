@@ -72,11 +72,38 @@ def summarize(streaming: list[float], batch: list[float]) -> dict:
     }
 
 
+_EMPTY_RUN_KEYS = ("streaming_mean_s", "streaming_p50_s", "streaming_p95_s",
+                   "batch_mean_s", "ratio")
+
+
+def finalize_report(report: dict) -> dict:
+    """Strip the numeric fields when nothing was scored.
+
+    n = 0 is NOT a 0.0 ratio — it is the absence of a measurement. Emitting
+    zeros invites quoting a result the run never produced, which is exactly how
+    a pipeline outage once read as "streaming is 14x slower than batch".
+    """
+    if report.get("n", 0) > 0:
+        return report
+    report["status"] = "not yet measured"
+    report["explanation"] = (
+        "No live arrivals scored: every indexed update was posted before indexing "
+        "began. Run the poller, stream and embedder together for several hours, "
+        "then re-run.")
+    for key in _EMPTY_RUN_KEYS:
+        report.pop(key, None)
+    return report
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Measure end-to-end staleness.")
     parser.add_argument("--since-minutes", type=float, default=None,
                         help="override: score updates posted within this window "
                              "instead of the automatic live-arrival filter")
+    parser.add_argument("--min-n", type=int,
+                        default=int(os.environ.get("FRESHNESS_MIN_N", "0")),
+                        help="exit non-zero if fewer than N live arrivals were "
+                             "scored; guards against reporting an empty run")
     args = parser.parse_args()
 
     from freshet.common.db import connect
@@ -120,10 +147,17 @@ def main() -> None:
         "refresh cadence: uniformly-arriving events wait interval/2 on average."
     )
 
+    report = finalize_report(report)
+
     os.makedirs("results", exist_ok=True)
     with open(RESULTS, "w") as fh:
         json.dump(report, fh, indent=2)
     print(json.dumps(report, indent=2))
+
+    if report["n"] < args.min_n:
+        raise SystemExit(
+            f"[freshness] n={report['n']} is below --min-n={args.min_n}: "
+            f"not enough live arrivals for this to be a measurement")
 
 
 if __name__ == "__main__":

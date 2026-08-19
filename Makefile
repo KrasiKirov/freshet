@@ -119,5 +119,8 @@ retrieval-eval: ##eval
 	@# Indexes the labeled fixture corpus into a DEDICATED freshet_eval database.
 	$(PYTHON) -m freshet.eval.retrieval_eval
 
+# Only meaningful after poller + stream + embedder have run together for HOURS:
+# it scores updates POSTED after indexing began, and there are only ~2/hour.
+# FRESHNESS_MIN_N=20 make freshness  -> fails instead of reporting a thin sample.
 freshness: ##eval
 	$(PYTHON) -m freshet.eval.freshness
