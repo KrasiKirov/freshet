@@ -74,12 +74,21 @@ def _impact_for(conn, incident_id: str, service: str, hits) -> str:
     return estimate_impact(services, opened_at, resolved_at, [h.text for h in hits])
 
 
+# The LLM sees a bounded window of an incident's updates. p50 is 3 updates and
+# p90 is 6, but the tail runs to 179 — one such incident sends ~58k input tokens,
+# and it is billed twice (brief, then postmortem). Deterministic extraction still
+# reads EVERY update, so a cause stated in update #1 of 179 is never missed; only
+# the narrative's evidence is capped, and the brief renders 4 updates anyway.
+MAX_NARRATIVE_UPDATES = 20
+
+
 def _summarise(updates, service: str, composer, question: str) -> str | None:
     """One narrative path for briefs and postmortems alike. Both used to have
     their own: the postmortem's bypassed citation verification entirely, so it
     could ship a fabricated citation that a brief never could."""
     if not updates:
         return None
+    updates = list(updates)[:MAX_NARRATIVE_UPDATES]   # newest first
     from freshet.rag.composer import make_composer
     composer = composer or make_composer()
     try:

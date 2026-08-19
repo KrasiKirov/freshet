@@ -252,3 +252,45 @@ def test_render_brief_shows_a_summary_and_the_cause_together():
     assert "Updates:" in text
 
 
+
+
+def test_the_narrative_sees_a_bounded_window_of_updates():
+    """p50 is 3 updates, but the tail runs to 179 — ~58k input tokens, billed
+    twice per incident. Deterministic extraction still reads every update."""
+    from freshet.autopilot.investigate import MAX_NARRATIVE_UPDATES, _summarise
+
+    seen = {}
+
+    class _C:
+        def compose(self, question, hits):
+            seen["n"] = len(list(hits))
+            return "narrative"
+
+    class _U:
+        def __init__(self, i):
+            self.event_id, self.text, self.source = f"e{i}", "text", "alert"
+            from datetime import UTC, datetime
+            self.ts = datetime.now(UTC)
+
+    _summarise([_U(i) for i in range(200)], "svc", _C(), "q")
+    assert seen["n"] == MAX_NARRATIVE_UPDATES == 20
+
+
+def test_a_short_incident_is_not_padded_or_truncated():
+    from freshet.autopilot.investigate import _summarise
+
+    seen = {}
+
+    class _C:
+        def compose(self, question, hits):
+            seen["n"] = len(list(hits))
+            return "narrative"
+
+    class _U:
+        def __init__(self, i):
+            self.event_id, self.text, self.source = f"e{i}", "t", "alert"
+            from datetime import UTC, datetime
+            self.ts = datetime.now(UTC)
+
+    _summarise([_U(i) for i in range(3)], "svc", _C(), "q")
+    assert seen["n"] == 3
