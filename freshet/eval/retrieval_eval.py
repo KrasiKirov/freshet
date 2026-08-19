@@ -270,8 +270,15 @@ def _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder) -> None:
     from freshet.common.db import connect
 
     labels = json.loads(LIVE_LABELS.read_text())
-    if labels.get("curated") != "reviewed":
-        print(f"WARNING: {LIVE_LABELS.name} is DRAFT (LLM-judged, not human-reviewed) — "
+    state = labels.get("curated")
+    if state == "assistant-reviewed":
+        r = labels.get("_review", {})
+        print(f"NOTE: {LIVE_LABELS.name} was reviewed by the assistant, not a human: "
+              f"{len(r.get('rejected_not_a_cause', []))} rejected as non-causes, "
+              f"{len(r.get('collapsed_identical_cause', []))} collapsed as duplicates. "
+              f"A human sign-off is still outstanding.")
+    elif state != "reviewed":
+        print(f"WARNING: {LIVE_LABELS.name} is DRAFT (LLM-judged, unreviewed) — "
               f"treat these numbers as indicative only")
     conn = connect()
     embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))

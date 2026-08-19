@@ -1,44 +1,44 @@
 {
   "source": "live index",
   "corpus": {
-    "labeled": 81,
-    "providers": 28,
-    "curated": "draft"
+    "labeled": 64,
+    "providers": 25,
+    "curated": "assistant-reviewed"
   },
   "arms": {
     "hybrid": {
-      "recall@5": 0.654,
-      "mrr": 0.462,
-      "top1_cite": 0.346,
-      "n": 81
+      "recall@5": 0.422,
+      "mrr": 0.235,
+      "top1_cite": 0.141,
+      "n": 64
     },
     "vector_only": {
-      "recall@5": 0.63,
-      "mrr": 0.461,
-      "top1_cite": 0.358,
-      "n": 81
+      "recall@5": 0.391,
+      "mrr": 0.241,
+      "top1_cite": 0.156,
+      "n": 64
     },
     "keyword_only": {
-      "recall@5": 0.556,
-      "mrr": 0.36,
-      "top1_cite": 0.235,
-      "n": 81
+      "recall@5": 0.234,
+      "mrr": 0.146,
+      "top1_cite": 0.094,
+      "n": 64
     },
     "blind_recent": {
       "recall@5": 0.0,
       "mrr": 0.0,
       "top1_cite": 0.0,
-      "n": 81
+      "n": 64
     }
   },
   "gameability_guard": {
     "blind_recall@5": 0.0,
-    "hybrid_minus_blind": 0.654,
+    "hybrid_minus_blind": 0.422,
     "verdict": "meaningful"
   },
   "abstention": {
-    "on_corpus_abstained": 13,
-    "on_corpus_total": 81,
+    "on_corpus_abstained": 33,
+    "on_corpus_total": 64,
     "off_corpus_abstained": 6,
     "off_corpus_total": 6
   }

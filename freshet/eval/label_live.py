@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 
 from freshet.autopilot.brief import _CAUSE_MARKERS, _cause_sentence
 
@@ -45,10 +46,66 @@ _JUDGE = (
     "Reply with exactly one word: YES or NO."
 )
 _QUESTION = (
-    "Write the question an on-call engineer would ask about this incident, "
-    "given only its title. One sentence, no preamble, and do NOT invent "
-    "details beyond the title."
+    "Write the question an on-call engineer asks when they want to know WHY an "
+    "incident happened. One sentence, natural, no preamble. Use only the incident "
+    "title given — never invent specifics beyond it."
 )
+
+# Questions generated from a title reuse the title's words, and every indexed
+# chunk carries that title as a prefix — so the lexical arm matches on wording
+# rather than meaning, and its score is flattered. A paraphrase describes the same
+# symptom in DIFFERENT words: the service may be named (an engineer knows which
+# product they are asking about) but the title's distinctive terms may not be.
+_PARAPHRASE = (
+    "Write the question an on-call engineer asks when they want to know WHY an "
+    "incident happened.\n\n"
+    "CONSTRAINT: describe the symptom in YOUR OWN WORDS. You may name the service. "
+    "Do NOT reuse the distinctive nouns, verbs or adjectives from the title — use "
+    "synonyms or a plain-language description of the same problem.\n\n"
+    "One sentence, natural, no preamble, no invented specifics."
+)
+
+_STOPWORDS = frozenset(["a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can", "could", "did", "do", "does", "for", "from", "had", "has", "have", "how", "in", "into", "is", "it", "its", "may", "might", "of", "on", "or", "our", "so", "than", "that", "the", "their", "there", "these", "they", "this", "to", "was", "were", "what", "when", "where", "which", "who", "why", "will", "with", "would", "you", "your", "some", "not", "no"])
+
+
+def content_words(text: str) -> set[str]:
+    """Lowercased content words: the tokens a lexical arm can actually match on."""
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower())
+            if w not in _STOPWORDS and len(w) > 2}
+
+
+def lexical_overlap(query: str, title: str, service: str = "") -> float:
+    """Fraction of the title's content words the query reuses.
+
+    The service name is excluded: naming the product you are asking about is
+    realistic, not leakage. Everything else is the wording we want paraphrased away.
+    """
+    title_words = content_words(title) - content_words(service)
+    if not title_words:
+        return 0.0
+    return round(len(title_words & content_words(query)) / len(title_words), 3)
+
+
+def paraphrase_query(client, model: str, title: str, service: str,
+                     max_overlap: float = 0.25, attempts: int = 3) -> tuple[str, float]:
+    """Generate a question that avoids the title's vocabulary, and VERIFY it did.
+
+    The model is asked to paraphrase, then the result is measured; a prompt alone
+    is not evidence of compliance. The best of `attempts` is returned even if none
+    clears the bar, so a stubborn title degrades one query rather than the run.
+    """
+    best, best_overlap = "", 1.0
+    for _ in range(attempts):
+        r = client.messages.create(model=model, max_tokens=90, system=_PARAPHRASE,
+                                   messages=[{"role": "user", "content":
+                                              f"Service: {service}\nTitle: {title}"}])
+        q = next((b.text for b in r.content if b.type == "text"), "").strip()
+        overlap = lexical_overlap(q, title, service)
+        if overlap < best_overlap:
+            best, best_overlap = q, overlap
+        if overlap <= max_overlap:
+            break
+    return best, best_overlap
 
 
 def candidates(conn, limit: int | None = None) -> list[dict]:

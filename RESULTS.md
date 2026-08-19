@@ -43,14 +43,36 @@ unfalsifiable. Two corpora, both real provider text — no synthetic data:
 | labeled | **12**, human-reviewed | **81**, LLM-judged (draft) |
 | reproducible anywhere | yes | no — needs a populated index |
 
-**Live index, n = 81** — the larger sample, and the one that separates the arms:
+**Live index, n = 64**, questions PARAPHRASED to avoid the incident title's
+vocabulary (mean title-word reuse 0.710 -> 0.100, measured per query, not assumed):
 
 | arm | recall@5 | MRR | top-1 cite |
 |---|---|---|---|
-| **hybrid (shipped)** | **0.654** | 0.462 | 0.346 |
-| vector-only | 0.630 | 0.461 | **0.358** |
-| keyword-only | 0.556 | 0.360 | 0.235 |
+| **hybrid (shipped)** | **0.422** | 0.235 | 0.141 |
+| vector-only | 0.391 | 0.241 | 0.156 |
+| keyword-only | 0.234 | 0.146 | 0.094 |
 | *blind recency (guard)* | *0.000* | *0.000* | *0.000* |
+
+**What paraphrasing exposed.** Scored on title-derived questions the same system
+reported hybrid 0.750 and keyword-only 0.719 — a 0.031 gap that made the lexical arm
+look nearly sufficient on its own. Removing the shared vocabulary collapsed
+keyword-only to 0.234 (-0.485) while vector-only fell far less (-0.281), and hybrid's
+margin over keyword-only widened from 0.031 to 0.188. Most of the lexical arm's
+apparent skill was the question quoting the document.
+
+This is the honest difficulty of the task: find the one cause-stating update among
+~5,100 indexed updates, from a question that shares no wording with it. It is not
+comparable to v1's 0.917, which was measured on title-derived questions over 841
+updates from 5 providers.
+
+**The finding worth acting on: 33 of 64 questions now abstain** (was 6 of 64). On
+genuinely paraphrased on-call language, the calibrated 0.70 floor declines more than
+half the questions it has evidence for. That is a real result about the floor, not
+about the corpus, and it is left as measured rather than tuned away.
+
+**Hybrid still leads on recall@5**, but its margin over vector-only is now 0.031 and
+MRR slightly favours vector-only (0.241 vs 0.235) — indistinguishable at n = 64. The
+strong claim for hybrid is over the lexical arm, not over dense retrieval.
 
 **Frozen fixture, n = 12**: hybrid 0.917 / 0.583 / 0.417 — statistically identical to
 v1's 0.917 / 0.576 / 0.417 on the same corpus, which is the check that v2's retrieval
@@ -67,13 +89,19 @@ rule can win is treated as void. It scores 0.000 here.
 live set (the system declines 16% of labeled questions), and 6/6 off-corpus questions
 abstain.
 
-**Honest limits.** The live labels are `curated: draft`: candidates are shortlisted by
-cause marker, then an LLM judges whether each update NAMES a cause (it never sees the
-query or the ranking), and each question is generated from the incident TITLE alone so
-it cannot encode which update is the answer. Spot-checking shows real errors — at least
-one symptom restatement labeled as a cause, and several questions that ask about
-symptoms rather than causes. 0.654 is therefore a floor, not a clean measurement, until
-the labels are human-reviewed.
+**How the live labels were built.** Candidates are shortlisted by cause marker, then an
+LLM judges whether each update NAMES a cause — it never sees the query or the ranking,
+so it cannot leak an answer into the metric. Each question is generated from the
+incident TITLE alone, so it cannot encode which update is correct. The judge was
+validated first on the six cases keyword matching gets wrong ("The root cause has been
+fixed" names nothing; "triggered by date time triggers" is a false match) and scored
+6/6 before being trusted with the corpus.
+
+**Honest limits.** The labels are `curated: assistant-reviewed` — reviewed against the
+criterion above, but not signed off by a human, and the reviewer is the same system
+that produced them. Every rejection and collapse is recorded in `_review` so the calls
+are auditable. Weak-but-kept causes remain ("This was caused by a database impairment"
+names little), and title-derived questions flatter the lexical arm.
 
 ## Measured on the live pipeline
 

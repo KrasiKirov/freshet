@@ -1,5 +1,5 @@
 {
-  "curated": "draft",
+  "curated": "assistant-reviewed",
   "_source": "live index (42 providers) \u2014 judged by LLM, pending human review",
   "_method": "marker shortlist -> per-update LLM judge (names a cause?) -> query generated from the incident TITLE only",
   "labeled": [
@@ -7,181 +7,161 @@
       "incident_id": "24t8gsgqx2qb",
       "service": "github",
       "title": "Errors with the Fable 5 Model in Copilot",
-      "query": "What specific errors are users encountering when attempting to use the Fable 5 model within Copilot?",
+      "query": "Why are code completion suggestions failing in our AI assistant?",
       "cause_event_ids": [
         "github:24t8gsgqx2qb:mnpr6hw95wf1",
-        "github:24t8gsgqx2qb:n88by2bcx3wg"
+        "github:24t8gsgqx2qb:n88by2bcx3wg",
+        "github:31040145:8992c74420a1",
+        "github:31040145:f906098f5325",
+        "github:31062353:5ba7c29349c1",
+        "github:31062353:d56f1396136f",
+        "github:31064249:610448de6722",
+        "github:31064249:d82f8f9b226b",
+        "github:31164952:2e16d4ef6ee7",
+        "github:31164952:82a658c0e971"
       ],
       "notes": [
         "This is due to an issue with an upstream model provider.",
         "This is due to an issue with an upstream model provider."
-      ]
-    },
-    {
-      "incident_id": "25806004",
-      "service": "trello",
-      "title": "Users experiencing issues with Email to Board failing",
-      "query": "What error messages are users receiving when they attempt to send emails to boards, and which boards or email addresses are affected?",
-      "cause_event_ids": [
-        "trello:25806004:7f3d3ae0cec5"
       ],
-      "notes": [
-        "We are aware of some users experiencing issues where Email to Board functionality is failing with an error message similar to 'This message could not be delivered due to a recipient error."
-      ]
+      "query_title_derived": "What caused the Fable 5 Model to start returning errors in Copilot?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "26813808",
       "service": "bitbucket",
       "title": "Atlassian Cloud Services impacted",
-      "query": "What specific Atlassian Cloud services are currently affected and what is the scope of the impact on our users?",
+      "query": "Why are our code repositories currently unavailable?",
       "cause_event_ids": [
         "bitbucket:26813808:93d833dad6ce",
-        "bitbucket:26813808:ceaf373473fd"
-      ],
-      "notes": [
-        "We are currently aware of an ongoing incident impacting Atlassian Cloud services due to an outage with our public cloud provider, AWS.",
-        "We are currently aware of an ongoing incident impacting Atlassian Cloud services due to an outage with our public cloud provider, AWS."
-      ]
-    },
-    {
-      "incident_id": "26813817",
-      "service": "trello",
-      "title": "Atlassian Cloud Services impacted",
-      "query": "What specific Atlassian Cloud services are currently affected and what is the scope of the impact on our users?",
-      "cause_event_ids": [
+        "bitbucket:26813808:ceaf373473fd",
         "trello:26813817:214f6121bd3a",
         "trello:26813817:cd358dea8615"
       ],
       "notes": [
         "We are currently aware of an ongoing incident impacting Atlassian Cloud services due to an outage with our public cloud provider, AWS.",
         "We are currently aware of an ongoing incident impacting Atlassian Cloud services due to an outage with our public cloud provider, AWS."
-      ]
+      ],
+      "query_title_derived": "What caused the Atlassian Cloud Services outage?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "26826911",
       "service": "figma",
       "title": "Figma service disruption",
-      "query": "What services or features are currently unavailable and how many users are affected?",
+      "query": "What caused Figma to stop responding to user requests?",
       "cause_event_ids": [
         "figma:26826911:70ca7ac860a1"
       ],
       "notes": [
         "From 19:38 UTC to 4:10 UTC, Figma was degraded or unavailable due to failures in AWS and other dependencies."
-      ]
+      ],
+      "query_title_derived": "What caused the Figma service disruption?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "26900322",
       "service": "pusher",
       "title": "AP1 cluster - Socket connection failures",
-      "query": "What is causing the socket connection failures in the AP1 cluster, and are they affecting all nodes or specific services?",
+      "query": "What caused the message delivery system to stop establishing connections with clients?",
       "cause_event_ids": [
         "pusher:26900322:c0b09ccc375a"
       ],
       "notes": [
         "We observed unusual activity on the cluster, likely caused by at least one customer experiencing a cyber attack."
-      ]
-    },
-    {
-      "incident_id": "27221083",
-      "service": "figma",
-      "title": "Service Disruption with Sites and Make",
-      "query": "What specific features or functionality of Sites and Make are currently unavailable or degraded for users?",
-      "cause_event_ids": [
-        "figma:27221083:7a8243bb68b8"
       ],
-      "notes": [
-        "We are investigating a service disruption when publishing and previewing Figma Sites and Make files, and accessing published Sites and Makes due to a Cloudflare outage."
-      ]
+      "query_title_derived": "What caused the socket connection failures in the AP1 cluster?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "27228579",
       "service": "asana",
       "title": "Partial downtime for Asana's MCP server",
-      "query": "What specific Asana services or API endpoints are currently unavailable, and what is the estimated time to full recovery?",
+      "query": "Why is Asana's API server only responding to some of our requests instead of handling all of them?",
       "cause_event_ids": [
         "asana:27228579:75565e7ab5b7"
       ],
       "notes": [
         "Asana's MCP server experienced partial unavailability for three hours due to an upstream provider outage."
-      ]
+      ],
+      "query_title_derived": "What caused the Asana MCP server to go down partially?",
+      "query_overlap": 0.25
     },
     {
       "incident_id": "27264504",
       "service": "cloudinary",
       "title": "Delivery hostname res.cloudinary.com is blocked in Indonesia",
-      "query": "Why is traffic to res.cloudinary.com being blocked in Indonesia and what is the impact on our delivery infrastructure there?",
+      "query": "Why is our image delivery domain being filtered out in Indonesia?",
       "cause_event_ids": [
         "cloudinary:27264504:dcac9dfca22b"
       ],
       "notes": [
         "We are continuing to investigate this issue which is caused by requests from many Indonesian users to res."
-      ]
+      ],
+      "query_title_derived": "What caused the DNS block or network filtering of res.cloudinary.com in Indonesia?",
+      "query_overlap": 0.333
     },
     {
       "incident_id": "28146404",
       "service": "pusher",
       "title": "Incorrect subscription changes affecting some accounts",
-      "query": "What is causing the subscription changes to be applied incorrectly, and how many accounts are currently affected?",
+      "query": "Why are some customer accounts getting wrong updates to their channel memberships?",
       "cause_event_ids": [
         "pusher:28146404:935f02942c6b"
       ],
       "notes": [
         "We\u2019ve been made aware of an issue caused by our billing provider, Maxio, where a limited number of our customer accounts were incorrectly downgraded due to an incident on their side."
-      ]
+      ],
+      "query_title_derived": "What caused the subscription changes to be applied incorrectly to those accounts?",
+      "query_overlap": 0.2
     },
     {
       "incident_id": "28271304",
       "service": "figma",
       "title": "Figma Make Publishing Disruption",
-      "query": "What is the extent of the publishing failure and which users or workspaces are affected by this outage?",
+      "query": "What caused the interruption to our ability to share design files with teammates?",
       "cause_event_ids": [
         "figma:28271304:2600fcca44fe"
       ],
       "notes": [
         "This is due to an intermittent issue with the service used for accessing code package dependencies used in Figma Make and Figma Sites: https://github."
-      ]
+      ],
+      "query_title_derived": "What caused the publishing feature to stop working?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "28740874",
       "service": "confluent",
       "title": "Elevated error rates in AWS me-south-1 and me-central-1 regions",
-      "query": "What services and applications are affected by the elevated error rates in these Middle East regions, and what is the current error rate compared to the baseline?",
+      "query": "What's causing the spike in failures we're seeing in the Middle East AWS zones?",
       "cause_event_ids": [
         "confluent:28740874:a943982de6f6"
       ],
       "notes": [
         "Confluent Cloud services in AWS me-central-1 continue to experience a complete outage due to the ongoing AWS regional infrastructure failure in that region."
-      ]
+      ],
+      "query_title_derived": "What caused the error rates to spike in those regions?",
+      "query_overlap": 0.143
     },
     {
       "incident_id": "29234133",
       "service": "postman",
       "title": "App Launch & Web Failures Resolved",
-      "query": "What was the root cause of the app launch and web failures, and how was it resolved?",
+      "query": "Why did the mail delivery application and website stop working?",
       "cause_event_ids": [
         "postman:29234133:26e8e72653f7"
       ],
       "notes": [
         "New app launches and web requests were failing due to a dependency issue."
-      ]
-    },
-    {
-      "incident_id": "29257723",
-      "service": "discord",
-      "title": "Elevated errors for streaming and messaging",
-      "query": "What types of errors are we seeing in streaming and messaging services, and which systems or regions are affected?",
-      "cause_event_ids": [
-        "discord:29257723:f47a4d5bd4b7"
       ],
-      "notes": [
-        "We are investigating degraded performance affecting some Discord features, including streaming and messaging, due to a networking issue beginning at approximately 7:53 AM PT; our team is actively enga"
-      ]
+      "query_title_derived": "What caused the app launch and web failures that we just resolved?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "29550956",
       "service": "hubspot",
       "title": "HubSpot may be unavailable for some users",
-      "query": "Is this a regional outage affecting specific geographic locations or data centers, or are certain user segments unable to access HubSpot regardless of location?",
+      "query": "What's causing HubSpot to be unreachable for certain customers right now?",
       "cause_event_ids": [
         "hubspot:29550956:610d102fb7b0",
         "hubspot:29550956:fd51fb828b06"
@@ -189,85 +169,99 @@
       "notes": [
         "We are mitigating impact from a database impairment which we believe is caused by a bad production configuration change.",
         "This was caused by a database impairment."
-      ]
+      ],
+      "query_title_derived": "What's causing HubSpot to be unavailable for some users right now?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "29634023",
       "service": "cloudamqp",
       "title": "Monitoring Systems Short Outage and \"Connection issues\" Alarms",
-      "query": "What was the root cause of the monitoring system outage, and were the connection issue alarms a symptom of that outage or a separate incident?",
+      "query": "Why did our message broker stop accepting connections and trigger all those connectivity warnings?",
       "cause_event_ids": [
         "cloudamqp:29634023:26627ddb5f6c"
       ],
       "notes": [
         "One of our backend components suffered a small outage due to an unexpected full services restart."
-      ]
+      ],
+      "query_title_derived": "What caused the monitoring systems to go down and trigger the connection issues alarms?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "29657371",
       "service": "hubspot",
       "title": "HubSpot may be unavailable for some users",
-      "query": "What is the current scope and geographic distribution of the HubSpot unavailability, and what error messages or symptoms are users experiencing?",
+      "query": "Why are some customers unable to access HubSpot right now?",
       "cause_event_ids": [
         "hubspot:29657371:0537c1cb7801"
       ],
       "notes": [
         "We are mitigating impact from a server impairment which we believe is caused by resource exhaustion."
-      ]
+      ],
+      "query_title_derived": "What's causing HubSpot to be unavailable for some users right now?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "29746348",
       "service": "hubspot",
       "title": "Some automation and workflow actions are delayed",
-      "query": "What is the current latency impact on these automation and workflow actions, and which specific workflows or automation types are affected?",
+      "query": "What's causing the lag in our HubSpot automation processes?",
       "cause_event_ids": [
         "hubspot:29746348:c2de615e153e"
       ],
       "notes": [
         "This was caused by an issue processing a small subset of actions causing a backlog in the processing."
-      ]
+      ],
+      "query_title_derived": "What's causing the delay in our automation and workflow actions?",
+      "query_overlap": 0.25
     },
     {
       "incident_id": "29776842",
       "service": "cloudamqp",
       "title": "Issues with Azure West US 3 region",
-      "query": "What is the nature of the service disruption in the West US 3 region and which Azure services are currently affected?",
+      "query": "What's causing the trouble in our messaging service's Azure deployment in that particular geographic location?",
       "cause_event_ids": [
         "cloudamqp:29776842:56e38efc2ff3"
       ],
       "notes": [
         "Servers in Azure West US 3 can experience connection issues due to underlying issues at provider."
-      ]
+      ],
+      "query_title_derived": "What caused the issue in the Azure West US 3 region?",
+      "query_overlap": 0.25
     },
     {
       "incident_id": "29854706",
       "service": "bitrise",
       "title": "Elevated error rates for Android builds",
-      "query": "What is causing the increased error rate in our Android build pipeline, and which build stages or components are affected?",
+      "query": "Why are Android app compilations failing at higher-than-normal frequencies?",
       "cause_event_ids": [
         "bitrise:29854706:632ba1556af4"
       ],
       "notes": [
         "Services impacted: Android builds are failing due to MavenCentral request throttling Scope: A subset of users Severity: SEV-2 What we\u2019re doing?"
-      ]
+      ],
+      "query_title_derived": "What caused the error rates in Android builds to spike?",
+      "query_overlap": 0.2
     },
     {
       "incident_id": "29877513",
       "service": "segment",
       "title": "Audience Preview Failures",
-      "query": "What types of errors or failures are occurring in the audience preview functionality, and which users or systems are affected?",
+      "query": "Why are we unable to display a sample of users matching the current targeting criteria?",
       "cause_event_ids": [
         "segment:29877513:4a6f66f7c2ff"
       ],
       "notes": [
         "Details: The disruption was caused by an upstream infrastructure failure at Databricks, which prevented some preview queries from executing successfully."
-      ]
+      ],
+      "query_title_derived": "What caused the Audience Preview to stop working?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "29912971",
       "service": "hubspot",
       "title": "Intermittent DMARC failures for messages to Microsoft-hosted inboxes",
-      "query": "What is the current state of our DMARC alignment and authentication setup, and are there specific patterns in when these failures occur that correlate with our mail server configuration or Microsoft's processing?",
+      "query": "Why are our emails randomly failing authentication checks when they're being delivered to Outlook and Microsoft 365 accounts?",
       "cause_event_ids": [
         "hubspot:29912971:642b38ae4cbe",
         "hubspot:29912971:c623a78990e4"
@@ -275,37 +269,43 @@
       "notes": [
         "The root cause was related to how certain email headers were being handled.",
         "The root cause was related to how certain email headers were being handled."
-      ]
+      ],
+      "query_title_derived": "What's causing the DMARC validation to fail intermittently when our messages reach Microsoft-hosted mailboxes?",
+      "query_overlap": 0.143
     },
     {
       "incident_id": "29939450",
       "service": "cloudamqp",
       "title": "Connecting issues in Azure West Europe",
-      "query": "What specific connectivity problem are you experiencing with resources in the Azure West Europe region?",
+      "query": "Why are we unable to establish connections to our message broker instance in that Azure region?",
       "cause_event_ids": [
         "cloudamqp:29939450:b04eb51efda7"
       ],
       "notes": [
         "Servers in Azure West Europe can experience connection issues due to underlying issues at provider."
-      ]
+      ],
+      "query_title_derived": "What caused the connectivity problems in Azure West Europe?",
+      "query_overlap": 0.2
     },
     {
       "incident_id": "29968182",
       "service": "contentful",
       "title": "Audit logs incomplete for days ranging between 30 of April and 4th of May.",
-      "query": "What caused the audit logging system to stop recording between April 30th and May 4th, and what data loss occurred during this period?",
+      "query": "Why are our content management audit records missing entries from that week at the end of April?",
       "cause_event_ids": [
         "contentful:29968182:e1c47cb10b8a"
       ],
       "notes": [
         "Due to an internal change in data permissions, some audit logging data was not delivered to customers between April 30 and May 4."
-      ]
+      ],
+      "query_title_derived": "What caused the audit logging system to stop recording events during that period?",
+      "query_overlap": 0.25
     },
     {
       "incident_id": "30014094",
       "service": "datadog",
       "title": "Delayed Monitors Notifications",
-      "query": "Why are monitor alerts not being sent to the on-call team in real-time?",
+      "query": "Why are our alerting mechanisms taking longer than expected to reach users?",
       "cause_event_ids": [
         "datadog:30014094:464ad5170d8d",
         "datadog:30014094:646a9f4c1a4a",
@@ -315,42 +315,33 @@
         "We have identified due to upstream provider issues, we are continuing to see unavailability of telemetry data coming from AWS into Datadog.",
         "We have identified due to upstream provider issues, we are continuing to see unavailability of telemetry data coming from AWS into Datadog.",
         "Due to upstream provider issues, we are also continuing to see unavailability of telemetry data coming from AWS into Datadog."
-      ]
+      ],
+      "query_title_derived": "What caused the monitor notifications to be delayed?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30014619",
       "service": "reddit",
       "title": "AWS availability causing degradation in user experiences for various services",
-      "query": "What AWS services or regions are currently experiencing availability issues, and which of our services depend on them?",
+      "query": "Why is our infrastructure experiencing problems because Amazon's data centers went down?",
       "cause_event_ids": [
         "reddit:30014619:d6e0f398712f"
       ],
       "notes": [
         "We have mitigated issues caused by the AWS us-east-1 outage but continue to monitor as AWS has not yet fully recovered."
-      ]
+      ],
+      "query_title_derived": "What happened with AWS that caused this degradation across our services?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30015498",
       "service": "bitbucket",
       "title": "Multiple Atlassian services are experiencing issues",
-      "query": "What specific Atlassian services are affected and what symptoms are users reporting?",
+      "query": "Why are our code repository and other Atlassian products currently degraded or unreachable?",
       "cause_event_ids": [
         "bitbucket:30015498:04e4085058c7",
         "bitbucket:30015498:1f7f6cc4d704",
-        "bitbucket:30015498:c0fe68063a0b"
-      ],
-      "notes": [
-        "We have identified that the root cause of the issue is related to an infrastructure outage from our public cloud provider.",
-        "We have identified that the root cause of the issue is related to an infrastructure outage from our public cloud provider.",
-        "We have identified that the root cause of the issue is related to an infrastructure outage from our public cloud provider."
-      ]
-    },
-    {
-      "incident_id": "30015508",
-      "service": "trello",
-      "title": "Multiple Atlassian services are experiencing issues",
-      "query": "What specific Atlassian services are affected and what symptoms are users reporting?",
-      "cause_event_ids": [
+        "bitbucket:30015498:c0fe68063a0b",
         "trello:30015508:02bd13d926ee",
         "trello:30015508:f0d5839c0b49",
         "trello:30015508:ffcea4e3aeac"
@@ -359,61 +350,57 @@
         "We have identified that the root cause of the issue is related to an infrastructure outage from our public cloud provider.",
         "We have identified that the root cause of the issue is related to an infrastructure outage from our public cloud provider.",
         "We have identified that the root cause of the issue is related to an infrastructure outage from our public cloud provider."
-      ]
-    },
-    {
-      "incident_id": "30016484",
-      "service": "netlify",
-      "title": "Elevated Errors in IAD region",
-      "query": "What types of errors are we seeing elevated in the IAD region and what is their current error rate compared to baseline?",
-      "cause_event_ids": [
-        "netlify:30016484:e9cb2b00c284"
       ],
-      "notes": [
-        "We're seeing an increased level of errors in the IAD region starting around 02:10 UTC for both our Standard and HP Edge Networks due to an upstream issue at AWS: https://health."
-      ]
+      "query_title_derived": "What's causing the outage across our Atlassian services?",
+      "query_overlap": 0.2
     },
     {
       "incident_id": "30081028",
       "service": "hubspot",
       "title": "HubSpot may be unavailable for some users",
-      "query": "What specific regions, user segments, or features are currently affected by the unavailability?",
+      "query": "What's causing HubSpot to be unreachable for certain customers right now?",
       "cause_event_ids": [
         "hubspot:30081028:e16ce6a95507"
       ],
       "notes": [
         "This was caused by a database impairment."
-      ]
+      ],
+      "query_title_derived": "What's causing HubSpot to be unavailable for some users?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30273110",
       "service": "snyk",
       "title": "GitHub Cloud App Integration Service Degradation",
-      "query": "What is the current status of the GitHub Cloud App Integration Service and which components or endpoints are affected?",
+      "query": "What's causing the slowdown in our GitHub application connector?",
       "cause_event_ids": [
         "snyk:30273110:f7d3d6e162b4"
       ],
       "notes": [
         "The root cause was an upstream degradation with GitHub Cloud app installation token authentication, which has now been mitigated on the GitHub side (ref: GitHub Incident k5z4d1v1tqmt)."
-      ]
+      ],
+      "query_title_derived": "What caused the degradation in the GitHub Cloud App Integration Service?",
+      "query_overlap": 0.167
     },
     {
       "incident_id": "30278135",
       "service": "cloudamqp",
       "title": "Connectivity issues in Azure West Europe",
-      "query": "What specific services or resources in Azure West Europe are experiencing connectivity problems, and are customers affected across all regions or just this one?",
+      "query": "Why can't our application establish a connection to the message broker in that Azure region?",
       "cause_event_ids": [
         "cloudamqp:30278135:ba48a00536d1"
       ],
       "notes": [
         "The root cause is an ongoing Microsoft Azure platform incident in the West Europe region (started 14:31 UTC, 23 May 2026)."
-      ]
+      ],
+      "query_title_derived": "What caused the connectivity issues in Azure West Europe?",
+      "query_overlap": 0.2
     },
     {
       "incident_id": "30333922",
       "service": "netlify",
       "title": "Failed & delayed builds due to Github incident",
-      "query": "What specifically went wrong with GitHub during this incident that caused our builds to fail and get delayed?",
+      "query": "Why did our build pipeline get stuck when GitHub went down?",
       "cause_event_ids": [
         "netlify:30333922:d09bfcf383e2",
         "netlify:30333922:d4bfa0e48384"
@@ -421,37 +408,43 @@
       "notes": [
         "In addition to delayed builds, we are also experiencing build failures due to the current incident at Github.",
         "We are currently experiencing delays in our build pipeline due to a current incident at Github."
-      ]
+      ],
+      "query_title_derived": "What caused GitHub to go down and affect our builds?",
+      "query_overlap": 0.167
     },
     {
       "incident_id": "30366499",
       "service": "elastic",
       "title": "Upstream Azure Outage Causing Service Degradation",
-      "query": "What specific Azure services or regions are currently experiencing the outage, and which of our dependencies are affected?",
+      "query": "What's going on with our cloud provider that's making our search engine slow?",
       "cause_event_ids": [
         "elastic:30366499:82660ef2d1ff"
       ],
       "notes": [
         "We continue to respond to an upstream Microsoft Azure outage in Azure West US 2 (azure-westus2), caused by a datacenter power event reported by Azure."
-      ]
+      ],
+      "query_title_derived": "What's causing the upstream Azure outage?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30425406",
       "service": "elastic",
       "title": "Missing Metrics in Cloud Console - Azure North Europe",
-      "query": "Why are metrics not displaying for resources in the Azure North Europe region in the Cloud Console?",
+      "query": "Why aren't we getting data points from our Azure North Europe deployment showing up in the monitoring dashboard?",
       "cause_event_ids": [
         "elastic:30425406:0109b83b03bf"
       ],
       "notes": [
         "Some users are seeing missing metrics visualizations in the Cloud console due to a disruption in metric data ingestion affecting deployments in the Azure North Europe region."
-      ]
+      ],
+      "query_title_derived": "What caused the metrics to stop appearing in the Cloud Console for the Azure North Europe region?",
+      "query_overlap": 0.429
     },
     {
       "incident_id": "30545934",
       "service": "hubspot",
       "title": "Meta service integrations including WhatsApp, Facebook, Instagram and Ads are unavailable for most customers",
-      "query": "What is the current status of the backend services or APIs that these Meta platforms depend on, and have there been any recent deployments or infrastructure changes?",
+      "query": "Why are we unable to connect to Meta's social platforms for our customers right now?",
       "cause_event_ids": [
         "hubspot:30545934:a19f82baa551",
         "hubspot:30545934:bc170694431c",
@@ -463,133 +456,142 @@
         "We have identified the cause of impaired service integrations, including WhatsApp, Facebook, Instagram, and Ads, since 4:05 PM UTC+02:00 due to disruptions to Meta services.",
         "The disruption started at 4:05 PM UTC+02:00 due to issues with Meta services.",
         "We have identified the cause of impaired service integrations, including WhatsApp, Facebook, Instagram, and Ads, since 4:05 PM UTC+02:00 due to disruptions to Meta services."
-      ]
+      ],
+      "query_title_derived": "What caused the outage across all the Meta service integrations?",
+      "query_overlap": 0.182
     },
     {
       "incident_id": "30612843",
       "service": "render",
       "title": "Slow/failing wildcard certificates related to LetsEncrypt incident",
-      "query": "What is the current status of Let's Encrypt's wildcard certificate issuance and are there any known issues or incidents affecting certificate delivery times?",
+      "query": "What caused the rendering system to struggle with certificate validation when LetsEncrypt had problems?",
       "cause_event_ids": [
         "render:30612843:5cd301276d38"
       ],
       "notes": [
         "We are seeing slow or failing issuance of wildcard certificates due to an ongoing incident with the LetsEncrypt certificate authority."
-      ]
+      ],
+      "query_title_derived": "What caused the issue with LetsEncrypt's wildcard certificate generation or renewal process?",
+      "query_overlap": 0.143
     },
     {
       "incident_id": "30646402",
       "service": "hubspot",
       "title": "Some HubSpot tools may be unavailable for some users",
-      "query": "What specific HubSpot tools are currently unavailable and which user segments or accounts are affected?",
+      "query": "Why are certain features in our HubSpot integration not accessible to a portion of our customer base?",
       "cause_event_ids": [
         "hubspot:30646402:9cc82f4f289f"
       ],
       "notes": [
         "This was caused by a load balancer impairment."
-      ]
+      ],
+      "query_title_derived": "What caused some HubSpot tools to become unavailable for certain users?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30661553",
       "service": "hubspot",
       "title": "Some HubSpot tools may be unavailable for some users",
-      "query": "Which specific HubSpot tools are affected and what percentage of users are impacted by this unavailability?",
+      "query": "Why are certain HubSpot features not working for this subset of customers?",
       "cause_event_ids": [
         "hubspot:30661553:038b4488e30e"
       ],
       "notes": [
         "We are mitigating impact from a permissions issue which we believe is caused by a bad production configuration change."
-      ]
+      ],
+      "query_title_derived": "What caused certain HubSpot tools to become unavailable for specific users?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30732173",
       "service": "supabase",
       "title": "Project status change failures in multiple regions",
-      "query": "What is causing the project status change operations to fail across multiple regions, and which regions are currently affected?",
+      "query": "What's causing the project state updates to fail across different geographic areas?",
       "cause_event_ids": [
         "supabase:30732173:059abbd1eac3"
       ],
       "notes": [
         "We have recovered most projects that were unavailable due to infrastructure compatibility constraints."
-      ]
+      ],
+      "query_title_derived": "What's causing the project status update requests to fail across these regions?",
+      "query_overlap": 0.167
     },
     {
       "incident_id": "30768654",
       "service": "render",
       "title": "Delayed wildcard issuance or renewal",
-      "query": "What is preventing our wildcard certificate from being issued or renewed on schedule?",
+      "query": "Why is the render service taking longer than normal to issue or refresh certificates with broad domain coverage?",
       "cause_event_ids": [
         "render:30768654:1d3313194694"
       ],
       "notes": [
         "Due to an ongoing LetsEncrypt incident, wildcard certificates may be slow to issue/renew."
-      ]
+      ],
+      "query_title_derived": "What caused the delay in issuing or renewing the wildcard certificate?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30768949",
       "service": "mongodb",
       "title": "Impaired Cluster Operations due to Lets Encrypt Outage",
-      "query": "What is the current status of the Let's Encrypt certificate issuance and renewal service, and are our cluster components unable to obtain or refresh TLS certificates?",
+      "query": "Why did our database cluster stop responding to requests when the certificate authority went down?",
       "cause_event_ids": [
-        "mongodb:30768949:299b95a83a3a"
-      ],
-      "notes": [
-        "Tenant clusters and Atlas for Government clusters will experience delays in provisioning due to Lets Encrypt service degradation."
-      ]
-    },
-    {
-      "incident_id": "30770565",
-      "service": "mongodb",
-      "title": "Impaired Cluster Operations due to Lets Encrypt Service Degradation",
-      "query": "What is the nature of the Let's Encrypt service degradation and how is it affecting our cluster's ability to renew or validate SSL/TLS certificates?",
-      "cause_event_ids": [
+        "mongodb:30768949:299b95a83a3a",
         "mongodb:30770565:0e60a2c06ba7"
       ],
       "notes": [
         "Tenant clusters and Atlas for Government clusters will experience delays in provisioning due to Lets Encrypt service degradation."
-      ]
+      ],
+      "query_title_derived": "What was the impact on our cluster when Let's Encrypt went down?",
+      "query_overlap": 0.143
     },
     {
       "incident_id": "30775651",
       "service": "segment",
       "title": "Criteo Audience destinations are experiencing an outage",
-      "query": "Are Criteo Audience destinations currently unavailable for all customers or only specific regions/integrations?",
+      "query": "Why is the integration that sends our user data to Criteo not working right now?",
       "cause_event_ids": [
         "segment:30775651:a5f2e47c1379"
       ],
       "notes": [
         "We are currently experiencing disruptions with Criteo Audience destinations due to an external Criteo API outage."
-      ]
+      ],
+      "query_title_derived": "What caused the Criteo Audience destinations outage?",
+      "query_overlap": 0.2
     },
     {
       "incident_id": "30840590",
       "service": "mongodb",
       "title": "Atlas Data Federation and Online Archive cloud-provider IAM authentication error",
-      "query": "What is the scope of the authentication failure - are users unable to connect to federated data sources, online archives, both, or specific cloud providers?",
+      "query": "Why did the federated query layer fail to authenticate with the cloud platform's identity system?",
       "cause_event_ids": [
         "mongodb:30840590:b95c72a10f91"
       ],
       "notes": [
         "We have identified that the issue is caused by a recent configuration change to IAM authentication and are working on a fix."
-      ]
+      ],
+      "query_title_derived": "What caused the authentication error with our cloud provider's IAM when Atlas Data Federation and Online Archive tried to connect?",
+      "query_overlap": 0.1
     },
     {
       "incident_id": "30855326",
       "service": "bitrise",
       "title": "Elevated error rates for the Bitrise Workflow Editor",
-      "query": "What is causing the increased error rates in the Bitrise Workflow Editor and which users or workflows are most affected?",
+      "query": "Why are users seeing so many failures when trying to edit their build configurations?",
       "cause_event_ids": [
         "bitrise:30855326:dda83f654cd7"
       ],
       "notes": [
         "This issue was caused by the ongoing LaunchDarkly incident affecting flag delivery evaluations."
-      ]
+      ],
+      "query_title_derived": "What caused the error rates to spike in the Bitrise Workflow Editor?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30855844",
       "service": "vercel",
       "title": "Erroneous budget notifications",
-      "query": "Are users receiving budget alert notifications for incorrect amounts or thresholds that don't match their actual spending?",
+      "query": "Why did our deployment platform keep sending alerts about overspending when our actual consumption was within limits?",
       "cause_event_ids": [
         "vercel:30855844:6e13838b02ec",
         "vercel:30855844:d078748c1526"
@@ -597,13 +599,15 @@
       "notes": [
         "We are still working to unpause affected teams that were erroneously paused due to the spend management budget miscalculation.",
         "We've identified an issue where some customers may receive erroneous spend management budget notifications due to a spend management budget miscalculation."
-      ]
+      ],
+      "query_title_derived": "What caused the budget notifications to be sent incorrectly?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30881187",
       "service": "circleci",
       "title": "Issues with network routing for Mac jobs",
-      "query": "What specific network routing problems are Mac jobs experiencing, and which services or destinations are affected?",
+      "query": "Why are the macOS build tasks unable to reach their designated network paths?",
       "cause_event_ids": [
         "circleci:30881187:37e7c1ad099b",
         "circleci:30881187:a785a03021d8"
@@ -611,61 +615,71 @@
       "notes": [
         "Some customers may experience jobs that hang or fail to progress during Github fetch steps due to intermittent networking issues.",
         "Unfortunately there are still some customers that may be experiencing jobs that hang or fail to progress during Github fetch steps due to ongoing intermittent networking issues with our Mac infrastruc"
-      ]
+      ],
+      "query_title_derived": "What caused the network routing problem for Mac jobs?",
+      "query_overlap": 0.2
     },
     {
       "incident_id": "30885421",
       "service": "cloudinary",
       "title": "Some customers experience authentication problems when accessing Cloudinary's Figma plugin",
-      "query": "What authentication flow or credential validation is failing for affected customers trying to use the Cloudinary Figma plugin?",
+      "query": "Why are certain users unable to verify their identity when trying to use the Cloudinary integration with Figma?",
       "cause_event_ids": [
         "cloudinary:30885421:b9df65c2f1b7"
       ],
       "notes": [
         "Due to a change in security parameters, some customers are experiencing failures when attempting to sign in to Cloudinary via the Cloudinary Figma plugin (https://www."
-      ]
+      ],
+      "query_title_derived": "What's causing the authentication failures for those customers with the Figma plugin?",
+      "query_overlap": 0.143
     },
     {
       "incident_id": "30887907",
       "service": "bitrise",
       "title": "Slow or hanging builds during clone and dependency resolution",
-      "query": "What changes were made to the repository, build configuration, or dependency management system that coincided with the start of these slow or hanging builds?",
+      "query": "What's causing the builds to take forever or get stuck when they're downloading the code and installing packages?",
       "cause_event_ids": [
         "bitrise:30887907:226f70313ca6"
       ],
       "notes": [
         "Some builds may still experience slower clone operations from GitHub due to performance degradation affecting Git operations in some of our datacenters."
-      ]
+      ],
+      "query_title_derived": "What's causing the builds to slow down during the clone and dependency resolution phase?",
+      "query_overlap": 0.143
     },
     {
       "incident_id": "30888317",
       "service": "hubspot",
       "title": "Content previews are unavailable for some customers in North America",
-      "query": "What is the current scope and timeline of the content preview outage affecting North American customers?",
+      "query": "Why are certain users in the US and Canada unable to see what their marketing materials will look like before publishing?",
       "cause_event_ids": [
         "hubspot:30888317:befcfa2158d8"
       ],
       "notes": [
         "This was caused by hubspotpreview-na2."
-      ]
+      ],
+      "query_title_derived": "What caused the content previews to become unavailable for those customers in North America?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30888418",
       "service": "bitrise",
       "title": "ORD data center network outage",
-      "query": "What systems or services were affected by the network outage at the ORD data center, and how long was the outage duration?",
+      "query": "What caused the connectivity problem that affected our infrastructure in the Chicago region?",
       "cause_event_ids": [
         "bitrise:30888418:1e38fe371125"
       ],
       "notes": [
         "We experienced a network outage in our ORD data center caused by dropped packets between nodes, which led to failed health checks and a cluster-wide disruption."
-      ]
+      ],
+      "query_title_derived": "What caused the network outage at the ORD data center?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30890871",
       "service": "circleci",
       "title": "Delays starting jobs on Docker (Gen 2) resource classes",
-      "query": "What is causing the increased latency when attempting to start jobs on Docker Gen 2 resource classes?",
+      "query": "Why is it taking so long for tasks to begin running on our Docker machine types?",
       "cause_event_ids": [
         "circleci:30890871:243bf604d534",
         "circleci:30890871:a304246b573f"
@@ -673,85 +687,71 @@
       "notes": [
         "On July 13 between 15:30 UTC and 22:40 UTC, we experienced delays starting jobs on Docker (Gen 2) resource classes due to capacity constraints from our cloud provider.",
         "On July 13 between 15:30 UTC and 22:40 UTC, we experienced delays starting jobs on Docker (Gen 2) resource classes due to capacity constraints from our cloud provider."
-      ]
-    },
-    {
-      "incident_id": "30901498",
-      "service": "linode",
-      "title": "Connectivity Issue - US-MIA (Miami",
-      "query": "What services or systems are currently affected by the connectivity loss to the US-MIA region, and do we have an active incident ticket with our ISP or data center provider?",
-      "cause_event_ids": [
-        "linode:30901498:c3805e7d977f"
       ],
-      "notes": [
-        "continuing to work with our third-party service provider to confirm the root cause, as initial evidence points to a campus cross-connect (dark fiber) outage on their infrastructure."
-      ]
+      "query_title_derived": "What's causing the delays when jobs try to start on Docker Gen 2 resource classes?",
+      "query_overlap": 0.143
     },
     {
       "incident_id": "30909743",
       "service": "bitrise",
       "title": "Elevated error rates on Bitrise Website",
-      "query": "What types of errors are we seeing and which services or endpoints are affected?",
+      "query": "What's causing the spike in failures we're seeing on the web interface right now?",
       "cause_event_ids": [
         "bitrise:30909743:144a8281f8ac"
       ],
       "notes": [
         "This is caused by an ongoing GitHub incident that is disrupting a critical part of our platform: https://www."
-      ]
+      ],
+      "query_title_derived": "What caused the spike in errors on the Bitrise website?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30913425",
       "service": "newrelic",
       "title": "E2M (Events-2-Metrics) authorization issues",
-      "query": "What specific authorization failures are users or systems experiencing when trying to publish events to E2M, and is this affecting all events or just certain types?",
+      "query": "What caused the permissions check to fail when our event-to-metrics conversion pipeline tried to access the required resources?",
       "cause_event_ids": [
         "newrelic:30913425:6eac23eae47f"
       ],
       "notes": [
         "This was due to a recent change we have made to our authorization endpoints."
-      ]
-    },
-    {
-      "incident_id": "30916900",
-      "service": "mongodb",
-      "title": "MongoDB Atlas and Atlas for Government",
-      "query": "What is the difference between MongoDB Atlas and Atlas for Government, and which environment are we currently experiencing an issue in?",
-      "cause_event_ids": [
-        "mongodb:30916900:eb6173acef51"
       ],
-      "notes": [
-        "New AWS Backup and AWS Data Transfer costs will be unavailable between July 17 and 20: Due to an ongoing incident with AWS's billing data, MongoDB Atlas and Atlas for Government will not be updating A"
-      ]
+      "query_title_derived": "What caused the authorization failures in E2M?",
+      "query_overlap": 0.2
     },
     {
       "incident_id": "30932983",
       "service": "circleci",
       "title": "Errors with GitHub APIs delaying workflows",
-      "query": "What is the specific GitHub API endpoint or operation that is failing, and how is it impacting our workflow execution?",
+      "query": "Why are workflow jobs getting stuck waiting for responses from our GitHub integration?",
       "cause_event_ids": [
         "circleci:30932983:33d029cfe809"
       ],
       "notes": [
         "We are also seeing errors processing push event webhooks due to the upstream API outage."
-      ]
+      ],
+      "query_title_derived": "What's causing the GitHub API errors that are delaying our workflows?",
+      "query_overlap": 0.2
     },
     {
       "incident_id": "30986969",
       "service": "github",
       "title": "Incident with Pull Requests",
-      "query": "What specific issue occurred with the pull requests - are we experiencing a backlog of unreviewed PRs, failures in the CI/CD pipeline, merge conflicts, or something else?",
+      "query": "Why are developers unable to create or merge changes to their code repositories?",
       "cause_event_ids": [
         "github:30986969:0311466bccc3"
       ],
       "notes": [
         "Between July 24, 19:17 UTC and July 24, 20:02 UTC, users were unable to create pull requests due to a database schema change."
-      ]
+      ],
+      "query_title_derived": "What caused the pull requests to fail or become blocked?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "30992214",
       "service": "github",
       "title": "Several GPT models degraded",
-      "query": "What is the scope and severity of the degradation, and which specific GPT models and services are affected?",
+      "query": "Why are the AI language model endpoints experiencing reduced performance?",
       "cause_event_ids": [
         "github:30992214:d6aeea7e21b0",
         "github:30992214:da635a3e8835"
@@ -759,267 +759,294 @@
       "notes": [
         "caused by an issue with an upstream model provider.",
         "This is due to an issue with an upstream model provider."
-      ]
+      ],
+      "query_title_derived": "What caused the performance degradation across multiple GPT models?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "31023010",
       "service": "hubspot",
       "title": "Event ingestion and retrieval delays for some North America customers",
-      "query": "Why are some North America customers experiencing delays in event ingestion and retrieval, and is this affecting all customers in the region or only a subset?",
+      "query": "What's causing the slowdown in how fast we're processing and pulling back customer events for those accounts in the US and Canada?",
       "cause_event_ids": [
         "hubspot:31023010:29cfde1fad54"
       ],
       "notes": [
         "This was caused by an underlying database infrastructure issue that increased read and write latency."
-      ]
+      ],
+      "query_title_derived": "What caused the event ingestion and retrieval delays for some North America customers?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "31034742",
       "service": "github",
       "title": "Incident with Copilot AI Model Providers",
-      "query": "What specific issues are Copilot users experiencing with their AI model providers right now?",
+      "query": "Why did our connection to the third-party AI providers that power code suggestions fail?",
       "cause_event_ids": [
         "github:31034742:0515b28d4f24"
       ],
       "notes": [
         "This was caused by degradation of an upstream model provider."
-      ]
-    },
-    {
-      "incident_id": "31040145",
-      "service": "github",
-      "title": "Copilot model Claude Fable 5 experiencing elevated errors",
-      "query": "What is the current error rate and what types of errors are being observed?",
-      "cause_event_ids": [
-        "github:31040145:8992c74420a1",
-        "github:31040145:f906098f5325"
       ],
-      "notes": [
-        "This is due to an issue with an upstream model provider.",
-        "This was caused by an issue with an upstream model provider."
-      ]
+      "query_title_derived": "What caused the outage with our Copilot AI model providers?",
+      "query_overlap": 0.25
     },
     {
       "incident_id": "31046166",
       "service": "supabase",
       "title": "Management API Performance Degradation",
-      "query": "What is the current response time and error rate for the Management API, and which endpoints are most affected?",
+      "query": "Why is the backend control plane experiencing slower-than-normal response times?",
       "cause_event_ids": [
-        "supabase:31046166:cd171970d265"
-      ],
-      "notes": [
-        "We have been alerted that our management API is experiencing performance degradation due to intermittent network issues."
-      ]
-    },
-    {
-      "incident_id": "31056250",
-      "service": "supabase",
-      "title": "Management API Performance Degradation",
-      "query": "What metrics are showing degradation and across which endpoints or operations?",
-      "cause_event_ids": [
+        "supabase:31046166:cd171970d265",
         "supabase:31056250:acec9f10add3"
       ],
       "notes": [
-        "We have been alerted that our Management API is experiencing performance degradation due to intermittent network issues."
-      ]
-    },
-    {
-      "incident_id": "31062353",
-      "service": "github",
-      "title": "Degraded availability GPT 5.6 Luna",
-      "query": "What is the current error rate or request latency for GPT 5.6 Luna, and which geographic regions or user segments are affected?",
-      "cause_event_ids": [
-        "github:31062353:5ba7c29349c1",
-        "github:31062353:d56f1396136f"
+        "We have been alerted that our management API is experiencing performance degradation due to intermittent network issues."
       ],
-      "notes": [
-        "This is due to an issue with an upstream model provider.",
-        "This was caused by an issue with an upstream model provider."
-      ]
-    },
-    {
-      "incident_id": "31064249",
-      "service": "github",
-      "title": "Incident with Copilot AI Model Providers",
-      "query": "What specific issue occurred with our Copilot AI model providers - was it an outage, performance degradation, or integration failure?",
-      "cause_event_ids": [
-        "github:31064249:610448de6722",
-        "github:31064249:d82f8f9b226b"
-      ],
-      "notes": [
-        "This is due to an issue with an upstream model provider.",
-        "This was caused by degradation of an upstream model provider."
-      ]
-    },
-    {
-      "incident_id": "31091278",
-      "service": "circleci",
-      "title": "Increased Job Queue Times",
-      "query": "What is causing jobs to back up in the queue and what is the current processing rate compared to normal?",
-      "cause_event_ids": [
-        "circleci:31091278:59bddf5194a3"
-      ],
-      "notes": [
-        "Windows, Android, and GPU: We are experiencing increased queue times for Windows, Android, and GPU jobs due to capacity constraints with a third-party infrastructure provider."
-      ]
+      "query_title_derived": "What caused the Management API performance to degrade?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "31096975",
       "service": "github",
       "title": "Some Copilot Cloud Agent jobs not starting",
-      "query": "What is preventing these Copilot Cloud Agent jobs from initiating - are there queuing issues, resource constraints, authentication failures, or configuration errors?",
+      "query": "Why aren't certain AI-powered automation tasks being dispatched in our system?",
       "cause_event_ids": [
-        "github:31096975:5b66b0f3ed5e"
+        "github:31096975:5b66b0f3ed5e",
+        "github:9wzhl5jr80jt:27d2wd2kyn4y"
       ],
       "notes": [
         "due to an internal rate limit used to protect service availability that was enabled more broadly than intended delaying more traffic than expected."
-      ]
+      ],
+      "query_title_derived": "What's causing the Copilot Cloud Agent jobs to fail to start?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "31106818",
       "service": "grafana",
       "title": "Cloudflare Maintenance",
-      "query": "What specific Cloudflare services or regions are affected by this maintenance window, and what is the expected duration of the outage?",
+      "query": "Why did our monitoring dashboards become inaccessible during the infrastructure provider's scheduled work?",
       "cause_event_ids": [
         "grafana:31106818:bcf153e92556"
       ],
       "notes": [
         "Due to scheduled Cloudflare maintenance, Grafana Cloud customers might experience issues creating new stacks or updating a existing stack url."
-      ]
+      ],
+      "query_title_derived": "What caused the Cloudflare maintenance to be necessary?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "31108412",
       "service": "asana",
       "title": "Webhooks and event streams partial data loss",
-      "query": "What percentage of webhook deliveries or event stream messages are being lost, and which time period or customer accounts are affected?",
+      "query": "Why are we missing some of the information in the events we're receiving from Asana?",
       "cause_event_ids": [
         "asana:31108412:10a4276fab19"
       ],
       "notes": [
         "The root cause of the incident was traced to a code change which unintentionally dropped change events for most fields on the task type, and the change was reverted."
-      ]
+      ],
+      "query_title_derived": "What caused the webhooks and event streams to lose data?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "31127144",
       "service": "grafana",
       "title": "Alerting expressions pipeline failing when recovery settings",
-      "query": "What are the specific error messages or logs from the alerting expressions pipeline when recovery settings are applied or modified?",
+      "query": "Why are alerts unable to evaluate their recovery conditions in Grafana?",
       "cause_event_ids": [
         "grafana:31127144:2f494a238d2f"
       ],
       "notes": [
         "Due to a software bug the evaluation of some alert rules (primarily ones that have recovery threshold setting) were failing to be evaluated starting 14:00 UTC to 19:30 UTC today."
-      ]
-    },
-    {
-      "incident_id": "31137934",
-      "service": "grafana",
-      "title": "Metrics",
-      "query": "What specific metrics are we experiencing issues with, and what are their current values compared to expected baselines?",
-      "cause_event_ids": [
-        "grafana:31137934:6cefab138cfb"
       ],
-      "notes": [
-        "Elevated Error Rates Reads/Writes: Between 12:20 and 13:15 UTC, we experienced elevated error rates for metrics reads and writes due to a networking issue."
-      ]
+      "query_title_derived": "What caused the alerting expressions pipeline to fail when we made changes to the recovery settings?",
+      "query_overlap": 0.167
     },
     {
       "incident_id": "31149319",
       "service": "hubspot",
       "title": "Some HubSpot tools may be unavailable for some users",
-      "query": "Which HubSpot tools are currently unavailable and how many users are affected?",
+      "query": "What's causing certain HubSpot features to be inaccessible for specific customers?",
       "cause_event_ids": [
         "hubspot:31149319:9b4e139a9daf"
       ],
       "notes": [
         "This was caused by a server impairment from a configuration update."
-      ]
+      ],
+      "query_title_derived": "What caused HubSpot tools to become unavailable for those specific users?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "31162559",
       "service": "elastic",
       "title": "Increased error rates for microsoft-multilingual-e5-large",
-      "query": "What is causing the spike in error rates for the microsoft-multilingual-e5-large model, and which services or endpoints are affected?",
+      "query": "Why are requests to the multilingual embedding model failing at higher rates than expected?",
       "cause_event_ids": [
         "elastic:31162559:f2b41105211b"
       ],
       "notes": [
         "Unfortunately, we can no longer support the E5 Multilingual Large model on the Elastic Inference Service due to continued upstream provider issues."
-      ]
-    },
-    {
-      "incident_id": "31164952",
-      "service": "github",
-      "title": "Errors with the Fable 5 Model in Copilot",
-      "query": "What specific errors are users experiencing when trying to use the Fable 5 Model in Copilot, and when did they start occurring?",
-      "cause_event_ids": [
-        "github:31164952:2e16d4ef6ee7",
-        "github:31164952:82a658c0e971"
       ],
-      "notes": [
-        "This is due to an issue with an upstream model provider.",
-        "This is due to an issue with an upstream model provider."
-      ]
+      "query_title_derived": "What caused the increased error rates for the microsoft-multilingual-e5-large model?",
+      "query_overlap": 0.333
     },
     {
       "incident_id": "31166860",
       "service": "hubspot",
       "title": "HubSpot is experiencing issues",
-      "query": "What specific functionality or services are affected by the HubSpot outage?",
+      "query": "What's causing the HubSpot platform to be unavailable right now?",
       "cause_event_ids": [
         "hubspot:31166860:910f6fdc8e7a"
       ],
       "notes": [
         "This was caused by resource exhaustion."
-      ]
+      ],
+      "query_title_derived": "What's causing the HubSpot issues?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "31193766",
       "service": "github",
       "title": "Incident with GitHub.com",
-      "query": "What is the current status of GitHub.com and are users able to access repositories and perform git operations?",
+      "query": "What caused the outage affecting our code repository platform?",
       "cause_event_ids": [
         "github:31193766:c34f8b77b0b0"
       ],
       "notes": [
         "The immediate cause of the failure was network saturation on load balancers in Central US due to a new peak in traffic."
-      ]
+      ],
+      "query_title_derived": "What caused GitHub.com to go down?",
+      "query_overlap": 0.0
     },
     {
       "incident_id": "31194351",
       "service": "snyk",
       "title": "GitHub Integration Degradation",
-      "query": "What services or features are currently affected by the GitHub integration issue, and when did users first report the problem?",
+      "query": "Why is our connection to GitHub running slowly or failing intermittently?",
       "cause_event_ids": [
         "snyk:31194351:5d80dbd8ceb7"
       ],
       "notes": [
         "Snyk is currently experiencing elevated error rates (up to 20%) due to an ongoing third-party incident with GitHub."
-      ]
-    },
-    {
-      "incident_id": "9wzhl5jr80jt",
-      "service": "github",
-      "title": "Some Copilot Cloud Agent jobs not starting",
-      "query": "Why are some Copilot Cloud Agent jobs failing to start while others are running normally?",
-      "cause_event_ids": [
-        "github:9wzhl5jr80jt:27d2wd2kyn4y"
       ],
-      "notes": [
-        "due to an internal rate limit used to protect service availability that was enabled more broadly than intended delaying more traffic than expected."
-      ]
+      "query_title_derived": "What caused the GitHub Integration to start degrading?",
+      "query_overlap": 0.333
     },
     {
       "incident_id": "qcvjkzcs7j74",
       "service": "github",
       "title": "Incident with Actions",
-      "query": "What actions need to be taken to resolve this incident and who is responsible for each one?",
+      "query": "Why did the CI/CD workflow execution system stop processing jobs?",
       "cause_event_ids": [
         "github:qcvjkzcs7j74:x3dy6fnmf98h"
       ],
       "notes": [
         "<br /><br />The incident was triggered by a routine deployment to an internal Actions service responsible for processing events and generating Actions jobs."
-      ]
+      ],
+      "query_title_derived": "\"What was the root cause of the incident with actions?\"",
+      "query_overlap": 0.0
     }
-  ]
+  ],
+  "_review": {
+    "reviewed_by": "assistant (not a human sign-off)",
+    "started_with": 81,
+    "kept": 64,
+    "rejected_not_a_cause": [
+      {
+        "service": "trello",
+        "title": "Users experiencing issues with Email to Board failing",
+        "reason": "symptom restatement, no cause named"
+      },
+      {
+        "service": "figma",
+        "title": "Service Disruption with Sites and Make",
+        "reason": "symptom restatement, still investigating"
+      },
+      {
+        "service": "discord",
+        "title": "Elevated errors for streaming and messaging",
+        "reason": "symptom restatement, no cause named"
+      },
+      {
+        "service": "netlify",
+        "title": "Elevated Errors in IAD region",
+        "reason": "symptom restatement, no cause named"
+      },
+      {
+        "service": "linode",
+        "title": "Connectivity Issue - US-MIA (Miami",
+        "reason": "cause explicitly NOT yet confirmed"
+      },
+      {
+        "service": "mongodb",
+        "title": "MongoDB Atlas and Atlas for Government",
+        "reason": "generic title; cause text concerns cost data, not the incident"
+      },
+      {
+        "service": "circleci",
+        "title": "Increased Job Queue Times",
+        "reason": "symptom restatement, no cause named"
+      },
+      {
+        "service": "grafana",
+        "title": "Metrics",
+        "reason": "title too generic to form a question; text is a symptom"
+      }
+    ],
+    "collapsed_identical_cause": [
+      {
+        "service": "trello",
+        "title": "Atlassian Cloud Services impacted",
+        "duplicate_of": "bitbucket:Atlassian Cloud Services impacted"
+      },
+      {
+        "service": "trello",
+        "title": "Multiple Atlassian services are experiencing issues",
+        "duplicate_of": "bitbucket:Multiple Atlassian services are experiencing issues"
+      },
+      {
+        "service": "mongodb",
+        "title": "Impaired Cluster Operations due to Lets Encrypt Service Degradation",
+        "duplicate_of": "mongodb:Impaired Cluster Operations due to Lets Encrypt Outage"
+      },
+      {
+        "service": "github",
+        "title": "Copilot model Claude Fable 5 experiencing elevated errors",
+        "duplicate_of": "github:Errors with the Fable 5 Model in Copilot"
+      },
+      {
+        "service": "supabase",
+        "title": "Management API Performance Degradation",
+        "duplicate_of": "supabase:Management API Performance Degradation"
+      },
+      {
+        "service": "github",
+        "title": "Degraded availability GPT 5.6 Luna",
+        "duplicate_of": "github:Errors with the Fable 5 Model in Copilot"
+      },
+      {
+        "service": "github",
+        "title": "Incident with Copilot AI Model Providers",
+        "duplicate_of": "github:Errors with the Fable 5 Model in Copilot"
+      },
+      {
+        "service": "github",
+        "title": "Errors with the Fable 5 Model in Copilot",
+        "duplicate_of": "github:Errors with the Fable 5 Model in Copilot"
+      },
+      {
+        "service": "github",
+        "title": "Some Copilot Cloud Agent jobs not starting",
+        "duplicate_of": "github:Some Copilot Cloud Agent jobs not starting"
+      }
+    ],
+    "queries": "regenerated to seek a CAUSE (64/81 drafts asked about symptoms or scope, while the ground truth is the cause-stating update); still generated from the incident TITLE alone",
+    "queries_paraphrased": {
+      "why": "title-derived questions reuse title words, and every indexed chunk carries the title as a prefix, which flatters the lexical arm",
+      "title_word_reuse_before": 0.71,
+      "title_word_reuse_after": 0.1,
+      "verified": "each query's overlap is MEASURED, not assumed; best of 3 attempts"
+    }
+  }
 }
