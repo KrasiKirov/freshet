@@ -30,11 +30,16 @@ def _sink_columns() -> list[str]:
     return cols
 
 
+# One sample value per sink column. Looked up by NAME, not position, so adding a
+# column to the sink does not silently shift every value one field to the left.
+_SAMPLES = {"incident_id": "INC-1", "service": "cloudflare", "type": "opened",
+            "ts": "2026-08-19T06:30:00Z", "title": "Elevated errors"}
+
+
 def test_consumer_reads_a_payload_shaped_like_the_flink_sink():
     """Build the exact JSON the sink emits — one field per column — and parse it."""
     columns = _sink_columns()
-    payload = {c: v for c, v in zip(columns, [
-        "INC-1", "cloudflare", "opened", "2026-08-19T06:30:00Z", "Elevated errors"])}
+    payload = {c: _SAMPLES.get(c, "unmodelled") for c in columns}
     ev = LifecycleEvent.from_json(json.dumps(payload))
     assert ev.incident_id == "INC-1"
     assert ev.service == "cloudflare"
