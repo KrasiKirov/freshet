@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from freshet.api.composer import NO_EVIDENCE, Composer, make_composer
 from freshet.api.retrieval import RetrievedHit, check_index_model, hybrid_search
+from freshet.api.timeframe import infer_window
 from freshet.pipeline.embedding import Embedder, make_embedder
 
 ABSTAIN_MESSAGE = (
@@ -100,6 +101,10 @@ class Hit(BaseModel):
 
 
 class QueryResponse(BaseModel):
+    # The window actually applied ("today", "last 6 hours"), or None. Returned so
+    # the client can SHOW an inferred filter — inference the user cannot see is
+    # indistinguishable from the system quietly ignoring half their question.
+    window: str | None = None
     answer: str
     abstained: bool
     hits: list[Hit]
@@ -175,16 +180,21 @@ def _to_hit(h: RetrievedHit) -> Hit:
 @app.post("/query", response_model=QueryResponse)
 def query(req: QueryRequest, deps=Depends(get_deps)) -> QueryResponse:
     conn, embedder, composer = deps
+    # An explicit `since` from the caller always wins; inference only fills a gap.
+    since, window = req.since, None
+    if since is None:
+        since, window = infer_window(req.question)
     result = hybrid_search(
-        conn, embedder, req.question, k=req.k, service=req.service, since=req.since
+        conn, embedder, req.question, k=req.k, service=req.service, since=since
     )
     if result.abstained:
-        return QueryResponse(answer=ABSTAIN_MESSAGE, abstained=True, hits=[])
+        return QueryResponse(answer=ABSTAIN_MESSAGE, abstained=True, hits=[], window=window)
     answer = composer.compose(req.question, result.hits)
     return QueryResponse(
         answer=answer or NO_EVIDENCE,
         abstained=False,
         hits=[_to_hit(h) for h in result.hits],
+        window=window,
     )
 
 

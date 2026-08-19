@@ -175,6 +175,16 @@ def hybrid_search(
 
     hits.sort(key=lambda h: h.score, reverse=True)
     retrieval_topk = hits[:k]
+    # An explicit filter changes the relevance contract. The cosine floor was
+    # calibrated for "is this specific thing in the corpus?", where a strong match
+    # should exist. A filtered query ("what happened today?") is a BROWSE: it
+    # resembles no single incident, and a real outage scored 0.549 against it —
+    # correct evidence the floor would veto. When the caller narrowed the candidate
+    # set by time or service, that filter IS the relevance signal, so abstention
+    # means "the window is empty", not "no strong semantic match". The unfiltered
+    # path keeps the calibrated floor exactly as it was.
+    if service is not None or since is not None:
+        return HybridResult(hits=retrieval_topk, abstained=not retrieval_topk)
     abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
     return HybridResult(hits=retrieval_topk, abstained=abstained)
 

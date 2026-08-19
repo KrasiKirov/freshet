@@ -66,6 +66,7 @@
     .answer{margin-top:24px;max-width:76ch}
     .answer .body{font-family:var(--sans);font-size:16px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
     .answer .body.abstain{color:var(--ink-2);font-size:15px}
+    .answer .window{font-family:var(--mono);font-size:11.5px;color:var(--accent);border-left:2px solid var(--accent-dim);padding-left:9px;margin-bottom:12px}
     .answer .hint{margin-top:9px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);line-height:1.6}
     .answer .idle{font-family:var(--mono);font-size:12.5px;color:var(--ink-3)}
     .working{font-family:var(--mono);font-size:12.5px;color:var(--accent)}
@@ -252,16 +253,24 @@
     async function ask(){
       const question=$("question").value.trim(); if(!question||busy)return;
       busy=true;$("ask").disabled=true;
-      $("answer").innerHTML='<div class="working">searching the wire…</div>';$("sources").hidden=true;$("sources").innerHTML="";
+      $("answer").innerHTML="";$("answer").appendChild(Object.assign(document.createElement("div"),{className:"working",textContent:"searching the wire…"}));$("sources").hidden=true;$("sources").innerHTML="";
       try{
         const d=await(await fetch("/query",{method:"POST",headers:{"content-type":"application/json"},
           body:JSON.stringify({question,k:6})})).json();
+        $("answer").innerHTML="";
         const b=document.createElement("div");b.className="body"+(d.abstained?" abstain":"");b.innerHTML=mdInline(d.answer);
+        // A window inferred from the question is SHOWN. Silently filtering half the
+        // corpus away would be indistinguishable from the system ignoring the words.
+        if(d.window){const w=document.createElement("div");w.className="window";
+          w.textContent="time filter applied: "+d.window+" — inferred from your question";
+          $("answer").appendChild(w);}
         // abstaining is correct behaviour, not a dead end: point at what IS known
         if(d.abstained){const h=document.createElement("div");h.className="hint";
-          h.textContent="Broad questions rarely match a single event strongly enough. Try naming a service — the wire on the right lists what is currently open.";
+          h.textContent=d.window
+            ? "Nothing was posted in that window. The wire on the right shows the most recent updates."
+            : "Broad questions rarely match a single event strongly enough. Try naming a service — the wire on the right lists what is currently open.";
           b.appendChild(h);}
-        $("answer").innerHTML="";$("answer").appendChild(b);
+        $("answer").appendChild(b);
         if(d.hits&&d.hits.length){
           const s=$("sources");s.hidden=false;const h=document.createElement("h4");h.textContent="Sources";s.appendChild(h);
           d.hits.forEach((hit,i)=>{
