@@ -52,9 +52,14 @@ def keyword_sql(service: str | None, since: datetime | None) -> str:
     # ts_rank produces many ties across terse operational events, so rank alone
     # leaves the order to physical heap position (non-reproducible run-to-run).
     # chunk_id is the deterministic tiebreak that makes the benchmark byte-stable.
+    # Cosine is computed here too, so a hit found ONLY by the lexical arm still
+    # carries a real similarity. It used to default to 0.0 — a missing value, not
+    # a measured one — and since abstention keys off cosine, an exact lexical
+    # match with no vector match was discarded as "no evidence".
     return (
         f"SELECT {_COLS},"
-        f" ts_rank(text_tsv, {_OR_TSQUERY}) AS rank"
+        f" ts_rank(text_tsv, {_OR_TSQUERY}) AS rank,"
+        f" 1 - (embedding <=> %(qvec)s::vector) AS similarity"
         " FROM vector_records" + where +
         " ORDER BY rank DESC, chunk_id LIMIT %(k)s"
     )
@@ -110,7 +115,7 @@ class RetrievedHit:
     source: str
     text: str
     type: str
-    similarity: float   # best cosine from the vector arm (0.0 if keyword-only)
+    similarity: float   # measured cosine, whichever arm found the hit
     score: float        # fused RRF score * recency weight
 
 
@@ -176,14 +181,17 @@ def hybrid_search(
     vec_rows = conn.execute(vector_sql(service, since), params).fetchall()
     kw_rows = conn.execute(keyword_sql(service, since), params).fetchall()
 
-    vec_map = _rows_to_map(vec_rows, 8)   # similarity is now column index 8
-    kw_map = _rows_to_map(kw_rows, 8)     # rank is now column index 8
+    vec_map = _rows_to_map(vec_rows, 8)   # similarity at column index 8
+    kw_map = _rows_to_map(kw_rows, 9)     # rank at 8, similarity at 9
     fused = reciprocal_rank_fusion([[r[0] for r in vec_rows], [r[0] for r in kw_rows]])
 
     hits: list[RetrievedHit] = []
     for chunk_id, rrf_score in fused:
         row, _ = vec_map.get(chunk_id) or kw_map[chunk_id]
-        similarity = vec_map[chunk_id][1] if chunk_id in vec_map else 0.0
+        # both arms now report cosine, so a keyword-only hit is not treated as
+        # having zero similarity
+        similarity = (vec_map[chunk_id][1] if chunk_id in vec_map
+                      else kw_map[chunk_id][1])
         hits.append(
             RetrievedHit(
                 chunk_id=row[0], event_id=row[1], service=row[2], ts=row[3],

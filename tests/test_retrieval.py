@@ -61,13 +61,13 @@ def test_hybrid_search_fuses_arms_and_flags_abstention():
     from freshet.pipeline.embedding import StubEmbedder
 
     now = datetime.now(UTC)
-    # rows: (chunk_id, event_id, service, ts, indexed_at, source, text, type, score)
+    # vector rows: (..., similarity)   keyword rows: (..., rank, similarity)
     vec_rows = [
         ("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx error spike", "alert_fired", 0.81),
         ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", 0.40),
     ]
     kw_rows = [
-        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", 0.9),
+        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", 0.9, 0.55),
     ]
 
     class FakeConn:
@@ -76,7 +76,7 @@ def test_hybrid_search_fuses_arms_and_flags_abstention():
 
         def execute(self, sql, params=None):
             self.calls += 1
-            rows = vec_rows if "embedding <=>" in sql else kw_rows
+            rows = kw_rows if "ts_rank" in sql else vec_rows
 
             class _Cur:
                 def fetchall(self_inner):
@@ -110,7 +110,7 @@ def test_hybrid_search_uses_embedder_min_similarity():
         def execute(self, sql, params=None):
             class _Cur:
                 def fetchall(self_inner):
-                    return rows if "embedding <=>" in sql else []
+                    return [] if "ts_rank" in sql else rows   # keyword arm finds nothing
 
             return _Cur()
 
@@ -136,9 +136,30 @@ def test_hybrid_search_abstains_when_similarity_weak():
         def execute(self, sql, params=None):
             class _Cur:
                 def fetchall(self_inner):
-                    return weak if "embedding <=>" in sql else []
+                    return [] if "ts_rank" in sql else weak   # keyword arm finds nothing
 
             return _Cur()
 
     result = hybrid_search(FakeConn(), StubEmbedder(), "unrelated question", k=5)
     assert result.abstained is True
+
+
+def test_keyword_only_hits_carry_a_real_similarity_not_zero():
+    """A hit found only by the lexical arm used to get similarity 0.0 — a MISSING
+    value, not a measured one. Abstention keys off cosine, so an exact lexical
+    match with no vector match was silently discarded as "no evidence"."""
+    from freshet.api.retrieval import keyword_sql
+
+    sql = keyword_sql(None, None)
+    assert "embedding <=>" in sql, (
+        "the keyword arm must compute cosine too, so every hit has a true "
+        "similarity and abstention needs no invented threshold")
+    assert "AS similarity" in sql
+
+
+def test_abstention_uses_the_similarity_of_a_keyword_only_hit():
+    from freshet.api.retrieval import should_abstain
+
+    # a strong lexical match whose cosine was measured, not defaulted
+    assert should_abstain([0.82], min_similarity=0.70) is False
+    assert should_abstain([0.0], min_similarity=0.70) is True

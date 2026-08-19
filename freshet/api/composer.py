@@ -25,7 +25,7 @@ from freshet.api.retrieval import RetrievedHit
 NO_EVIDENCE = "I don't have enough indexed evidence to answer that."
 
 log = logging.getLogger(__name__)
-_CITATION = re.compile(r"\s*\[([^\[\]@]+)@[^\[\]]*\]")
+_CITATION = re.compile(r"\s*\[([^\[\]@]+)@([^\[\]]*)\]")
 
 
 def verify_citations(answer: str, hits) -> str:
@@ -34,16 +34,20 @@ def verify_citations(answer: str, hits) -> str:
     The model is instructed to cite only what it is given, but instruction is not
     enforcement. Since the LLM is the default author of the Slack brief, a
     fabricated citation would reach a responder looking authoritative and be
-    unverifiable — so citations are checked against the evidence set rather than
+    unverifiable — so citations are checked against the evidence rather than
     trusted. Prose is preserved; only the false citation is removed.
+
+    BOTH halves are checked. Verifying the event_id alone let the model attach any
+    timestamp it liked to a real event, which is a subtler fabrication than an
+    invented id and just as misleading in a timeline.
     """
-    allowed = {h.event_id for h in hits}
+    allowed = {h.event_id: f"{h.ts:%Y-%m-%d %H:%M:%S}" for h in hits}
 
     def keep(match: re.Match) -> str:
-        cited = match.group(1).strip()
-        if cited in allowed:
+        cited, stamp = match.group(1).strip(), match.group(2).strip()
+        if allowed.get(cited) == stamp:
             return match.group(0)
-        log.warning("dropped fabricated citation: %s", cited)
+        log.warning("dropped unverifiable citation: [%s @ %s]", cited, stamp)
         return ""
 
     return _CITATION.sub(keep, answer)

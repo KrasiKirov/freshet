@@ -24,6 +24,12 @@ _POSTMORTEM_CLAIM_SQL = ("UPDATE incidents SET postmortem_at = now()"
                          " AND briefed_at IS NOT NULL RETURNING incident_id")
 _SET_SLACK_TS_SQL = "UPDATE incidents SET slack_ts = %s WHERE incident_id = %s"
 _GET_SLACK_TS_SQL = "SELECT slack_ts FROM incidents WHERE incident_id = %s"
+# A claim is a promise to deliver, not a record that we did. If the work after it
+# fails, the claim MUST be released: Kafka will redeliver the lifecycle event, but
+# a consumer that finds the slot already claimed skips it, so a transient Slack or
+# LLM error would suppress that incident's brief permanently.
+_RELEASE_SQL = "UPDATE incidents SET briefed_at = NULL WHERE incident_id = %s"
+_RELEASE_POSTMORTEM_SQL = "UPDATE incidents SET postmortem_at = NULL WHERE incident_id = %s"
 
 
 def claim_incident(conn, incident_id: str) -> bool:
@@ -32,6 +38,16 @@ def claim_incident(conn, incident_id: str) -> bool:
 
 def claim_postmortem(conn, incident_id: str) -> bool:
     return conn.execute(_POSTMORTEM_CLAIM_SQL, (incident_id,)).fetchone() is not None
+
+
+def release_incident(conn, incident_id: str) -> None:
+    """Undo a brief claim so a redelivery can retry it."""
+    conn.execute(_RELEASE_SQL, (incident_id,))
+
+
+def release_postmortem(conn, incident_id: str) -> None:
+    """Undo a postmortem claim so a redelivery can retry it."""
+    conn.execute(_RELEASE_POSTMORTEM_SQL, (incident_id,))
 
 
 def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Sink,
@@ -43,8 +59,12 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
         if not claim_incident(conn, ev.incident_id):
             print(f"[autopilot] {ev.incident_id} already briefed — skipping")
             return
-        findings = gather_findings(conn, embedder, ev.service, ev.incident_id, "open")
-        ts = sink.deliver(findings)
+        try:
+            findings = gather_findings(conn, embedder, ev.service, ev.incident_id, "open")
+            ts = sink.deliver(findings)
+        except Exception:
+            release_incident(conn, ev.incident_id)
+            raise
         if ts:
             conn.execute(_SET_SLACK_TS_SQL, (ts, ev.incident_id))
         return
@@ -53,10 +73,14 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
         if not claim_postmortem(conn, ev.incident_id):
             print(f"[autopilot] {ev.incident_id} postmortem already posted or never briefed — skipping")
             return
-        row = conn.execute(_GET_SLACK_TS_SQL, (ev.incident_id,)).fetchone()
-        slack_ts = row[0] if row else None
-        pm = gather_postmortem(conn, embedder, ev.service, ev.incident_id, client=client)
-        sink.deliver(pm, thread=slack_ts)
+        try:
+            row = conn.execute(_GET_SLACK_TS_SQL, (ev.incident_id,)).fetchone()
+            slack_ts = row[0] if row else None
+            pm = gather_postmortem(conn, embedder, ev.service, ev.incident_id, client=client)
+            sink.deliver(pm, thread=slack_ts)
+        except Exception:
+            release_postmortem(conn, ev.incident_id)
+            raise
         return
 
     print(f"[autopilot] {ev.type} {ev.incident_id} — no action")

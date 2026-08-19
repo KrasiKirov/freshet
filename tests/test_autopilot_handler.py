@@ -1,3 +1,5 @@
+import pytest
+
 from freshet.autopilot import consumer
 from freshet.autopilot.brief import Findings
 from freshet.autopilot.sinks.stdout import StdoutSink
@@ -105,3 +107,52 @@ def test_resolved_skips_on_redelivery(capsys, monkeypatch):
                               window_s=0, sink=sink, sleep=lambda s: None)
     assert not sink.calls
     assert "already" in capsys.readouterr().out.lower()
+
+
+def _lifecycle(kind="opened", iid="INC-1"):
+    import json
+    return json.dumps({"type": kind, "incident_id": iid, "service": "github",
+                       "ts": "2026-08-18T12:00:00+00:00", "title": "t"})
+
+
+class _RecordingConn:
+    """Tracks whether the claim was released after a failure."""
+
+    def __init__(self):
+        self.claimed = True
+        self.released = False
+
+    def execute(self, sql, params=None):
+        if "briefed_at = now()" in sql or "postmortem_at = now()" in sql:
+            row = ("INC-1",) if self.claimed else None
+        elif "briefed_at = NULL" in sql or "postmortem_at = NULL" in sql:
+            self.released = True
+            row = None
+        else:
+            row = None
+
+        class _Cur:
+            def fetchone(self_inner):
+                return row
+
+            def fetchall(self_inner):
+                return []          # no evidence needed; the sink is what fails
+        return _Cur()
+
+
+def test_a_failed_delivery_releases_the_claim_so_the_brief_is_not_lost_forever():
+    """The claim exists to stop duplicate posts under at-least-once delivery. If
+    it is kept when the work fails, a transient Slack or LLM error suppresses
+    that incident's brief PERMANENTLY — the event is never redelivered to a
+    consumer that would act on it."""
+    from freshet.autopilot.consumer import handle_lifecycle
+
+    class ExplodingSink:
+        def deliver(self, findings, thread=None):
+            raise RuntimeError("slack is down")
+
+    conn = _RecordingConn()
+    with pytest.raises(RuntimeError):
+        handle_lifecycle(conn, object(), _lifecycle(), window_s=0,
+                         sink=ExplodingSink(), sleep=lambda _: None)
+    assert conn.released, "the claim must be released so a retry can brief it"
