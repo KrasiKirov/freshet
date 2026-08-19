@@ -11,7 +11,11 @@ project's SLO story: the interesting range is sub-second to a few minutes.
 
 from __future__ import annotations
 
+import logging
+
 from prometheus_client import Counter, Histogram, start_http_server
+
+log = logging.getLogger(__name__)
 
 LATENCY_BUCKETS = (0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0)
 
@@ -51,6 +55,15 @@ PIPELINE_LATENCY = Histogram(
 
 
 def start_metrics_server(port: int) -> None:
-    """Expose /metrics on the given port; 0 disables (tests, library callers)."""
-    if port:
+    """Expose /metrics on the given port; 0 disables (tests, library callers).
+
+    A port already in use is logged and ignored rather than raised: metrics are
+    observability, and a second worker (or a stale one holding the port) must not
+    stop this one from indexing. The worker's actual job does not depend on it.
+    """
+    if not port:
+        return
+    try:
         start_http_server(port)
+    except OSError as exc:
+        log.warning("metrics server disabled: port %d unavailable (%s)", port, exc)
