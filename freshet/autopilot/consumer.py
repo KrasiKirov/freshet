@@ -82,7 +82,7 @@ def release_postmortem(conn, incident_id: str) -> None:
     conn.execute(_RELEASE_POSTMORTEM_SQL, (incident_id,))
 
 
-def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Sink,
+def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
                      sleep=time.sleep, composer=None) -> None:
     ev = LifecycleEvent.from_json(raw_json)
 
@@ -92,7 +92,7 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
             print(f"[autopilot] {ev.incident_id} already briefed — skipping")
             return
         try:
-            findings = gather_findings(conn, embedder, ev.service, ev.incident_id, "open")
+            findings = gather_findings(conn, ev.service, ev.incident_id, "open")
             ts = sink.deliver(findings)
         except Exception:
             release_incident(conn, ev.incident_id)
@@ -107,7 +107,7 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
         try:
             row = conn.execute(_GET_SLACK_TS_SQL, (ev.incident_id,)).fetchone()
             slack_ts = row[0] if row else None
-            pm = gather_postmortem(conn, embedder, ev.service, ev.incident_id, composer=composer)
+            pm = gather_postmortem(conn, ev.service, ev.incident_id, composer=composer)
             sink.deliver(pm, thread=slack_ts)
             mark_postmortem_delivered(conn, ev.incident_id)
         except Exception:

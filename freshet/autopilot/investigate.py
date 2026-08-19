@@ -79,7 +79,7 @@ def _summarise(updates, service: str, composer, question: str) -> str | None:
         return None
 
 
-def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
+def gather_findings(conn, service: str, incident_id: str, status: str,
                     *, composer=None) -> Findings:
     runbook = fetch_runbook(conn, service)
     # EVERY input is scoped to this incident. A service-wide similarity search
@@ -127,7 +127,7 @@ def _format_duration(opened_at, resolved_at) -> str | None:
     return f"{mins // 60}h {mins % 60}m"
 
 
-def gather_postmortem(conn, embedder, service: str, incident_id: str,
+def gather_postmortem(conn, service: str, incident_id: str,
                       *, composer=None) -> Findings:
     row = conn.execute(_INCIDENT_ROW_SQL, (incident_id,)).fetchone()
     opened_at, resolved_at, resolution_summary = row if row else (None, None, None)

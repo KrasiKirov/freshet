@@ -56,7 +56,7 @@ def test_opened_briefs_once_when_claim_won(capsys, monkeypatch):
                         lambda *a, **k: Findings("api", "open", "bad deploy",
                                                  "[ev1 @ 2026-07-01 00:00:00]",
                                                  None, None, None, None))
-    consumer.handle_lifecycle(_FakeConn(), object(), _open_json(),
+    consumer.handle_lifecycle(_FakeConn(), _open_json(),
                               window_s=0, sink=StdoutSink(), sleep=lambda s: None)
     out = capsys.readouterr().out
     assert "INCIDENT BRIEF" in out and "bad deploy" in out
@@ -66,7 +66,7 @@ def test_opened_persists_slack_ts_when_sink_returns_handle(monkeypatch):
     monkeypatch.setattr(consumer, "gather_findings",
                         lambda *a, **k: Findings("api", "open", None, None, None, None, None, "n"))
     conn = _FakeConn()
-    consumer.handle_lifecycle(conn, object(), _open_json(),
+    consumer.handle_lifecycle(conn, _open_json(),
                               window_s=0, sink=_RecordingSink(handle="9.9"), sleep=lambda s: None)
     # delivery + thread id land in ONE statement, so a crash cannot separate them
     assert any("brief_delivered_at = now()" in sql and "slack_ts" in sql
@@ -79,7 +79,7 @@ def test_opened_leaves_slack_ts_untouched_when_handle_none(monkeypatch):
     monkeypatch.setattr(consumer, "gather_findings",
                         lambda *a, **k: Findings("api", "open", None, None, None, None, None, "n"))
     conn = _FakeConn()
-    consumer.handle_lifecycle(conn, object(), _open_json(),
+    consumer.handle_lifecycle(conn, _open_json(),
                               window_s=0, sink=_RecordingSink(handle=None), sleep=lambda s: None)
     marks = [(sql, params) for sql, params in conn.executed if "brief_delivered_at = now()" in sql]
     assert len(marks) == 1
@@ -90,7 +90,7 @@ def test_opened_leaves_slack_ts_untouched_when_handle_none(monkeypatch):
 def test_opened_skips_when_claim_lost(capsys, monkeypatch):
     monkeypatch.setattr(consumer, "gather_findings",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not brief")))
-    consumer.handle_lifecycle(_FakeConn(claim_ok=False), object(), _open_json(),
+    consumer.handle_lifecycle(_FakeConn(claim_ok=False), _open_json(),
                               window_s=0, sink=StdoutSink(), sleep=lambda s: None)
     assert "already briefed" in capsys.readouterr().out.lower()
 
@@ -98,7 +98,7 @@ def test_opened_skips_when_claim_lost(capsys, monkeypatch):
 def test_resolved_posts_postmortem_threaded_under_slack_ts(monkeypatch):
     monkeypatch.setattr(consumer, "gather_postmortem", lambda *a, **k: _pm())
     sink = _RecordingSink()
-    consumer.handle_lifecycle(_FakeConn(slack_ts="9.9"), object(), _resolved_json(),
+    consumer.handle_lifecycle(_FakeConn(slack_ts="9.9"), _resolved_json(),
                               window_s=0, sink=sink, sleep=lambda s: None)
     assert len(sink.calls) == 1
     findings, thread = sink.calls[0]
@@ -109,7 +109,7 @@ def test_resolved_skips_on_redelivery(capsys, monkeypatch):
     monkeypatch.setattr(consumer, "gather_postmortem",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not run")))
     sink = _RecordingSink()
-    consumer.handle_lifecycle(_FakeConn(claim_ok=False), object(), _resolved_json(),
+    consumer.handle_lifecycle(_FakeConn(claim_ok=False), _resolved_json(),
                               window_s=0, sink=sink, sleep=lambda s: None)
     assert not sink.calls
     assert "already" in capsys.readouterr().out.lower()
@@ -159,7 +159,7 @@ def test_a_failed_delivery_releases_the_claim_so_the_brief_is_not_lost_forever()
 
     conn = _RecordingConn()
     with pytest.raises(RuntimeError):
-        handle_lifecycle(conn, object(), _lifecycle(), window_s=0,
+        handle_lifecycle(conn, _lifecycle(), window_s=0,
                          sink=ExplodingSink(), sleep=lambda _: None)
     assert conn.released, "the claim must be released so a retry can brief it"
 
@@ -176,7 +176,7 @@ def test_failed_delivery_releases_the_claim_and_never_marks_delivered(monkeypatc
                         lambda *a, **k: Findings("api", "open", None, None, None, None, None, None))
     conn = _FakeConn()
     with pytest.raises(RuntimeError, match="slack down"):
-        consumer.handle_lifecycle(conn, object(), _open_json(), window_s=0,
+        consumer.handle_lifecycle(conn, _open_json(), window_s=0,
                                   sink=_RaisingSink(), sleep=lambda s: None)
     sql = " ".join(q for q, _ in conn.executed)
     assert "briefed_at = NULL" in sql          # claim released for the redelivery
@@ -187,7 +187,7 @@ def test_failed_postmortem_releases_its_claim(monkeypatch):
     monkeypatch.setattr(consumer, "gather_postmortem", lambda *a, **k: _pm())
     conn = _FakeConn(slack_ts="1.2")
     with pytest.raises(RuntimeError, match="slack down"):
-        consumer.handle_lifecycle(conn, object(), _resolved_json(), window_s=0,
+        consumer.handle_lifecycle(conn, _resolved_json(), window_s=0,
                                   sink=_RaisingSink(), sleep=lambda s: None)
     sql = " ".join(q for q, _ in conn.executed)
     assert "postmortem_at = NULL" in sql

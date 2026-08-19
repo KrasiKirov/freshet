@@ -32,7 +32,7 @@ def test_a_brief_is_produced_for_a_real_incident(conn, emb, llm):
     from freshet.autopilot.brief import render_brief
     from freshet.autopilot.investigate import gather_findings
 
-    findings = gather_findings(conn, emb, service, incident_id, status="opened", composer=llm)
+    findings = gather_findings(conn, service, incident_id, status="opened", composer=llm)
     text = render_brief(findings)
 
     assert text.strip(), "a brief must be produced for a real incident"
@@ -55,7 +55,7 @@ def test_the_brief_cites_real_updates(conn, emb, llm):
     from freshet.autopilot.brief import render_brief
     from freshet.autopilot.investigate import gather_findings
 
-    text = render_brief(gather_findings(conn, emb, service, incident_id, status="opened", composer=llm))
+    text = render_brief(gather_findings(conn, service, incident_id, status="opened", composer=llm))
     assert "Updates:" in text
     cited = [ln for ln in text.splitlines() if "[" in ln]
     assert cited, "the brief must cite the updates it reports"
@@ -80,7 +80,7 @@ def test_a_cause_is_never_invented_from_real_updates(conn, emb, llm):
             continue          # this incident DOES state a cause; covered elsewhere
         silent += 1
         service = next(r["provider"] for r in rows if r["incident_id"] == incident_id)
-        findings = gather_findings(conn, emb, service, incident_id,
+        findings = gather_findings(conn, service, incident_id,
                                    status="opened", composer=llm)
         assert findings.cause_text is None, (
             f"{incident_id}: no cause was stated, so none may be reported")
@@ -114,7 +114,7 @@ def test_the_brief_only_cites_the_incident_it_is_about(conn, emb, llm):
     from freshet.autopilot.brief import render_brief
     from freshet.autopilot.investigate import gather_findings
 
-    text = render_brief(gather_findings(conn, emb, service, incident_id, status="opened", composer=llm))
+    text = render_brief(gather_findings(conn, service, incident_id, status="opened", composer=llm))
 
     # EVERY citation anywhere in the brief — Cause, Resolution, Updates — must
     # belong to this incident. event_ids are "provider:incident_id:update_id",
@@ -144,7 +144,7 @@ def test_a_stated_cause_is_surfaced_when_the_provider_gives_one(conn, emb, llm):
             continue
         with_cause += 1
         service = next(r["provider"] for r in rows if r["incident_id"] == incident_id)
-        findings = gather_findings(conn, emb, service, incident_id, status="resolved", composer=llm)
+        findings = gather_findings(conn, service, incident_id, status="resolved", composer=llm)
         assert findings.cause_text, f"{incident_id}: cause stated but not surfaced"
         assert findings.cause_cite and "@" in findings.cause_cite
 
@@ -172,6 +172,6 @@ def test_the_brief_never_reads_evidence_outside_its_incident(conn, emb, llm, mon
 
     from freshet.autopilot.investigate import gather_findings
 
-    findings = gather_findings(conn, emb, service, incident_id,
+    findings = gather_findings(conn, service, incident_id,
                                status="opened", composer=llm)
     assert findings.updates, "the brief still needs its own incident's updates"
