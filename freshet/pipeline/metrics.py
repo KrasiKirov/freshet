@@ -24,6 +24,13 @@ DEADLETTER_EVENTS = Counter(
     "Messages routed to the dead-letter topic (normalizer + embedder)",
 )
 
+# Kafka messages handled. INDEXED_EVENTS counts CHUNKS, so a long update counted
+# several times and "events indexed" overstated throughput by the chunking ratio.
+EMBEDDER_MESSAGES = Counter(
+    "freshet_embedder_messages",
+    "Kafka messages successfully indexed (one per update, not per chunk)",
+)
+
 INDEXED_EVENTS = Counter(
     "freshet_embedder_events_total",
     "Events embedded and upserted into pgvector",

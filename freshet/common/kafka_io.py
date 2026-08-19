@@ -94,6 +94,7 @@ def consume_loop(
     commit_every: int = 1,
     pre_commit: Callable[[], None] | None = None,
     idle_hook: Callable[[], None] | None = None,
+    after_handler: Callable[[], None] | None = None,
 ) -> int:
     """Run a simple consume loop, calling handler(value_str) per message.
 
@@ -102,8 +103,9 @@ def consume_loop(
     (at-least-once). `commit_every` batches those commits: offsets are committed
     every N messages (and on clean loop exit), so a crash redelivers at most the
     current batch — still at-least-once, downstream idempotency absorbs the
-    duplicates. `idle_hook` runs whenever a poll returns no message, for work that must
-    happen off the message path. `pre_commit` runs immediately before every
+    duplicates. `idle_hook` runs whenever a poll returns no message, and `after_handler`
+    after every handled message (before its offset commits), for work that must
+    happen off the message path but must not wait for an idle moment. `pre_commit` runs immediately before every
     offset commit; a
     producing handler passes its BufferedProducer.flush_checked here so no
     offset is ever committed past an unacknowledged produce. If pre_commit or
@@ -153,6 +155,11 @@ def consume_loop(
                 continue
             last_msg = time.monotonic()
             handler(msg.value().decode("utf-8"))
+            # Runs on the message path, BEFORE the offset for that message is
+            # committed: work deferred to `idle_hook` alone never happens while a
+            # partition stays busy, because poll() never returns None.
+            if after_handler is not None:
+                after_handler()
             if not auto_commit:
                 pending[(msg.topic(), msg.partition())] = msg
                 since_commit += 1

@@ -119,6 +119,10 @@ class _FakeConn:
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
 
+    def transaction(self):
+        import contextlib
+        return contextlib.nullcontext()
+
 
 class _FlakyEmbedder:
     """Fails the first n encode calls, then behaves like the stub."""
@@ -162,8 +166,8 @@ def test_transient_embed_failure_recovers_without_deadletter():
     handle = make_handler(conn, _FlakyEmbedder(failures=1), producer,
                           attempts=3, sleep=lambda s: None)
     handle(_event_json())
-    assert producer.messages == []      # no dead-letter
-    assert len(conn.executed) == 1      # the chunk was upserted
+    assert producer.messages == []
+    assert any("INSERT INTO vector_records" in q for q, _ in conn.executed)
 
 
 def test_db_failure_still_propagates():
@@ -183,3 +187,30 @@ def test_db_failure_still_propagates():
     with pytest.raises(RuntimeError, match="db down"):
         handle(_event_json())
     assert producer.messages == []
+
+
+def test_handler_writes_incident_events_and_drops_orphan_chunks():
+    from freshet.common.schemas import Event, EventSource
+    from freshet.pipeline.embedder import make_handler
+
+    ev = Event(service="s", source=EventSource.ALERT, type="status_update",
+               text="short", incident_id="INC-9")
+    producer, conn = _FakeProducer(), _FakeConn()
+    make_handler(conn, _FlakyEmbedder(failures=0), producer, attempts=1,
+                 sleep=lambda s: None)(ev.model_dump_json())
+    sql = " ".join(q for q, _ in conn.executed)
+    assert "incident_events" in sql
+    assert "DELETE FROM vector_records" in sql
+
+
+def test_handler_counts_the_kafka_message_once():
+    from prometheus_client import REGISTRY
+
+    from freshet.common.schemas import Event, EventSource
+    from freshet.pipeline.embedder import make_handler
+
+    msg_before = REGISTRY.get_sample_value("freshet_embedder_messages_total") or 0
+    ev = Event(service="s", source=EventSource.ALERT, type="status_update", text="hello")
+    make_handler(_FakeConn(), _FlakyEmbedder(failures=0), _FakeProducer(),
+                 attempts=1, sleep=lambda s: None)(ev.model_dump_json())
+    assert REGISTRY.get_sample_value("freshet_embedder_messages_total") == msg_before + 1

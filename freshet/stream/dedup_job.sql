@@ -30,7 +30,11 @@ CREATE TABLE raw_incidents (
   incident_name STRING,
   proc_time     AS PROCTIME(),
   -- 30s tolerance absorbs pollers whose sweeps are staggered against each other
-  WATERMARK FOR created_at AS created_at - INTERVAL '90' SECOND
+  -- A cache-miss sweep re-emits MONTHS of Atom history long after the watermark
+  -- has advanced to 'now'. At 90s those first-seen rows were dropped as late
+  -- data and never indexed. Dedup orders by proc_time, so a wide watermark costs
+  -- nothing here — it only governs how late an event may arrive.
+  WATERMARK FOR created_at AS created_at - INTERVAL '7' DAY
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'raw.incidents',
@@ -65,6 +69,22 @@ CREATE TABLE normalized_updates (
   'json.timestamp-format.standard' = 'ISO-8601'
 );
 
+CREATE TABLE raw_deadletter (
+  provider      STRING,
+  incident_id   STRING,
+  update_id     STRING,
+  incident_name STRING,
+  status        STRING,
+  text          STRING,
+  seen_at       TIMESTAMP_LTZ(3)
+) WITH (
+  'connector' = 'kafka',
+  'topic' = 'deadletter.raw',
+  'properties.bootstrap.servers' = 'localhost:9092',
+  'format' = 'json',
+  'json.timestamp-format.standard' = 'ISO-8601'
+);
+
 CREATE TABLE incident_lifecycle (
   incident_id STRING,
   service     STRING,
@@ -89,11 +109,39 @@ CREATE TABLE incident_lifecycle (
   'value.json.timestamp-format.standard' = 'ISO-8601'
 );
 
+-- Keep-first dedup and the Kafka source offsets live in keyed state; without
+-- checkpoints neither survives a restart, so a restarted job re-reads
+-- raw.incidents from earliest and re-emits everything it already emitted. The
+-- SQL header claimed 'checkpointed dedup' while nothing turned it on.
+-- A quiet partition otherwise pins the watermark at its last event and stalls
+-- every event-time operator behind it. This is a pipeline option, not a Kafka
+-- connector option: Flink rejects the job outright if it appears in a table's
+-- WITH clause ("Unsupported options found for 'kafka'").
+SET 'table.exec.source.idle-timeout' = '60s';
+
+SET 'execution.checkpointing.interval' = '10s';
+SET 'execution.checkpointing.min-pause' = '5s';
+SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
+-- Local single-node demo: a file-backed directory is enough to survive a restart.
+SET 'state.checkpoints.dir' = 'file:///tmp/freshet-flink-checkpoints';
+SET 'execution.checkpointing.externalized-checkpoint-retention' =
+    'RETAIN_ON_CANCELLATION';
+
 EXECUTE STATEMENT SET
 BEGIN
 
 -- 1. Deduplication. The poller re-delivers everything each sweep; keep the FIRST
 --    arrival of each (provider, incident, update) and drop every repeat.
+-- Rows that PARSE but have no usable created_at were dropped by every branch
+-- below with no trace. Routing them to a dead-letter topic makes the loss
+-- visible and replayable, the same contract the embedder already honours.
+-- (json.ignore-parse-errors still silently drops rows that are not valid JSON
+-- at all; those never become rows and so cannot be routed here.)
+INSERT INTO raw_deadletter
+SELECT provider, incident_id, update_id, incident_name, status, text, proc_time
+FROM raw_incidents
+WHERE created_at IS NULL;
+
 INSERT INTO normalized_updates
 -- Emits the project's canonical Event shape (freshet/common/schemas.py), which is
 -- what the embedder, retrieval and Autopilot all speak. `ingested_at` is our
@@ -143,6 +191,12 @@ FROM (
   FROM raw_incidents
   WHERE created_at IS NOT NULL
     AND LOWER(status) IN ('investigating', 'identified', 'monitoring')
+    -- Only RECENT opens. The source is a re-emitting poller reading from
+    -- earliest, and a resubmitted job starts with empty dedup state, so without
+    -- this every incident in 3 years of history is 'opened' again: a sample of
+    -- 3,000 lifecycle records held 1,429 opens of which 10 were under a day old.
+    -- The Autopilot would page a human about outages from 2022.
+    AND created_at > CURRENT_TIMESTAMP - INTERVAL '24' HOUR
 )
 WHERE seq = 1;
 

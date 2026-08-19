@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from freshet.autopilot import consumer
@@ -9,17 +11,21 @@ from freshet.pipeline.lifecycle import LifecycleEvent
 class _FakeConn:
     """Routes by SQL: RETURNING → claim; slack_ts → stored ts; due → scheduled
     briefs; vector_records count → how much evidence is indexed."""
-    def __init__(self, *, claim_ok=True, slack_ts=None, due=(("INC_1", "api"),), indexed=3):
+    def __init__(self, *, claim_ok=True, slack_ts=None, due=(("INC_1", "api"),),
+                 indexed=3, postmortem_needed=False):
         self.claim_ok = claim_ok
         self.slack_ts = slack_ts
         self.due = list(due)
         self.indexed = indexed
+        self.postmortem_needed = postmortem_needed
         self.executed = []
 
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
         row, rows = None, []
-        if "RETURNING" in sql:
+        if "postmortem_needed" in sql and "RETURNING" in sql:
+            row = ("INC_1", "api", self.slack_ts) if self.postmortem_needed else None
+        elif "RETURNING" in sql:
             row = ("INC_1",) if self.claim_ok else None
         elif "SELECT slack_ts" in sql:
             row = (self.slack_ts,)
@@ -52,8 +58,9 @@ def _pm():
     return Findings("api", "resolved", None, None, None, None, None, "narrative", "Duration 42m · resolved")
 
 
-def _open_json():
-    return LifecycleEvent("opened", "INC_1", "api", "2026-07-01T00:00:00+00:00").to_json()
+def _open_json(ts=None):
+    stamp = ts or datetime.now(UTC).isoformat()
+    return LifecycleEvent("opened", "INC_1", "api", stamp).to_json()
 
 
 def _resolved_json():
@@ -195,6 +202,47 @@ def test_a_failed_delivery_releases_the_claim_and_leaves_it_due(monkeypatch):
     assert "brief_due_at = NULL" not in sql, "the retry must stay scheduled"
 
 
+def test_stale_opened_events_are_not_scheduled():
+    """The first poller sweep replays years of Atom history. Without a recency
+    cut, every historical incident gets a brief."""
+    conn = _FakeConn()
+    old = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+    consumer.handle_lifecycle(conn, _open_json(old), window_s=45, sink=StdoutSink())
+    sql = " ".join(q for q, _ in conn.executed)
+    assert "brief_due_at = now() +" not in sql
+
+
+def test_resolved_before_brief_marks_postmortem_needed(monkeypatch):
+    """A resolve inside the debounce window used to skip the postmortem forever."""
+    monkeypatch.setattr(consumer, "gather_postmortem",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("too early")))
+    conn = _FakeConn(claim_ok=False)
+    consumer.handle_lifecycle(conn, _resolved_json(), window_s=0, sink=_RecordingSink())
+    sql = " ".join(q for q, _ in conn.executed)
+    assert "postmortem_needed" in sql
+
+
+def test_drain_posts_a_deferred_postmortem_after_the_brief(monkeypatch):
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: Findings("api", "open", None, None, None, None, None, "n"))
+    monkeypatch.setattr(consumer, "gather_postmortem", lambda *a, **k: _pm())
+    conn = _FakeConn(slack_ts="9.9", postmortem_needed=True)
+    sink = _RecordingSink(handle="9.9")
+    assert consumer.drain_due_briefs(conn, sink=sink) == 1
+    assert len(sink.calls) == 2
+    assert sink.calls[1][0].status == "resolved"
+    assert sink.calls[1][1] == "9.9"
+
+
+def test_handle_and_drain_runs_delivery_on_the_message_path(monkeypatch):
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: Findings("api", "open", None, None, None, None, None, "n"))
+    conn = _FakeConn(due=(("INC_1", "api"),))
+    sink = _RecordingSink(handle="1")
+    consumer.handle_and_drain(conn, _open_json(), window_s=0, sink=sink)
+    assert sink.calls, "a due brief must not wait for an idle Kafka poll"
+
+
 def test_drain_waits_for_the_embedder_then_briefs_anyway(monkeypatch):
     """Status feeds are genuinely sparse: an empty timeline after the timeout is
     allowed, but it must be logged rather than silently briefed."""
@@ -205,3 +253,31 @@ def test_drain_waits_for_the_embedder_then_briefs_anyway(monkeypatch):
     n = consumer.wait_for_index(conn, "INC_1", timeout_s=1.0,
                                 sleep=slept.append, now=iter([0.0, 0.5, 1.5]).__next__)
     assert n == 0 and slept, "it should have waited before giving up"
+
+
+# --- a replayed topic must not page anyone about 2022 ------------------------
+
+def _open_json_aged(hours):
+    from datetime import UTC, datetime, timedelta
+    ts = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+    return LifecycleEvent("opened", "INC_OLD", "api", ts).to_json()
+
+
+def test_a_stale_open_is_not_scheduled(capsys):
+    """A sample of the live topic held 1,429 opens, 10 of them under a day old.
+    Without this guard a resubmitted Flink job briefs every historical incident."""
+    conn = _FakeConn()
+    consumer.handle_lifecycle(conn, _open_json_aged(72), window_s=45, sink=StdoutSink())
+    sql = " ".join(q for q, _ in conn.executed)
+    assert "brief_due_at = now() +" not in sql, "a 3-day-old incident must not brief"
+    assert "too old" in capsys.readouterr().out.lower()
+
+
+def test_a_recent_open_is_still_scheduled():
+    conn = _FakeConn()
+    consumer.handle_lifecycle(conn, _open_json_aged(1), window_s=45, sink=StdoutSink())
+    assert any("brief_due_at = now() +" in q for q, _ in conn.executed)
+
+
+def test_the_age_boundary_is_the_documented_constant():
+    assert consumer.MAX_BRIEF_AGE_S == 24 * 3600

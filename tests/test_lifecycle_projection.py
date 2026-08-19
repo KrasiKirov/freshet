@@ -58,13 +58,31 @@ def test_open_and_resolve_statuses_do_not_overlap():
         "an overlapping status would emit both an open and a resolve")
 
 
-def test_the_watermark_covers_a_slow_sweep():
-    """Poll interval (60s) + HTTP timeout: at 30s a slow sweep's updates arrived
-    behind the watermark and were silently dropped as late data."""
-    m = re.search(r"WATERMARK FOR created_at AS created_at - INTERVAL '(\d+)' SECOND", SQL)
-    assert m and int(m.group(1)) >= 90
+def test_the_watermark_covers_reemitted_history():
+    """A cache-miss sweep re-emits months of Atom history after the watermark
+    has moved to 'now'. 90s of allowed lateness dropped those first-seen rows.
+    Dedup still orders by proc_time; the watermark only gates late event-time."""
+    m = re.search(r"WATERMARK FOR created_at AS created_at - INTERVAL '(\d+)' DAY", SQL)
+    assert m and int(m.group(1)) >= 7
 
 
 def test_parse_errors_are_still_tolerated():
-    # A single poison record must not kill the job; those rows are silent drops.
+    # A single poison record must not kill the job; those rows are silent drops
+    # at the JSON decoder. Rows that parse but have a NULL created_at are
+    # routed to a dead-letter sink instead of vanishing.
     assert "'json.ignore-parse-errors' = 'true'" in SQL
+
+
+def test_checkpointing_is_enabled():
+    """Without a checkpoint interval, keyed keep-first state dies on a TM
+    restart and the job header's 'checkpointed' claim is false."""
+    assert "execution.checkpointing.interval" in SQL
+
+
+def test_null_created_at_rows_are_dead_lettered():
+    assert "deadletter.raw" in SQL
+    assert "created_at IS NULL" in SQL
+
+
+def test_idle_partitions_do_not_hold_the_watermark():
+    assert "idle-timeout" in SQL

@@ -23,6 +23,7 @@ from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
 from freshet.pipeline.embedding import Embedder, make_embedder, vec_literal
 from freshet.pipeline.metrics import (
     DEADLETTER_EVENTS,
+    EMBEDDER_MESSAGES,
     FRESHNESS,
     INDEXED_EVENTS,
     PIPELINE_LATENCY,
@@ -73,6 +74,16 @@ def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorReco
         for i, chunk in enumerate(chunk_text(ev.text))
     ]
 
+
+# The chunk index is the trailing _N of chunk_id; anything at or beyond the
+# current chunk count is left over from a previous, longer version of this text.
+_DELETE_ORPHAN_CHUNKS_SQL = (
+    "DELETE FROM vector_records WHERE event_id = %s"
+    " AND (regexp_match(chunk_id, '_(\\d+)$'))[1]::int >= %s")
+# incident_events exists in the schema but nothing wrote to it.
+_INCIDENT_EVENT_SQL = (
+    "INSERT INTO incident_events (incident_id, event_id) VALUES (%s, %s)"
+    " ON CONFLICT DO NOTHING")
 
 UPSERT_SQL = """
 INSERT INTO vector_records
@@ -171,10 +182,17 @@ def make_handler(conn, emb: Embedder, producer, *,
         for rec, vector in zip(records, vectors, strict=True):
             upsert_record(conn, rec, vector, getattr(emb, "name", None))
             observe_indexed(rec, ingested_at=ev.ingested_at)
+        # Re-embedding a SHORTER text leaves the previous run's extra chunks
+        # behind: chunk_id is per index, so upserts overwrite _0.._n and orphan
+        # _n+1.. — stale text that still answers queries.
+        conn.execute(_DELETE_ORPHAN_CHUNKS_SQL, (ev.event_id, len(records)))
         # Autopilot claims against `incidents`; without a row its UPDATE matches
         # nothing and the incident is silently never briefed. Written after the
         # upserts so a failed index does not leave a claimable row with no evidence.
         ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
+        if ev.incident_id:
+            conn.execute(_INCIDENT_EVENT_SQL, (ev.incident_id, ev.event_id))
+        EMBEDDER_MESSAGES.inc()      # one per Kafka message, not per chunk
 
     return handle
 

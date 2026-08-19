@@ -77,3 +77,19 @@ def test_an_unreadable_cache_starts_cold_instead_of_crashing(tmp_path):
     headers = ConditionalCache(str(path)).headers_for("https://x/history.atom")
     assert "If-None-Match" not in headers, "no validators recovered, but no crash"
     assert headers["User-Agent"]
+
+
+def test_backoff_survives_a_restart(tmp_path):
+    path = str(tmp_path / "poll_cache.json")
+    clock = _Clock()
+    b = HostBackoff(now=clock, wall=lambda: 1000.0)
+    b.failed("https://down/history.atom")
+    cache = ConditionalCache(path)
+    cache.save(backoff=b)
+
+    clock.t = 0.0
+    restarted = HostBackoff(now=clock, wall=lambda: 1000.5)
+    ConditionalCache(path).restore_backoff(restarted)
+    assert restarted.skip("https://down/history.atom")
+    clock.t = 10.0
+    assert not restarted.skip("https://down/history.atom")

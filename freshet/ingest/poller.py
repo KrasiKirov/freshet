@@ -54,6 +54,7 @@ class ConditionalCache:
         # 42 feeds — the validators are the whole politeness lever, and losing
         # them on every restart threw it away.
         self._path = path or os.environ.get("FRESHET_POLL_CACHE") or ""
+        self._backoff: dict = {}
         self._load()
 
     def _load(self) -> None:
@@ -64,18 +65,26 @@ class ConditionalCache:
                 data = json.load(fh)
             self._etag = dict(data.get("etag") or {})
             self._modified = dict(data.get("modified") or {})
+            self._backoff = dict(data.get("backoff") or {})
             log.info("poll cache: %d validators restored", len(self._etag))
         except Exception as exc:                  # noqa: BLE001 - cache is advisory
             log.warning("poll cache unreadable (%s); starting cold", exc)
 
-    def save(self) -> None:
+    def restore_backoff(self, backoff: HostBackoff) -> None:
+        """Reapply persisted per-host backoff after a restart."""
+        backoff.restore(self._backoff)
+
+    def save(self, backoff: HostBackoff | None = None) -> None:
         """Best-effort: a cache write must never interrupt polling."""
         if not self._path:
             return
+        if backoff is not None:
+            self._backoff = backoff.snapshot()
         try:
             tmp = f"{self._path}.tmp"
             with open(tmp, "w") as fh:
-                json.dump({"etag": self._etag, "modified": self._modified}, fh)
+                json.dump({"etag": self._etag, "modified": self._modified,
+                           "backoff": self._backoff}, fh)
             os.replace(tmp, self._path)           # atomic: no half-written cache
         except Exception as exc:                  # noqa: BLE001 - cache is advisory
             log.warning("could not persist poll cache: %s", exc)
@@ -118,10 +127,27 @@ class HostBackoff:
     next sweep, so a host that was down stayed in every sweep's critical path.
     """
 
-    def __init__(self, now=time.monotonic) -> None:
+    def __init__(self, now=time.monotonic, wall=time.time) -> None:
         self._until: dict[str, float] = {}
         self._failures: dict[str, int] = {}
         self._now = now
+        # monotonic time does not survive a process restart, so the deadline is
+        # ALSO kept in wall-clock terms for persistence. A host that just started
+        # a 300s backoff would otherwise be hammered again immediately on restart.
+        self._wall = wall
+
+    def snapshot(self) -> dict:
+        remaining = {u: self._until[u] - self._now() for u in self._until}
+        return {"failures": dict(self._failures),
+                "deadlines": {u: self._wall() + r for u, r in remaining.items() if r > 0}}
+
+    def restore(self, data: dict) -> None:
+        self._failures = dict(data.get("failures") or {})
+        now_wall, now_mono = self._wall(), self._now()
+        for url, deadline in (data.get("deadlines") or {}).items():
+            remaining = deadline - now_wall
+            if remaining > 0:
+                self._until[url] = now_mono + remaining
 
     def skip(self, url: str) -> bool:
         return self._now() < self._until.get(url, 0.0)
@@ -193,6 +219,7 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
     pages = load_pages()
     cache = ConditionalCache()
     backoff = HostBackoff()
+    cache.restore_backoff(backoff)   # a host mid-backoff stays skipped across restarts
     producer = BufferedProducer(brokers)
     log.info("polling %d feeds every %.0fs", len(pages), interval_s)
 
@@ -211,7 +238,7 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
                              key=update.dedup_key)
             produced += 1
         producer.flush_checked()
-        cache.save()
+        cache.save(backoff)
         sweeps += 1
         elapsed = time.monotonic() - started
         log.info("sweep %d done in %.1fs (%d produced)", sweeps, elapsed, produced)

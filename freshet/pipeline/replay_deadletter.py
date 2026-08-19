@@ -20,17 +20,24 @@ from freshet.pipeline.embedder import DEADLETTER_TOPIC
 
 log = logging.getLogger(__name__)
 
+# An envelope we cannot route is still evidence. Consuming it and committing the
+# offset destroyed it silently; republishing to a quarantine topic keeps it for
+# inspection while letting the replay drain the rest of the queue.
+UNUSABLE_TOPIC = "deadletter.unusable"
+
 
 def replay_record(producer, raw: str) -> str | None:
     """Republish one dead-letter record. Returns the topic, or None if unusable."""
     try:
         record = json.loads(raw)
     except json.JSONDecodeError as exc:
-        log.warning("dead-letter record is not JSON (%s); leaving it", exc)
+        log.warning("dead-letter record is not JSON (%s); quarantining", exc)
+        producer.produce(UNUSABLE_TOPIC, raw)
         return None
     topic, payload = record.get("source_topic"), record.get("payload")
     if not topic or payload is None:
-        log.warning("dead-letter record has no source_topic/payload; leaving it")
+        log.warning("dead-letter record has no source_topic/payload; quarantining")
+        producer.produce(UNUSABLE_TOPIC, raw)
         return None
     producer.produce(topic, payload)
     return topic

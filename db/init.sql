@@ -119,3 +119,10 @@ ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_delivered_at timestamp
 -- (so the offset commits) while an idle tick delivers the brief when it is due.
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS brief_due_at timestamptz;
 
+-- Set when an incident resolves before its brief was delivered. The postmortem
+-- claim requires a delivered brief, so a resolve arriving inside the debounce
+-- window used to match nothing and be skipped forever — Kafka had already
+-- committed the offset, so it never came back. Deferring it in Postgres lets the
+-- drain post it once the brief lands.
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_needed boolean NOT NULL DEFAULT false;
+
