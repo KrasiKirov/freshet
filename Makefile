@@ -111,6 +111,10 @@ autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
 
+review-labels: ##eval
+	@# Print a reproducible 20-row sample for HUMAN review; --apply records verdicts.
+	$(PYTHON) -m freshet.eval.review_labels $(ARGS)
+
 calibrate-abstention: ##eval
 	@# Proposes an abstention floor from paraphrased live labels. Never writes it.
 	$(PYTHON) -m freshet.eval.calibrate_abstention

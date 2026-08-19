@@ -97,3 +97,21 @@ def test_every_label_points_at_an_update_present_in_the_corpus():
     for entry in labels["labeled"]:
         missing = cause_event_ids(entry) - known
         assert not missing, f"{entry['incident_id']} labels unknown updates: {missing}"
+
+
+def test_the_querys_own_document_is_excluded_from_scoring():
+    """The query is real text lifted from an update, so that update is trivially
+    its own top hit; scoring it made top-1 structurally 0.000 on every arm."""
+    class _H:
+        def __init__(self, e):
+            self.event_id = e
+    hits = [_H("self"), _H("cause"), _H("other")]
+    assert dedupe_events(hits, exclude="self") == ["cause", "other"]
+    assert score_one(dedupe_events(hits, "self"), {"cause"})["top1_cite"] is True
+
+
+def test_excluding_nothing_keeps_every_hit():
+    class _H:
+        def __init__(self, e):
+            self.event_id = e
+    assert dedupe_events([_H("a"), _H("b")]) == ["a", "b"]

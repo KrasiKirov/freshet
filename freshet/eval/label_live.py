@@ -178,3 +178,47 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ---- real queries -----------------------------------------------------------
+# Generating questions put fabricated text into the benchmark: a check over 64
+# paraphrases found 7 that named a product the incident never involved (Postman
+# became "the mail delivery application"). The corpus already contains real
+# queries — each incident's FIRST update is the symptom in the provider's own
+# words, which is exactly what an on-call engineer reacts to.
+
+MAX_QUERY_CHARS = 400        # a symptom statement, not a whole postmortem
+
+_FIRST_UPDATE_SQL = (
+    "SELECT DISTINCT ON (event_id) event_id, ts, title, text"
+    " FROM vector_records WHERE incident_id = %s"
+    " ORDER BY event_id, ts, chunk_id")
+
+
+def strip_title(text: str, title: str | None) -> str:
+    """Drop the '<title>: ' prefix Flink prepends to every update.
+
+    Left in, the query would carry the same title as every chunk of the target
+    and the lexical arm would match on the prefix rather than on the symptom.
+    """
+    prefix = f"{title}: "
+    return text[len(prefix):] if title and text.startswith(prefix) else text
+
+
+def first_update_query(conn, incident_id: str, cause_event_ids: set[str]
+                       ) -> tuple[str, str] | None:
+    """(query text, its event_id) from the incident's earliest non-cause update.
+
+    Returns None when the earliest update IS the cause update: retrieving a
+    document by quoting that same document measures nothing.
+    """
+    rows = conn.execute(_FIRST_UPDATE_SQL, (incident_id,)).fetchall()
+    if not rows:
+        return None
+    for event_id, _ts, title, text in sorted(rows, key=lambda r: (r[1], r[0])):
+        if event_id in cause_event_ids:
+            continue                      # never query with the answer itself
+        body = strip_title(text or "", title).strip()
+        if body:
+            return body[:MAX_QUERY_CHARS], event_id
+    return None

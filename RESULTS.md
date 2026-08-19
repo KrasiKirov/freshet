@@ -43,47 +43,37 @@ unfalsifiable. Two corpora, both real provider text — no synthetic data:
 | labeled | **12**, human-reviewed | **81**, LLM-judged (draft) |
 | reproducible anywhere | yes | no — needs a populated index |
 
-**Live index, n = 64**, questions PARAPHRASED to avoid the incident title's
-vocabulary (mean title-word reuse 0.710 -> 0.100, measured per query, not assumed):
+**Live index, n = 55.** Every part of this is real provider text — the documents,
+the queries, and the ground truth:
 
 | arm | recall@5 | MRR | top-1 cite |
 |---|---|---|---|
-| **hybrid (shipped)** | **0.422** | 0.235 | 0.141 |
-| vector-only | 0.391 | 0.241 | 0.156 |
-| keyword-only | 0.234 | 0.146 | 0.094 |
+| **hybrid (shipped)** | **0.455** | **0.321** | **0.255** |
+| vector-only | 0.418 | 0.313 | 0.236 |
+| keyword-only | 0.364 | 0.253 | 0.182 |
 | *blind recency (guard)* | *0.000* | *0.000* | *0.000* |
 
-**What paraphrasing exposed.** Scored on title-derived questions the same system
-reported hybrid 0.750 and keyword-only 0.719 — a 0.031 gap that made the lexical arm
-look nearly sufficient on its own. Removing the shared vocabulary collapsed
-keyword-only to 0.234 (-0.485) while vector-only fell far less (-0.281), and hybrid's
-margin over keyword-only widened from 0.031 to 0.188. Most of the lexical arm's
-apparent skill was the question quoting the document.
+**The query is the incident's own first update**, verbatim, with the title prefix
+stripped — the symptom as the provider wrote it, which is what an on-call engineer
+actually reacts to. The task is then: from that symptom, retrieve the update where
+the provider states the cause. The query's own document is excluded from scoring
+(otherwise it is trivially its own top hit, which forced top-1 to 0.000 on every
+arm — an artifact of the setup, not a property of retrieval).
 
-This is the honest difficulty of the task: find the one cause-stating update among
-~5,100 indexed updates, from a question that shares no wording with it. It is not
-comparable to v1's 0.917, which was measured on title-derived questions over 841
-updates from 5 providers.
+**Why generated questions were scrapped.** An earlier version asked an LLM to write
+the questions. A check across those 64 paraphrases found **7 that invented a
+specific the incident never involved** — Postman became "the mail delivery
+application", Render "the rendering system". Fabricated inputs were feeding the
+benchmark, so the numbers they produced (hybrid 0.422) are withdrawn.
 
-**The finding worth acting on: 33 of 64 questions now abstain** (was 6 of 64). On
-genuinely paraphrased on-call language, the calibrated 0.70 floor declines more than
-half the questions it has evidence for. That is a real result about the floor, not
-about the corpus, and it is left as measured rather than tuned away.
+**Hybrid leads on all three metrics** here, which is the clearest evidence for it so
+far: on title-derived questions hybrid and keyword-only were 0.031 apart, and on
+generated paraphrases hybrid and vector-only were indistinguishable on MRR.
 
-**The floor was investigated and left alone.** `make calibrate-abstention` measures
-the similarity distribution the 0.70 floor is meant to cut, using paraphrased live
-questions only (title-derived ones share vocabulary with the documents and would
-justify a floor real language never clears). Answerable on-corpus questions bottom
-out at **0.616**; off-corpus questions reach **0.687**. They overlap, so no threshold
-separates them — the floor is not what loses those 33 questions, retrieval is. The
-tool prints a proposal and never writes one; here it correctly proposes nothing.
-
-Only 27 of 64 questions retrieve the cause at all even with abstention disabled,
-which is the same 0.42 recall seen above rather than a separate problem.
-
-**Hybrid still leads on recall@5**, but its margin over vector-only is now 0.031 and
-MRR slightly favours vector-only (0.241 vs 0.235) — indistinguishable at n = 64. The
-strong claim for hybrid is over the lexical arm, not over dense retrieval.
+**A correction to an earlier finding.** The paraphrased run reported 33 of 64
+questions abstaining, and I read that as the 0.70 floor being miscalibrated for real
+language. On real text it is **0 of 55**, with off-corpus still 6 of 6. The floor was
+not the problem — short synthetic questions were. No threshold was changed.
 
 **Frozen fixture, n = 12**: hybrid 0.917 / 0.583 / 0.417 — statistically identical to
 v1's 0.917 / 0.576 / 0.417 on the same corpus, which is the check that v2's retrieval

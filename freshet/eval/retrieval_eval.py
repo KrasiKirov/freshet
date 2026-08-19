@@ -108,11 +108,17 @@ def score_one(ranked_event_ids: list[str], cause_ids: set[str]) -> dict[str, Any
     }
 
 
-def dedupe_events(hits) -> list[str]:
-    """Hits are chunk-level; rank by first appearance of each event."""
+def dedupe_events(hits, exclude: str | None = None) -> list[str]:
+    """Hits are chunk-level; rank by first appearance of each event.
+
+    `exclude` drops the query's OWN document. When the query is real text lifted
+    from an update, that update is trivially its own top hit — scoring it would
+    have made top-1 citation structurally 0.000 on every arm, which is an
+    artifact of the setup rather than anything about retrieval.
+    """
     seen: list[str] = []
     for h in hits:
-        if h.event_id not in seen:
+        if h.event_id != exclude and h.event_id not in seen:
             seen.append(h.event_id)
     return seen
 
@@ -164,7 +170,8 @@ def index_corpus(conn, embedder, events: list[Event], batch: int = 64) -> int:
     return len(records)
 
 
-def _single_arm(conn, embedder, question: str, sql_fn, k: int) -> list[str]:
+def _single_arm(conn, embedder, question: str, sql_fn, k: int,
+                exclude: str | None = None) -> list[str]:
     """Run ONE retrieval arm directly, for the vector-only / keyword-only rows."""
     from freshet.api.retrieval import vec_literal
 
@@ -173,7 +180,7 @@ def _single_arm(conn, embedder, question: str, sql_fn, k: int) -> list[str]:
                         {"qvec": vec_literal(qvec), "q": question, "k": k}).fetchall()
     seen: list[str] = []
     for r in rows:
-        if r[1] not in seen:
+        if r[1] != exclude and r[1] not in seen:
             seen.append(r[1])
     return seen
 
@@ -289,13 +296,14 @@ def _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder) -> None:
     abstained = 0
     for entry in labels["labeled"]:
         causes, q = set(entry["cause_event_ids"]), entry["query"]
-        r = hybrid_search(conn, embedder, q, k=K)
+        self_doc = entry.get("query_event_id")     # the update the query came from
+        r = hybrid_search(conn, embedder, q, k=K + 1)
         abstained += bool(r.abstained)
-        arms["hybrid"].append(score_one(dedupe_events(r.hits), causes))
+        arms["hybrid"].append(score_one(dedupe_events(r.hits, self_doc), causes))
         arms["vector_only"].append(
-            score_one(_single_arm(conn, embedder, q, vector_sql, K), causes))
+            score_one(_single_arm(conn, embedder, q, vector_sql, K + 1, self_doc), causes))
         arms["keyword_only"].append(
-            score_one(_single_arm(conn, embedder, q, keyword_sql, K), causes))
+            score_one(_single_arm(conn, embedder, q, keyword_sql, K + 1, self_doc), causes))
         arms["blind_recent"].append(score_one(blind_recent(conn, K), causes))
 
     off = sum(bool(hybrid_search(conn, embedder, q, k=K).abstained) for q in OFF_CORPUS)
