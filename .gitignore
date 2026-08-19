@@ -49,3 +49,4 @@ tasks/
 .superpowers/
 .venv-flink/
 .flink/
+logs/

@@ -7,6 +7,7 @@ volumes and keeps offset handling trivial (no timer bookkeeping)."""
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import UTC, datetime
 
@@ -14,6 +15,7 @@ from freshet.autopilot.investigate import gather_findings, gather_postmortem
 from freshet.autopilot.sinks.base import Sink
 from freshet.common.incidents import ensure_incident
 from freshet.pipeline.lifecycle import LifecycleEvent
+from freshet.rag.budget import BudgetExhausted
 
 # The claim is a LEASE, not a tombstone. A brief is scheduled in Postgres
 # (brief_due_at) and drained later, so a crashed brief is retried from there — but a permanent claim would make the redelivered
@@ -21,6 +23,13 @@ from freshet.pipeline.lifecycle import LifecycleEvent
 # A lease expires, so a hard kill self-heals with no reaper process: the predicate
 # IS the reaper. `brief_delivered_at` is what stops an expired lease re-posting a
 # brief that actually landed.
+log = logging.getLogger(__name__)
+
+# The idle tick fires about once a second. Draining on every one of them ran a
+# due-briefs query per second forever; the debounce is measured in tens of
+# seconds, so checking that often buys nothing and costs a constant DB load.
+DRAIN_INTERVAL_S = 5.0
+
 LEASE_MINUTES = 15   # must exceed the debounce window plus worst-case LLM latency
 # An alert about a days-old incident is noise, and the topic is replayable: the
 # poller re-emits from earliest and a job resubmitted without a savepoint starts
@@ -226,6 +235,12 @@ def drain_due_briefs(conn, *, sink: Sink, limit: int = 10,
             findings = gather_findings(conn, service, incident_id, "open",
                                        composer=composer, embedder=embedder)
             ts = sink.deliver(findings)
+        except BudgetExhausted as exc:
+            # Not a failure — a deliberate pause. due_at stays set, so this brief
+            # posts on the next window instead of being dropped or degraded.
+            release_incident(conn, incident_id)
+            log.warning("%s: %s", incident_id, exc)
+            break
         except Exception:
             # due_at stays set: the next idle tick retries this incident.
             release_incident(conn, incident_id)
@@ -269,3 +284,16 @@ def handle_and_drain(conn, raw_json: str, *, window_s: float, sink: Sink,
                      composer=composer)
     return drain_due_briefs(conn, sink=sink, composer=composer,
                             embedder=embedder)
+
+
+class DrainThrottle:
+    """Rate-limits the idle-tick drain without changing its semantics."""
+
+    def __init__(self, interval_s: float = DRAIN_INTERVAL_S, now=time.monotonic) -> None:
+        self._interval, self._now, self._next = interval_s, now, -1e9
+
+    def __call__(self, conn, *, sink: Sink, embedder=None, composer=None) -> int:
+        if self._now() < self._next:
+            return 0
+        self._next = self._now() + self._interval
+        return drain_due_briefs(conn, sink=sink, embedder=embedder, composer=composer)

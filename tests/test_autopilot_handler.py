@@ -284,3 +284,21 @@ def test_a_recent_open_is_still_scheduled():
 
 def test_the_age_boundary_is_the_documented_constant():
     assert consumer.MAX_BRIEF_AGE_S == 24 * 3600
+
+
+def test_an_exhausted_budget_defers_the_brief_instead_of_dropping_it(monkeypatch):
+    """Over budget is a pause, not a failure: due_at stays set so the brief posts
+    in the next window rather than being lost or posted degraded."""
+    from freshet.rag.budget import BudgetExhausted
+
+    def _over(*a, **k):
+        raise BudgetExhausted("LLM hourly cap reached")
+    monkeypatch.setattr(consumer, "gather_findings", _over)
+    conn, sink = _FakeConn(), _RecordingSink(handle="9.9")
+
+    assert consumer.drain_due_briefs(conn, sink=sink) == 0
+    sql = " ".join(q for q, _ in conn.executed)
+    assert "briefed_at = NULL" in sql, "the claim must be released for the retry"
+    assert "brief_delivered_at = now()" not in sql
+    assert "brief_due_at = NULL" not in sql, "the due-time must survive"
+    assert sink.calls == []

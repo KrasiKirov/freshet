@@ -14,13 +14,14 @@ import os
 import signal
 import threading
 
-from freshet.autopilot.consumer import drain_due_briefs, handle_and_drain
+from freshet.autopilot.consumer import DrainThrottle, handle_and_drain
 from freshet.autopilot.sinks.factory import make_sink
 from freshet.autopilot.thread_agent import ThreadPoller
 from freshet.common.db import connect
 from freshet.common.kafka_io import consume_loop
 from freshet.pipeline.embedding import make_embedder
 from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC
+from freshet.rag.budget import BudgetedComposer
 from freshet.rag.composer import make_composer
 
 
@@ -29,9 +30,10 @@ def _handle(conn, raw: str, window_s: float, sink, embedder) -> None:
     handle_and_drain(conn, raw, window_s=window_s, sink=sink, embedder=embedder)
 
 
-def _idle(conn, sink, embedder, threads) -> None:
-    """Idle work: deliver anything due, then answer new Slack thread replies."""
-    drain_due_briefs(conn, sink=sink, embedder=embedder)
+def _idle(conn, sink, embedder, threads, drain) -> None:
+    """Idle work: deliver anything due, then answer new Slack thread replies.
+    Both are throttled — the tick itself fires about once a second."""
+    drain(conn, sink=sink, embedder=embedder)
     if threads is not None:
         threads()
 
@@ -51,8 +53,10 @@ def main() -> None:
     # Retrieval is needed for two things now: recurrence in the brief, and
     # answering follow-up questions in the Slack thread.
     embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
-    composer = make_composer()
+    # Hard cap on spend, counted in Postgres so a restart loop cannot reset it.
+    composer = BudgetedComposer(make_composer(), conn)
     sink = make_sink(args.sink)
+    drain = DrainThrottle()
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
@@ -87,7 +91,7 @@ def main() -> None:
             max_messages=args.max_messages, auto_commit=False, stop=stop,
             # Briefs are delivered here, not on the message path: the debounce is
             # a due-time in Postgres, so offsets commit while it elapses.
-            idle_hook=lambda: _idle(conn, sink, embedder, threads),
+            idle_hook=lambda: _idle(conn, sink, embedder, threads, drain),
         )
     finally:
         conn.close()

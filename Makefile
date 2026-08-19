@@ -63,6 +63,31 @@ test-integration: ##dev
 
 # Autopilot: consume incident.lifecycle and print a cited brief per new incident.
 # Sources .env.local for ANTHROPIC_API_KEY, which the brief composer requires.
+# One long-running process: poller + embedder + autopilot are separate targets,
+# but this is the one launchd keeps alive. CPU is bounded by FRESHET_TORCH_THREADS
+# (bge otherwise takes every core) and spend by the LLM budget in Postgres.
+run-forever: ##run
+	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
+	mkdir -p logs; \
+	FRESHET_TORCH_THREADS=$${FRESHET_TORCH_THREADS:-2} \
+	FRESHET_LLM_HOURLY_CAP=$${FRESHET_LLM_HOURLY_CAP:-60} \
+	FRESHET_LLM_DAILY_CAP=$${FRESHET_LLM_DAILY_CAP:-500} \
+	FRESHET_SINK=slack \
+	exec $(PYTHON) -m freshet.autopilot --brokers localhost:9092 --sink slack
+
+# Install/remove the launchd agent that keeps `run-forever` alive across reboots.
+service-install: ##run
+	@mkdir -p $(HOME)/Library/LaunchAgents logs
+	@sed 's|__REPO__|$(CURDIR)|g' deploy/com.freshet.autopilot.plist \
+	  > $(HOME)/Library/LaunchAgents/com.freshet.autopilot.plist
+	@launchctl unload $(HOME)/Library/LaunchAgents/com.freshet.autopilot.plist 2>/dev/null || true
+	@launchctl load $(HOME)/Library/LaunchAgents/com.freshet.autopilot.plist
+	@echo "loaded. logs: logs/autopilot.log  stop: make service-stop"
+
+service-stop: ##run
+	@launchctl unload $(HOME)/Library/LaunchAgents/com.freshet.autopilot.plist 2>/dev/null || true
+	@echo "stopped (agent unloaded; plist left in place)"
+
 autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092

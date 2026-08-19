@@ -136,6 +136,14 @@ ALTER TABLE incidents ADD COLUMN IF NOT EXISTS thread_seen_ts text;
 -- because the post response already carries the ID.
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS slack_channel_id text;
 
+-- LLM spend, counted per hour and kept in Postgres rather than in memory so a
+-- restart cannot reset the budget (a crash-loop would otherwise bill without
+-- bound). One row per hour; the daily cap sums the last 24.
+CREATE TABLE IF NOT EXISTS llm_budget (
+    window_start timestamptz PRIMARY KEY,
+    calls        integer NOT NULL DEFAULT 0
+);
+
 -- Proof the pipeline was actually up. Freshness scores how fast an update became
 -- queryable, but "ts >= min(indexed_at)" only excludes BACKFILL — it cannot tell
 -- a slow pipeline from a stopped one. After a 14-hour outage the catch-up burst

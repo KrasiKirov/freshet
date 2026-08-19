@@ -19,6 +19,7 @@ import logging
 import time
 
 from freshet.autopilot.sinks.base import Sink
+from freshet.rag.budget import BudgetExhausted
 from freshet.rag.composer import NO_EVIDENCE
 from freshet.rag.timeframe import infer_window
 
@@ -150,7 +151,13 @@ def poll_threads(conn, embedder, composer, client, channel: str, *,
                 continue
             if seen_ts and message["ts"] <= seen_ts:
                 continue                        # already answered
-            answer = answer_question(conn, embedder, composer, message["text"])
+            try:
+                answer = answer_question(conn, embedder, composer, message["text"])
+            except BudgetExhausted as exc:
+                # Do NOT advance thread_seen_ts: the question stays unanswered and
+                # is picked up once the budget frees, rather than lost.
+                log.warning("thread question deferred: %s", exc)
+                return posted
             client.chat_postMessage(channel=thread_channel, thread_ts=thread_ts,
                                     text=answer)
             posted += 1

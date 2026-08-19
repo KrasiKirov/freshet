@@ -74,8 +74,15 @@ class SentenceTransformerEmbedder:
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
                  query_instruction: str = "",
                  min_similarity: float = MIN_SIMILARITY_MINILM):
+        import torch
         from sentence_transformers import SentenceTransformer
 
+        # bge saturates every core by default. This process shares a laptop with
+        # the user's actual work, and embedding a handful of updates a minute
+        # does not need the whole machine.
+        threads = int(os.environ.get("FRESHET_TORCH_THREADS", "2"))
+        if threads > 0:
+            torch.set_num_threads(threads)
         self.model = SentenceTransformer(model_name)
         self.name = model_name
         self.query_instruction = query_instruction
