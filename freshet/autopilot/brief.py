@@ -24,6 +24,8 @@ class Findings:
     # Newest-first, pre-cited update lines. Status feeds carry no change events,
     # so cause/fix is often empty and this is the brief's actual content.
     updates: list[str] = field(default_factory=list)
+    # "Has this happened before?" — the one input a key lookup cannot supply.
+    recurrence: str | None = None
 
 
 def cite_hit(hit) -> str:
@@ -138,6 +140,8 @@ def render_brief(f: Findings) -> str:
         lines.append(f"Resolution: {f.fix_text} — {f.fix_cite}")
     elif not f.narrative:
         lines.append("Resolution: not identified from retrieved evidence")
+    if f.recurrence:
+        lines.append(f.recurrence)
     if f.updates:
         lines.append("Updates:")
         lines.extend(f"  {line}" for line in f.updates)

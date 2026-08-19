@@ -90,7 +90,7 @@ def _summarise(updates, service: str, composer, question: str) -> str | None:
 
 
 def gather_findings(conn, service: str, incident_id: str, status: str,
-                    *, composer=None) -> Findings:
+                    *, composer=None, embedder=None) -> Findings:
     runbook = fetch_runbook(conn, service)
     # EVERY input is scoped to this incident. A service-wide similarity search
     # used to feed the timeline and the impact heuristic, so a provider with
@@ -118,7 +118,23 @@ def gather_findings(conn, service: str, incident_id: str, status: str,
                              f"What is happening with {service}? "
                              "Summarise in two sentences.")
     f.impact = _impact_for(conn, incident_id, service, own)
+    # Recurrence is the only input that is NOT addressable by key: which past
+    # incident resembles this one has no primary key, so it goes through the
+    # retrieval path the eval measures. Optional — no embedder, no claim.
+    if embedder is not None and own:
+        f.recurrence = _recurrence_for(conn, embedder, service, incident_id, own)
     return f
+
+
+def _recurrence_for(conn, embedder, service: str, incident_id: str, own) -> str | None:
+    from freshet.autopilot.recurrence import find_recurrences, recurrence_line
+
+    earliest = min(own, key=lambda u: u.ts)
+    # Query with the provider's own symptom text, exactly as the eval does.
+    matches = find_recurrences(conn, embedder, service=service,
+                               incident_id=incident_id, query_text=earliest.text,
+                               before=earliest.ts)
+    return recurrence_line(matches)
 
 
 _INCIDENT_ROW_SQL = ("SELECT opened_at, resolved_at, resolution_summary"
@@ -138,7 +154,7 @@ def _format_duration(opened_at, resolved_at) -> str | None:
 
 
 def gather_postmortem(conn, service: str, incident_id: str,
-                      *, composer=None) -> Findings:
+                      *, composer=None, embedder=None) -> Findings:
     row = conn.execute(_INCIDENT_ROW_SQL, (incident_id,)).fetchone()
     opened_at, resolved_at, resolution_summary = row if row else (None, None, None)
     duration = _format_duration(opened_at, resolved_at)
@@ -156,4 +172,6 @@ def gather_postmortem(conn, service: str, incident_id: str,
         f.cause_text, f.cause_cite = stated
     f.updates = findings_from_updates(service, "resolved", own, runbook).updates
     f.impact = _impact_for(conn, incident_id, service, own)
+    if embedder is not None and own:
+        f.recurrence = _recurrence_for(conn, embedder, service, incident_id, own)
     return f

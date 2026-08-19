@@ -202,7 +202,8 @@ def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
 
 
 def drain_due_briefs(conn, *, sink: Sink, limit: int = 10,
-                     index_timeout_s: float = 10.0, composer=None) -> int:
+                     index_timeout_s: float = 10.0, composer=None,
+                     embedder=None) -> int:
     """Deliver every brief whose debounce window has elapsed. Returns how many.
 
     Runs on the consumer's idle tick, off the message path. Each incident is
@@ -220,7 +221,7 @@ def drain_due_briefs(conn, *, sink: Sink, limit: int = 10,
                 print(f"[autopilot] {incident_id}: no indexed updates yet — "
                       f"briefing on what exists")
             findings = gather_findings(conn, service, incident_id, "open",
-                                       composer=composer)
+                                       composer=composer, embedder=embedder)
             ts = sink.deliver(findings)
         except Exception:
             # due_at stays set: the next idle tick retries this incident.
@@ -252,7 +253,7 @@ def deliver_deferred_postmortem(conn, incident_id: str, *, sink: Sink,
 
 
 def handle_and_drain(conn, raw_json: str, *, window_s: float, sink: Sink,
-                     sleep=time.sleep, composer=None) -> int:
+                     sleep=time.sleep, composer=None, embedder=None) -> int:
     """Handle one lifecycle message, then deliver anything already due.
 
     Draining ONLY on an idle poll meant a busy partition could hold briefs
@@ -262,4 +263,5 @@ def handle_and_drain(conn, raw_json: str, *, window_s: float, sink: Sink,
     """
     handle_lifecycle(conn, raw_json, window_s=window_s, sink=sink, sleep=sleep,
                      composer=composer)
-    return drain_due_briefs(conn, sink=sink, composer=composer)
+    return drain_due_briefs(conn, sink=sink, composer=composer,
+                            embedder=embedder)
