@@ -129,6 +129,12 @@ autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
 
+# Trigger a brief on demand from a REAL indexed incident, for screenshots.
+# Live incidents arrive ~2/hour, which is the wrong rate for taking pictures.
+demo-brief: ##run
+	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
+	$(PYTHON) -m freshet.autopilot.demo_trigger $(ARGS)
+
 review-labels: ##eval
 	@# Print a reproducible 20-row sample for HUMAN review; --apply records verdicts.
 	$(PYTHON) -m freshet.eval.review_labels $(ARGS)
