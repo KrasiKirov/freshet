@@ -68,3 +68,14 @@ def test_the_unfiltered_path_still_applies_the_calibrated_floor(conn, emb, seede
 def test_a_service_filter_gets_the_same_browse_contract(conn, emb, seeded):
     r = hybrid_search(conn, emb, QUESTION, k=6, service="acme")
     assert not r.abstained and r.hits
+
+
+def test_retrieved_hits_carry_the_incident_title(conn, emb):
+    """The API cannot label a citation by name unless retrieval returns one."""
+    from freshet.api.retrieval import hybrid_search
+    r = hybrid_search(conn, emb, "elevated errors", k=5)
+    assert r.hits, "need hits for this to mean anything"
+    titled = [h for h in r.hits if h.title]
+    assert titled, "no hit carried a title — the column is not reaching RetrievedHit"
+    for h in titled:
+        assert h.title.strip() == h.title and len(h.title) < 200

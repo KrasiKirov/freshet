@@ -12,8 +12,10 @@ def test_incidents_endpoint_shape():
 
     class _Cur:
         def fetchall(self):
+            # trailing element is the incident title the query now selects
             return [("cloudflare:inc_100", "cloudflare", ts, ts,
-                     "Elevated 5xx errors in WAF: Rollback complete.", "resolved", "SEV2")]
+                     "Elevated 5xx errors in WAF: Rollback complete.", "resolved", "SEV2",
+                     "Elevated 5xx errors in WAF")]
 
     class _Conn:
         def execute(self, *a, **k):

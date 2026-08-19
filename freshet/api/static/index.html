@@ -74,6 +74,7 @@
     .sources h4{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 12px}
     .src{display:grid;grid-template-columns:24px 1fr;gap:10px;margin-bottom:12px}
     .src .n{font-family:var(--mono);font-size:12px;color:var(--accent)}
+    .src .q{font-family:var(--sans);font-size:13px;color:var(--ink-2);margin-top:3px;padding-left:9px;border-left:1px solid var(--rule)}
     .src .t{font-family:var(--sans);font-size:14px;color:var(--ink)}
     .src .m{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:2px}
 
@@ -161,8 +162,10 @@
       if(chipsBuilt||!items||!items.length) return;
       const seen=new Set(), qs=[];
       for(const it of items){
-        const title=(it.text||"").split(":")[0].trim();
-        if(title.length<12||title.length>64||seen.has(title)) continue;
+        // The incident's real name. Deriving it from chunk text produced questions
+        // like "what is happening with the are monitoring for continued stability.?"
+        const title=(it.title||"").trim();
+        if(!title||title.length<12||title.length>64||seen.has(title)) continue;
         seen.add(title); qs.push(`what is happening with the ${title}?`);
         if(qs.length===3) break;
       }
@@ -277,10 +280,14 @@
             const row=document.createElement("div");row.className="src";
             const n=document.createElement("div");n.className="n";n.textContent="["+(i+1)+"]";
             const box=document.createElement("div");
-            const t=document.createElement("div");t.className="t";t.textContent=hit.text; // untrusted
+            const t=document.createElement("div");t.className="t";
+            t.textContent=hit.title||hit.text; // untrusted; title names the incident
+            if(hit.title){const q=document.createElement("div");q.className="q";
+              q.textContent=hit.text; box.appendChild(t); box.appendChild(q);}
             const m=document.createElement("div");m.className="m";
             m.textContent=`${hit.service} · ${new Date(hit.ts).toLocaleString()} · ${hit.event_id}`;
-            box.append(t,m);row.append(n,box);s.appendChild(row);
+            if(!hit.title) box.appendChild(t);
+            box.append(m);row.append(n,box);s.appendChild(row);
           });
         }
         stats();

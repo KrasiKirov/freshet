@@ -50,7 +50,13 @@ CREATE TABLE normalized_updates (
   source       STRING,
   type         STRING,
   incident_id  STRING,
-  text         STRING
+  text         STRING,
+  -- The incident name as its own field. `text` keeps the "<name>: <update>" form
+  -- the embedder indexes, but only its FIRST chunk carries that prefix, so a
+  -- citation or a suggested question built from a later chunk was labelled with a
+  -- mid-sentence fragment. Splitting it back out of `text` would be a guess —
+  -- incident names contain colons — so it travels separately.
+  title        STRING
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'normalized.updates',
@@ -99,7 +105,8 @@ SELECT provider || ':' || incident_id || ':' || update_id AS event_id,
        'alert'      AS source,
        'status_update' AS type,
        incident_id,
-       incident_name || ': ' || text AS text
+       incident_name || ': ' || text AS text,
+       incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (
              PARTITION BY provider, incident_id, update_id

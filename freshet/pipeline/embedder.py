@@ -33,11 +33,28 @@ from freshet.pipeline.metrics import (
 NORMALIZED_TOPIC = "normalized.updates"
 
 
+# A title is the "<incident_name>: " prefix Flink prepends to every update. Split
+# on the first ": " only — titles legitimately contain colons ("Aug 10: 30am UTC"),
+# and the incident name is always the leading segment.
+MAX_TITLE_LEN = 120
+
+
+def title_of(text: str) -> str | None:
+    """The incident name prefixed to an update's text, or None if absent."""
+    head, sep, rest = text.partition(": ")
+    if not sep or not rest.strip():
+        return None
+    head = head.strip()
+    return head if 0 < len(head) <= MAX_TITLE_LEN else None
+
+
 def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorRecord]:
     """One record per text chunk. chunk_id derives from event_id + index, so
     redelivery and replay overwrite the same rows (idempotent). Blank text
     yields no records."""
     stamp = now or datetime.now(UTC)
+    # Prefer the field Flink sends; derive only for legacy messages that lack it.
+    title = ev.title or title_of(ev.text)
     return [
         VectorRecord(
             chunk_id=f"chk_{ev.event_id}_{i}",
@@ -47,6 +64,7 @@ def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorReco
             ts=ev.ts,
             indexed_at=stamp,
             text=chunk,
+            title=title,
             source=ev.source,
             severity=ev.severity,
             type=ev.type,
@@ -57,15 +75,16 @@ def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorReco
 
 UPSERT_SQL = """
 INSERT INTO vector_records
-    (chunk_id, event_id, incident_id, service, ts, indexed_at, source, text, severity, type, embedding, model)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
+    (chunk_id, event_id, incident_id, service, ts, indexed_at, source, text, title, severity, type, embedding, model)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
 ON CONFLICT (chunk_id) DO UPDATE
     SET indexed_at = EXCLUDED.indexed_at,
         text = EXCLUDED.text,
         severity = EXCLUDED.severity,
         type = EXCLUDED.type,
         embedding = EXCLUDED.embedding,
-        model = EXCLUDED.model
+        model = EXCLUDED.model,
+        title = EXCLUDED.title
 """
 
 
@@ -82,6 +101,7 @@ def upsert_record(conn, rec: VectorRecord, embedding: list[float],
             rec.indexed_at,
             rec.source.value,
             rec.text,
+            rec.title,
             rec.severity.value if rec.severity else None,
             rec.type,
             vec_literal(embedding),

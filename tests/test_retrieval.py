@@ -61,13 +61,14 @@ def test_hybrid_search_fuses_arms_and_flags_abstention():
     from freshet.pipeline.embedding import StubEmbedder
 
     now = datetime.now(UTC)
-    # vector rows: (..., similarity)   keyword rows: (..., rank, similarity)
+    # column order mirrors retrieval._COLS: (..., type, title) then the
+    # per-arm score columns — vector: similarity; keyword: rank, similarity
     vec_rows = [
-        ("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx error spike", "alert_fired", 0.81),
-        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", 0.40),
+        ("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx error spike", "alert_fired", "Error spike in scheduler", 0.81),
+        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.40),
     ]
     kw_rows = [
-        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", 0.9, 0.55),
+        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.9, 0.55),
     ]
 
     class FakeConn:
@@ -104,7 +105,8 @@ def test_hybrid_search_uses_embedder_min_similarity():
         min_similarity = 0.9
 
     now = datetime.now(UTC)
-    rows = [("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx spike", "alert_fired", 0.81)]
+    rows = [("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx spike",
+             "alert_fired", "Error spike in scheduler", 0.81)]
 
     class FakeConn:
         def execute(self, sql, params=None):
@@ -130,7 +132,7 @@ def test_hybrid_search_abstains_when_similarity_weak():
     from freshet.pipeline.embedding import StubEmbedder
 
     now = datetime.now(UTC)
-    weak = [("chk_e9_0", "e9", "auth", now, now, "metric", "cpu 12%", "metric", 0.04)]
+    weak = [("chk_e9_0", "e9", "auth", now, now, "metric", "cpu 12%", "metric", None, 0.04)]
 
     class FakeConn:
         def execute(self, sql, params=None):

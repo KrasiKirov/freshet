@@ -97,6 +97,10 @@ class Event(BaseModel):
     type: str  # usually an EventType value; kept str for an open vocabulary
     severity: Severity | None = None
     incident_id: str | None = None
+    # The incident's name, carried from the source feed. Optional: messages
+    # produced before the field existed are still on the topic, and the embedder
+    # falls back to deriving it from `text` for those.
+    title: str | None = None
 
     text: str = ""
     structured: dict[str, Any] = Field(default_factory=dict)
@@ -126,6 +130,12 @@ class VectorRecord(BaseModel):
     ts: datetime
     indexed_at: datetime = Field(default_factory=_utcnow)
     text: str
+    # The incident's own title, held separately from the chunk. Flink emits
+    # "<incident_name>: <update text>" as one string, so only the FIRST chunk of a
+    # long update carries the title — every later chunk is a mid-sentence fragment.
+    # Labelling a citation (or building a question) from such a chunk produced
+    # "what is happening with the are monitoring for continued stability.?".
+    title: str | None = None
     source: EventSource
     severity: Severity | None = None
     type: str = ""

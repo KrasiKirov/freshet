@@ -94,7 +94,8 @@ class Hit(BaseModel):
     ts: datetime
     indexed_at: datetime
     source: str
-    text: str
+    text: str            # the retrieved chunk: evidence, and possibly a fragment
+    title: str | None = None   # the incident's name: what to LABEL the chunk with
     type: str = ""
     similarity: float
     score: float
@@ -122,6 +123,7 @@ class IncidentSummary(BaseModel):
     latest_ts: datetime
     latest_indexed: datetime
     text: str
+    title: str | None = None
     status: str
     severity: str | None = None
 
@@ -173,6 +175,7 @@ def _to_hit(h: RetrievedHit) -> Hit:
     return Hit(
         chunk_id=h.chunk_id, event_id=h.event_id, service=h.service, ts=h.ts,
         indexed_at=h.indexed_at, source=h.source, text=h.text, type=h.type,
+        title=h.title,
         similarity=h.similarity, score=h.score,
     )
 
@@ -218,7 +221,9 @@ def incidents(limit: int = Query(default=20, ge=1, le=200),
                max(indexed_at)  AS latest_indexed,
                (array_agg(text ORDER BY ts DESC))[1]     AS text,
                (array_agg(type ORDER BY ts DESC))[1]     AS status,
-               (array_agg(severity ORDER BY ts DESC))[1] AS severity
+               (array_agg(severity ORDER BY ts DESC))[1] AS severity,
+               -- the incident's own name, not whichever chunk sorted first
+               (array_agg(title ORDER BY ts DESC) FILTER (WHERE title IS NOT NULL))[1] AS title
         FROM vector_records
         WHERE incident_id IS NOT NULL AND source = 'alert'
         GROUP BY incident_id, service
@@ -230,7 +235,7 @@ def incidents(limit: int = Query(default=20, ge=1, le=200),
     return [
         IncidentSummary(
             incident_id=r[0], service=r[1], latest_ts=r[2], latest_indexed=r[3],
-            text=r[4], status=r[5], severity=r[6],
+            text=r[4], status=r[5], severity=r[6], title=r[7],
         )
         for r in rows
     ]

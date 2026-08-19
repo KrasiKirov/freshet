@@ -11,7 +11,13 @@ from typing import Any
 
 from freshet.pipeline.embedding import Embedder, vec_literal
 
-_COLS = "chunk_id, event_id, service, ts, indexed_at, source, text, type"
+# Row columns are addressed by POSITION, so the shared prefix and the per-arm
+# score columns that follow it are declared together here. Adding a column
+# without moving these indices silently mislabels every field after it.
+_COLS = "chunk_id, event_id, service, ts, indexed_at, source, text, type, title"
+TITLE_IDX = 8
+_VEC_SIM_IDX = 9        # vector arm: ..., title, similarity
+_KW_SIM_IDX = 10        # keyword arm: ..., title, rank, similarity
 
 
 def _where(service: str | None, since: datetime | None) -> str:
@@ -117,6 +123,9 @@ class RetrievedHit:
     type: str
     similarity: float   # measured cosine, whichever arm found the hit
     score: float        # fused RRF score * recency weight
+    # Optional and last: the chunk is always present, the incident's name is not
+    # (legacy rows predate the column). Defaulting keeps every existing caller valid.
+    title: str | None = None
 
 
 @dataclass
@@ -153,8 +162,8 @@ def hybrid_search(
     vec_rows = conn.execute(vector_sql(service, since), params).fetchall()
     kw_rows = conn.execute(keyword_sql(service, since), params).fetchall()
 
-    vec_map = _rows_to_map(vec_rows, 8)   # similarity at column index 8
-    kw_map = _rows_to_map(kw_rows, 9)     # rank at 8, similarity at 9
+    vec_map = _rows_to_map(vec_rows, _VEC_SIM_IDX)
+    kw_map = _rows_to_map(kw_rows, _KW_SIM_IDX)
     fused = reciprocal_rank_fusion([[r[0] for r in vec_rows], [r[0] for r in kw_rows]])
 
     hits: list[RetrievedHit] = []
@@ -168,6 +177,7 @@ def hybrid_search(
             RetrievedHit(
                 chunk_id=row[0], event_id=row[1], service=row[2], ts=row[3],
                 indexed_at=row[4], source=row[5], text=row[6], type=row[7],
+                title=row[TITLE_IDX],
                 similarity=similarity,
                 score=rrf_score,
             )

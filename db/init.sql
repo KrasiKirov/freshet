@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS vector_records (
 -- relevant". Recording the model lets that be detected and reported instead.
 ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS model text;
 
+-- The incident's own title, so a citation can be labelled by what it IS
+-- rather than by whichever sentence fragment the chunker produced.
+ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS title text;
+
 CREATE INDEX IF NOT EXISTS vector_records_service_ts_idx
     ON vector_records (service, ts DESC);
 
