@@ -16,6 +16,7 @@ import threading
 import time
 from datetime import UTC, datetime
 
+from freshet.common.incidents import ensure_incident
 from freshet.common.schemas import Event, VectorRecord
 from freshet.pipeline.chunking import chunk_text
 from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
@@ -170,6 +171,10 @@ def make_handler(conn, emb: Embedder, producer, *,
         for rec, vector in zip(records, vectors, strict=True):
             upsert_record(conn, rec, vector, getattr(emb, "name", None))
             observe_indexed(rec, ingested_at=ev.ingested_at)
+        # Autopilot claims against `incidents`; without a row its UPDATE matches
+        # nothing and the incident is silently never briefed. Written after the
+        # upserts so a failed index does not leave a claimable row with no evidence.
+        ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
 
     return handle
 

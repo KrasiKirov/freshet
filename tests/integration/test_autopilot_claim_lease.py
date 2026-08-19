@@ -86,3 +86,43 @@ def test_the_same_rules_hold_for_the_postmortem_slot(conn, incident):
         "UPDATE incidents SET postmortem_at = now() - (%s * interval '1 minute')"
         " WHERE incident_id = %s", (LEASE_MINUTES + 1, incident))
     assert claim_postmortem(conn, incident) is False, "delivery is final"
+
+
+def test_a_claim_succeeds_on_an_incident_row_that_does_not_exist_yet(conn):
+    """The P0 bug: Autopilot claims against `incidents`, but nothing created the
+    row, so the UPDATE matched nothing and the incident was never briefed."""
+    from datetime import UTC, datetime
+
+    from freshet.autopilot.consumer import claim_incident
+    from freshet.common.incidents import ensure_incident
+    inc = "INC-ABSENT"
+    conn.execute("DELETE FROM incidents WHERE incident_id = %s", (inc,))
+    try:
+        assert claim_incident(conn, inc) is False, "no row: nothing to claim"
+        ensure_incident(conn, inc, "cloudflare", datetime.now(UTC), "Elevated errors")
+        assert claim_incident(conn, inc) is True, "row now exists: claim must win"
+        assert claim_incident(conn, inc) is False, "second claim still blocked by the lease"
+    finally:
+        conn.execute("DELETE FROM incidents WHERE incident_id = %s", (inc,))
+
+
+def test_ensure_incident_is_idempotent_and_never_moves_opened_at(conn):
+    from datetime import UTC, datetime, timedelta
+
+    from freshet.common.incidents import ensure_incident
+    inc, first = "INC-IDEMPOTENT", datetime.now(UTC) - timedelta(hours=3)
+    conn.execute("DELETE FROM incidents WHERE incident_id = %s", (inc,))
+    try:
+        ensure_incident(conn, inc, "github", first, "Original title")
+        ensure_incident(conn, inc, "trello", datetime.now(UTC), "Later title")
+        row = conn.execute(
+            "SELECT title, opened_at, primary_service FROM incidents WHERE incident_id = %s",
+            (inc,)).fetchone()
+        assert row[0] == "Original title", "an existing title must not be overwritten"
+        assert abs((row[1] - first).total_seconds()) < 1, "opened_at must never move"
+        assert row[2] == "github"
+        services = {r[0] for r in conn.execute(
+            "SELECT service FROM incident_services WHERE incident_id = %s", (inc,))}
+        assert services == {"github", "trello"}, "each service joins the incident"
+    finally:
+        conn.execute("DELETE FROM incidents WHERE incident_id = %s", (inc,))

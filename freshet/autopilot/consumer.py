@@ -8,9 +8,11 @@ volumes and keeps offset handling trivial (no timer bookkeeping)."""
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 
 from freshet.autopilot.investigate import gather_findings, gather_postmortem
 from freshet.autopilot.sinks.base import Sink
+from freshet.common.incidents import ensure_incident
 from freshet.pipeline.lifecycle import LifecycleEvent
 
 # The claim is a LEASE, not a tombstone. Kafka redelivers (auto_commit=False), so
@@ -54,6 +56,9 @@ _RELEASE_POSTMORTEM_SQL = "UPDATE incidents SET postmortem_at = NULL WHERE incid
 
 
 def claim_incident(conn, incident_id: str) -> bool:
+    """Claim the brief slot. The caller must have ensured the row exists — a
+    claim against a missing row silently matches nothing and the incident is
+    never briefed (which is exactly what happened to 956 of 1,182 incidents)."""
     return conn.execute(_CLAIM_SQL, (incident_id,)).fetchone() is not None
 
 
@@ -82,12 +87,23 @@ def release_postmortem(conn, incident_id: str) -> None:
     conn.execute(_RELEASE_POSTMORTEM_SQL, (incident_id,))
 
 
+def _opened_at(ev: LifecycleEvent) -> datetime:
+    """The lifecycle ts, or now if it is unparseable — never block a brief on it."""
+    try:
+        return datetime.fromisoformat(ev.ts.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return datetime.now(UTC)
+
+
 def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
                      sleep=time.sleep, composer=None) -> None:
     ev = LifecycleEvent.from_json(raw_json)
 
     if ev.type == "opened":
         sleep(window_s)  # debounce: let the incident accrue evidence
+        # Both writers create the row: the embedder as it indexes, and here, so a
+        # lifecycle event that beats the embedder can still brief.
+        ensure_incident(conn, ev.incident_id, ev.service, _opened_at(ev), ev.title)
         if not claim_incident(conn, ev.incident_id):
             print(f"[autopilot] {ev.incident_id} already briefed — skipping")
             return

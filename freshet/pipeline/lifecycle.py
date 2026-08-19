@@ -16,6 +16,9 @@ class LifecycleEvent:
     incident_id: str
     service: str
     ts: str            # ISO-8601
+    # Flink already emits this; carried so Autopilot can create a titled
+    # incidents row when a lifecycle event arrives before the embedder.
+    title: str = ""
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
@@ -31,4 +34,4 @@ class LifecycleEvent:
         if kind is None:
             raise KeyError("lifecycle event has neither 'type' nor 'status'")
         return cls(type=kind, incident_id=d["incident_id"],
-                   service=d["service"], ts=d["ts"])
+                   service=d["service"], ts=d["ts"], title=d.get("title") or "")
