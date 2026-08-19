@@ -106,10 +106,17 @@ def test_the_brief_only_cites_the_incident_it_is_about(conn, emb, llm):
     from freshet.autopilot.investigate import gather_findings
 
     text = render_brief(gather_findings(conn, emb, service, incident_id, status="opened", composer=llm))
-    cited = [ln for ln in text.splitlines() if ln.strip().startswith(("0", "1", "2"))]
-    assert cited, "expected cited update lines"
-    for line in cited:
-        assert incident_id in line, f"brief cites a DIFFERENT incident: {line}"
+
+    # EVERY citation anywhere in the brief — Cause, Resolution, Updates — must
+    # belong to this incident. event_ids are "provider:incident_id:update_id",
+    # so membership is checkable directly.
+    import re
+    cited = re.findall(r"\[([^\[\]@]+)@", text)
+    assert cited, "expected citations somewhere in the brief"
+    for event_id in cited:
+        assert incident_id in event_id, (
+            f"brief cites a DIFFERENT incident: {event_id.strip()} "
+            f"(briefing {incident_id})")
 
 
 def test_a_stated_cause_is_surfaced_when_the_provider_gives_one(conn, emb, llm):
@@ -133,3 +140,29 @@ def test_a_stated_cause_is_surfaced_when_the_provider_gives_one(conn, emb, llm):
         assert findings.cause_cite and "@" in findings.cause_cite
 
     assert with_cause > 0, "expected at least one real incident to state a cause"
+
+
+def test_the_brief_never_reads_evidence_outside_its_incident(conn, emb, llm, monkeypatch):
+    """Structural guard for the whole brief, not just its citations.
+
+    Cause, resolution and IMPACT were all derived from a service-wide similarity
+    search, so a provider with several open incidents could have another
+    incident's error percentages folded into this one's impact line. Impact is
+    not cited, so a citation check cannot catch it — this asserts the unscoped
+    search is not reachable from the brief path at all."""
+    rows = seed_from_replay(conn, emb, limit=300)
+    service = _busiest_provider(rows)
+    incident_id = next(r["incident_id"] for r in reversed(rows) if r["provider"] == service)
+
+    import freshet.api.retrieval as retrieval
+
+    def forbidden(*a, **kw):
+        raise AssertionError("gather_findings must not run an unscoped search")
+
+    monkeypatch.setattr(retrieval, "hybrid_search", forbidden)
+
+    from freshet.autopilot.investigate import gather_findings
+
+    findings = gather_findings(conn, emb, service, incident_id,
+                               status="opened", composer=llm)
+    assert findings.updates, "the brief still needs its own incident's updates"

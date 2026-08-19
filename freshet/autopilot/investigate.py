@@ -26,7 +26,8 @@ _INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_i
 # an incident's updates are a known, complete set, and retrieval filters only by
 # service — so a search would happily cite the provider's OTHER incidents.
 _INCIDENT_UPDATES_SQL = (
-    "SELECT DISTINCT ON (event_id) event_id, ts, text, source FROM vector_records"
+    "SELECT DISTINCT ON (event_id) event_id, ts, text, service, type, source"
+    " FROM vector_records"
     " WHERE incident_id = %s ORDER BY event_id, ts DESC")
 
 
@@ -37,6 +38,8 @@ class _Update:
     event_id: str
     ts: datetime
     text: str
+    service: str
+    type: str
     source: str = "alert"
 
 
@@ -44,7 +47,8 @@ def fetch_incident_updates(conn, incident_id: str) -> list[_Update]:
     """Every indexed update belonging to one incident. Deduplicated by event_id
     because a long update chunks into several rows."""
     rows = conn.execute(_INCIDENT_UPDATES_SQL, (incident_id,)).fetchall()
-    return [_Update(event_id=r[0], ts=r[1], text=r[2], source=r[3]) for r in rows]
+    return [_Update(event_id=r[0], ts=r[1], text=r[2], service=r[3],
+                    type=r[4], source=r[5]) for r in rows]
 
 
 def fetch_runbook(conn, service: str) -> str | None:
@@ -64,16 +68,17 @@ def _impact_for(conn, incident_id: str, service: str, hits) -> str:
 def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
                     *, composer=None) -> Findings:
     runbook = fetch_runbook(conn, service)
-    from freshet.api.retrieval import hybrid_search
+    # EVERY input is scoped to this incident. A service-wide similarity search
+    # used to feed the timeline and the impact heuristic, so a provider with
+    # several open incidents could have another incident's error percentages
+    # folded into this one's impact line. An incident's events are a known set —
+    # look them up rather than search for them.
+    own = fetch_incident_updates(conn, incident_id)
     from freshet.api.synthesis import build_timeline
-    q = f"what caused the {service} incident and how was it resolved?"
-    res = hybrid_search(conn, embedder, q, k=12, service=service)
-    tl = build_timeline(res.hits)
-    f = findings_from_timeline(tl, status, runbook)
+    f = findings_from_timeline(build_timeline(own), status, runbook)
     # Cause/fix is kept for corpora that contain change events; the update
     # timeline is ADDED, not substituted, because status feeds have none. It is
     # sourced by direct lookup so the brief cannot cite a different incident.
-    own = fetch_incident_updates(conn, incident_id)
     f.updates = findings_from_updates(service, status, own, runbook).updates
     # Change events give the strongest cause, but status feeds have none. Fall
     # back to the provider's own words IF an update actually states a cause.
@@ -93,7 +98,7 @@ def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
                 f"What is happening with {service}? Summarise in two sentences.", own)
         except Exception as exc:      # never let generation break an alert
             log.warning("summary generation failed (%r); brief renders without it", exc)
-    f.impact = _impact_for(conn, incident_id, service, res.hits)
+    f.impact = _impact_for(conn, incident_id, service, own)
     return f
 
 
@@ -118,11 +123,10 @@ def gather_postmortem(conn, embedder, service: str, incident_id: str, *, client=
     opened_at, resolved_at, resolution_summary = row if row else (None, None, None)
     duration = _format_duration(opened_at, resolved_at)
 
-    from freshet.api.retrieval import hybrid_search
     from freshet.api.synthesis import build_timeline, synthesize_narrative
-    q = f"what caused the {service} incident and how was it resolved?"
-    res = hybrid_search(conn, embedder, q, k=12, service=service)
-    tl = build_timeline(res.hits)
+    # Same scoping rule as the brief: a postmortem must describe ONE incident.
+    own = fetch_incident_updates(conn, incident_id)
+    tl = build_timeline(own)
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
             narrative = synthesize_narrative(tl, client=client)
@@ -137,5 +141,5 @@ def gather_postmortem(conn, embedder, service: str, incident_id: str, *, client=
     meta = f"Duration {duration} · {summary}" if duration else summary
     f = Findings(service=service, status="resolved", cause_text=None, cause_cite=None,
                  fix_text=None, fix_cite=None, runbook=runbook, narrative=narrative, meta=meta)
-    f.impact = _impact_for(conn, incident_id, service, res.hits)
+    f.impact = _impact_for(conn, incident_id, service, own)
     return f

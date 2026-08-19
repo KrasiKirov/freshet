@@ -7,10 +7,31 @@ from __future__ import annotations
 
 import os
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Protocol
 
-from freshet.api.retrieval import RetrievedHit
 from freshet.common.schemas import CHANGE_TYPES, REMEDIATION_TYPES
+
+
+class TimelineHit(Protocol):
+    """What the timeline actually reads off a hit. Declared structurally so that
+    retrieval results AND directly-looked-up incident events both satisfy it —
+    the brief scopes evidence by incident rather than by similarity search."""
+
+    # Read-only members so that FROZEN dataclasses satisfy the protocol too:
+    # plain attribute members are treated as mutable and a frozen class fails.
+    @property
+    def event_id(self) -> str: ...
+    @property
+    def service(self) -> str: ...
+    @property
+    def ts(self) -> datetime: ...
+    @property
+    def type(self) -> str: ...
+    @property
+    def text(self) -> str: ...
 
 _ROLE_BY_TYPE = {
     "deploy_started": "deploy", "deploy_finished": "deploy",
@@ -31,28 +52,28 @@ _ROLE_BY_TYPE = {
 _CAUSE_TYPES = CHANGE_TYPES | frozenset({"commit"})
 
 
-def _role(hit: RetrievedHit) -> str:
+def _role(hit: TimelineHit) -> str:
     return _ROLE_BY_TYPE.get(hit.type, "other")
 
 
 @dataclass
 class TimelineEntry:
     role: str
-    hit: RetrievedHit
+    hit: TimelineHit
 
 
 @dataclass
 class Timeline:
     service: str | None
     entries: list[TimelineEntry] = field(default_factory=list)
-    cause: RetrievedHit | None = None
-    fix: RetrievedHit | None = None
+    cause: TimelineHit | None = None
+    fix: TimelineHit | None = None
 
     def render(self) -> str:
         if not self.entries:
             return "_Insufficient evidence to reconstruct the incident._"
 
-        def cite(h: RetrievedHit) -> str:
+        def cite(h: TimelineHit) -> str:
             return f"`[{h.event_id} @ {h.ts:%Y-%m-%d %H:%M}]`"
 
         lines = [f"## Root cause — {self.service or 'incident'}", ""]
@@ -66,8 +87,8 @@ class Timeline:
         return "\n".join(lines)
 
 
-def _select_cause(candidates: list[RetrievedHit], hits: list[RetrievedHit],
-                  first_spike_ts) -> RetrievedHit | None:
+def _select_cause(candidates: list[TimelineHit], hits: Sequence[TimelineHit],
+                  first_spike_ts) -> TimelineHit | None:
     """Pick the cause among candidate changes at/before the spike. Blends retrieval
     RANK (position in `hits`, which reranking reorders — lower is better) with temporal
     proximity to the spike. Falls back to recency (latest) when rank is uninformative,
@@ -80,10 +101,10 @@ def _select_cause(candidates: list[RetrievedHit], hits: list[RetrievedHit],
     rank = {h.event_id: i for i, h in enumerate(hits)}
     n = max(len(hits), 1)
 
-    def relevance(h: RetrievedHit) -> float:
+    def relevance(h: TimelineHit) -> float:
         return 1.0 / (1 + rank.get(h.event_id, n))          # rank 0 -> 1.0
 
-    def proximity(h: RetrievedHit) -> float:
+    def proximity(h: TimelineHit) -> float:
         if first_spike_ts is None:
             return 1.0
         mins = max((first_spike_ts - h.ts).total_seconds(), 0.0) / 60.0
@@ -96,7 +117,7 @@ def _select_cause(candidates: list[RetrievedHit], hits: list[RetrievedHit],
     return max(candidates, key=lambda h: relevance(h) * proximity(h))
 
 
-def build_timeline(hits: list[RetrievedHit]) -> Timeline:
+def build_timeline(hits: Sequence[TimelineHit]) -> Timeline:
     """Build the timeline for the dominant incident among the hits."""
     incident_hits = [h for h in hits if _role(h) != "runbook"]
     if not incident_hits:

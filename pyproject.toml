@@ -29,6 +29,11 @@ include = ["freshet*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Integration tests import helpers as `tests.integration.…`, which only resolves
+# when the repo root is on sys.path. `python -m pytest` inserts it implicitly and
+# masked this; bare `pytest` (what CI runs) failed at COLLECTION, before the
+# marker filter could exclude anything.
+pythonpath = ["."]
 markers = [
     "integration: requires the docker-compose stack (broker + Postgres)",
 ]

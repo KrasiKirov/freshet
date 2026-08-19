@@ -1,6 +1,6 @@
 """M5 query API: hybrid retrieval (vector + keyword + filters) fused with
 reciprocal-rank fusion, recency-weighted, with abstention on weak evidence and
-a grounded-answer composer (keyless template default, optional Anthropic).
+a grounded-answer composer (extractive template default, optional Anthropic).
 
 Run:
     uvicorn freshet.api.app:app --port 8000
@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -53,7 +53,7 @@ _Q_LATENCY_P95 = "histogram_quantile(0.95, sum(rate(freshet_pipeline_latency_sec
 # pinning exact names — otherwise lag silently reads empty outside `make api`.
 _Q_CONSUMER_LAG = (
     "sum(clamp_min(sum by (redpanda_group) ("
-    'redpanda_kafka_max_offset{redpanda_namespace="kafka",redpanda_topic=~"raw.events|normalized.events"}'
+    'redpanda_kafka_max_offset{redpanda_namespace="kafka",redpanda_topic=~"raw.incidents|normalized.updates"}'
     " - on(redpanda_topic, redpanda_partition) group_right() "
     'redpanda_kafka_consumer_group_committed_offset{redpanda_group=~".*(norm|emb).*"}), 0))'
 )
@@ -191,7 +191,8 @@ def stats() -> Stats:
 
 
 @app.get("/incidents", response_model=list[IncidentSummary])
-def incidents(limit: int = 20, deps=Depends(get_deps)) -> list[IncidentSummary]:
+def incidents(limit: int = Query(default=20, ge=1, le=200),
+              deps=Depends(get_deps)) -> list[IncidentSummary]:
     conn, _, _ = deps
     rows = conn.execute(
         """
