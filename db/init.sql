@@ -93,3 +93,8 @@ ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_at timestamptz;
 -- Autopilot ③: the Slack ts of the incident's brief message, so the postmortem
 -- can post as a threaded reply under it.
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS slack_ts text;
+-- briefed_at/postmortem_at are LEASES (a claim to work), not records that the
+-- work happened. These two record delivery, so an expired lease can retry a
+-- crashed brief without ever re-posting one that actually landed.
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS brief_delivered_at      timestamptz;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_delivered_at timestamptz;

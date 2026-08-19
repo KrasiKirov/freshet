@@ -13,15 +13,33 @@ from freshet.autopilot.investigate import gather_findings, gather_postmortem
 from freshet.autopilot.sinks.base import Sink
 from freshet.pipeline.lifecycle import LifecycleEvent
 
-_CLAIM_SQL = ("UPDATE incidents SET briefed_at = now()"
-              " WHERE incident_id = %s AND briefed_at IS NULL RETURNING incident_id")
+# The claim is a LEASE, not a tombstone. Kafka redelivers (auto_commit=False), so
+# a crashed brief comes back — but a permanent claim would make the redelivered
+# event skip it forever, silently downgrading at-least-once to at-most-once.
+# A lease expires, so a hard kill self-heals with no reaper process: the predicate
+# IS the reaper. `brief_delivered_at` is what stops an expired lease re-posting a
+# brief that actually landed.
+LEASE_MINUTES = 15   # must exceed the debounce window plus worst-case LLM latency
+_CLAIM_SQL = (
+    "UPDATE incidents SET briefed_at = now()"
+    " WHERE incident_id = %s"
+    "   AND brief_delivered_at IS NULL"
+    f"  AND (briefed_at IS NULL OR briefed_at < now() - interval '{LEASE_MINUTES} minutes')"
+    " RETURNING incident_id")
 # A postmortem is only posted for an incident we actually briefed (briefed_at
 # set). Without this guard, the first live-demo poll — which replays every
 # historical, already-resolved status-feed incident — would flood the sink with
 # postmortems for incidents that never got a brief.
-_POSTMORTEM_CLAIM_SQL = ("UPDATE incidents SET postmortem_at = now()"
-                         " WHERE incident_id = %s AND postmortem_at IS NULL"
-                         " AND briefed_at IS NOT NULL RETURNING incident_id")
+_POSTMORTEM_CLAIM_SQL = (
+    "UPDATE incidents SET postmortem_at = now()"
+    " WHERE incident_id = %s"
+    "   AND postmortem_delivered_at IS NULL"
+    "   AND brief_delivered_at IS NOT NULL"     # only postmortem what we briefed
+    f"  AND (postmortem_at IS NULL OR postmortem_at < now() - interval '{LEASE_MINUTES} minutes')"
+    " RETURNING incident_id")
+_MARK_BRIEF_SQL = "UPDATE incidents SET brief_delivered_at = now() WHERE incident_id = %s"
+_MARK_POSTMORTEM_SQL = ("UPDATE incidents SET postmortem_delivered_at = now()"
+                        " WHERE incident_id = %s")
 _SET_SLACK_TS_SQL = "UPDATE incidents SET slack_ts = %s WHERE incident_id = %s"
 _GET_SLACK_TS_SQL = "SELECT slack_ts FROM incidents WHERE incident_id = %s"
 # A claim is a promise to deliver, not a record that we did. If the work after it
@@ -38,6 +56,16 @@ def claim_incident(conn, incident_id: str) -> bool:
 
 def claim_postmortem(conn, incident_id: str) -> bool:
     return conn.execute(_POSTMORTEM_CLAIM_SQL, (incident_id,)).fetchone() is not None
+
+
+def mark_brief_delivered(conn, incident_id: str) -> None:
+    """Record that the sink accepted the brief. Delivery is final: no expired
+    lease may re-post it."""
+    conn.execute(_MARK_BRIEF_SQL, (incident_id,))
+
+
+def mark_postmortem_delivered(conn, incident_id: str) -> None:
+    conn.execute(_MARK_POSTMORTEM_SQL, (incident_id,))
 
 
 def release_incident(conn, incident_id: str) -> None:
@@ -65,6 +93,7 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
         except Exception:
             release_incident(conn, ev.incident_id)
             raise
+        mark_brief_delivered(conn, ev.incident_id)
         if ts:
             conn.execute(_SET_SLACK_TS_SQL, (ts, ev.incident_id))
         return
@@ -78,6 +107,7 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
             slack_ts = row[0] if row else None
             pm = gather_postmortem(conn, embedder, ev.service, ev.incident_id, client=client)
             sink.deliver(pm, thread=slack_ts)
+            mark_postmortem_delivered(conn, ev.incident_id)
         except Exception:
             release_postmortem(conn, ev.incident_id)
             raise
