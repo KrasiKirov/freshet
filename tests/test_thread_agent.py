@@ -15,6 +15,13 @@ from freshet.autopilot.thread_agent import (
 )
 from freshet.autopilot.thread_agent import RateLimited as ThreadRateLimited
 
+
+class _Hit:
+    """Minimal hit: the merge dedupes on event_id, the composer cites it."""
+    def __init__(self, event_id="corpus:1:a"):
+        self.event_id = event_id
+
+
 THREAD = "1700000000.000100"
 
 
@@ -73,7 +80,7 @@ class _Composer:
         return f"answer to {question}"
 
 
-def _patch_search(monkeypatch, abstained=False, hits=(1,)):
+def _patch_search(monkeypatch, abstained=False, hits=(_Hit(),)):
     from freshet.autopilot import thread_agent
 
     class _Res:
@@ -121,7 +128,7 @@ def test_answer_question_uses_retrieval_not_a_key_lookup(monkeypatch):
     seen = {}
 
     class _Res:
-        hits, abstained = [1], False
+        hits, abstained = [_Hit()], False
     def _fake(conn, emb, q, **kw):
         seen["q"], seen["k"] = q, kw.get("k")
         return _Res()
@@ -135,7 +142,7 @@ def test_a_very_long_question_is_capped(monkeypatch):
     seen = {}
 
     class _Res:
-        hits, abstained = [1], False
+        hits, abstained = [_Hit()], False
     monkeypatch.setattr("freshet.rag.retrieval.hybrid_search",
                         lambda c, e, q, **k: (seen.__setitem__("q", q), _Res())[1])
     answer_question(None, _Emb(), _Composer(), "x" * 5000)
@@ -152,7 +159,7 @@ def _capture_search(monkeypatch, abstained=False):
 
     class _Res:
         def __init__(self):
-            self.hits, self.abstained = [1], abstained
+            self.hits, self.abstained = [_Hit()], abstained
 
     def _fake(conn, emb, q, **kw):
         seen["q"], seen["since"], seen["k"] = q, kw.get("since"), kw.get("k")
@@ -262,3 +269,65 @@ def test_other_errors_still_skip_just_that_thread(monkeypatch):
     _patch_search(monkeypatch)
     conn = _Conn([("INC-1", THREAD, None)])
     assert poll_threads(conn, _Emb(), _Composer(), _Client([], fail=True), "#ops") == 0
+
+
+# --- deictic follow-ups ------------------------------------------------------
+# Observed in real Slack: "give me more details on this event" scored 0.661
+# against a 0.700 floor and abstained. "this event" is a pointer, not a
+# description — there is nothing semantic to match, so the thread's own incident
+# has to be evidence regardless of what retrieval finds.
+
+class _ConnWithUpdates:
+    """Returns thread rows AND incident updates, like the real schema."""
+    def __init__(self, updates):
+        self.updates, self.executed = updates, []
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+        if "slack_ts IS NOT NULL" in sql:
+            rows = [("INC-1", THREAD, None, "C123")]
+        elif "GROUP BY event_id" in sql:
+            rows = self.updates
+        else:
+            rows = []
+
+        class _R:
+            def fetchall(self_inner):
+                return rows
+        return _R()
+
+
+def _update_row(event_id="INC-1:u1"):
+    from datetime import UTC, datetime
+    return (event_id, datetime.now(UTC), "TLS certificates are not being rotated",
+            "mongodb", "status_update", "alert")
+
+
+def test_a_deictic_question_is_answered_from_the_threads_own_incident(monkeypatch):
+    _patch_search(monkeypatch, abstained=True)      # corpus search finds nothing
+    conn = _ConnWithUpdates([_update_row()])
+    out = answer_question(conn, _Emb(), _Composer(), "give me more details on this event",
+                          incident_id="INC-1")
+    assert out != ABSTAIN_REPLY, "the thread's incident is evidence the question pointed at"
+    assert "more details" in out
+
+
+def test_a_deictic_question_with_no_incident_still_abstains(monkeypatch):
+    _patch_search(monkeypatch, abstained=True)
+    out = answer_question(_ConnWithUpdates([]), _Emb(), _Composer(),
+                          "give me more details on this event", incident_id="INC-1")
+    assert out == ABSTAIN_REPLY, "no evidence anywhere is still an honest refusal"
+
+
+def test_abstained_corpus_hits_are_not_folded_in(monkeypatch):
+    """Below the floor means not evidence; using them anyway discards the signal."""
+    seen = {}
+
+    class _C:
+        def compose(self, q, hits):
+            seen["hits"] = list(hits)
+            return "answer"
+    _patch_search(monkeypatch, abstained=True, hits=(_Hit("corpus:weak:1"),))
+    answer_question(_ConnWithUpdates([_update_row()]), _Emb(), _C(), "q",
+                    incident_id="INC-1")
+    assert [h.event_id for h in seen["hits"]] == ["INC-1:u1"]

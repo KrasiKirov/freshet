@@ -61,7 +61,8 @@ def is_human_reply(message: dict, thread_ts: str) -> bool:
     return bool((message.get("text") or "").strip())
 
 
-def answer_question(conn, embedder, composer, question: str) -> str:
+def answer_question(conn, embedder, composer, question: str,
+                    incident_id: str | None = None) -> str:
     """Hybrid retrieval, abstention, cited answer — the path the eval measures.
 
     A temporal phrase in the question ("what broke today?") narrows retrieval to
@@ -75,13 +76,35 @@ def answer_question(conn, embedder, composer, question: str) -> str:
     question = question[:MAX_QUESTION_CHARS]
     since, window = infer_window(question)
     result = hybrid_search(conn, embedder, question, k=6, since=since)
-    if result.abstained:
+
+    # The thread's own incident is ALWAYS evidence. A follow-up in a thread is
+    # usually deictic — "give me more details on this event" scored 0.661 against
+    # a 0.700 floor and abstained, because "this event" is a pointer with no
+    # semantic content to match. That is not missing evidence; it is evidence the
+    # question referred to without naming. It comes from a key lookup, so it costs
+    # nothing and cannot pull in another incident's updates.
+    evidence = _thread_evidence(conn, incident_id) if incident_id else []
+    if not result.abstained:
+        # Abstained means every hit fell below the calibrated floor. Those are not
+        # evidence, and folding them in anyway would quietly discard the very
+        # signal the floor exists to give.
+        known = {h.event_id for h in evidence}
+        evidence += [h for h in result.hits if h.event_id not in known]
+
+    if not evidence:
         return _with_window(ABSTAIN_REPLY, window)
     # The question is untrusted text from a Slack user; the composer already
     # refuses instructions found in evidence, and every citation it emits is
     # verified against the retrieved events before this is posted.
-    answer = composer.compose(question, result.hits) or NO_EVIDENCE
+    answer = composer.compose(question, evidence) or NO_EVIDENCE
     return _with_window(answer, window)
+
+
+def _thread_evidence(conn, incident_id: str, limit: int = 8) -> list:
+    """This incident's own updates, newest first. A key lookup, not a search."""
+    from freshet.autopilot.investigate import fetch_incident_updates
+
+    return list(fetch_incident_updates(conn, incident_id))[:limit]
 
 
 def _with_window(answer: str, window: str | None) -> str:
@@ -152,7 +175,8 @@ def poll_threads(conn, embedder, composer, client, channel: str, *,
             if seen_ts and message["ts"] <= seen_ts:
                 continue                        # already answered
             try:
-                answer = answer_question(conn, embedder, composer, message["text"])
+                answer = answer_question(conn, embedder, composer, message["text"],
+                                     incident_id=incident_id)
             except BudgetExhausted as exc:
                 # Do NOT advance thread_seen_ts: the question stays unanswered and
                 # is picked up once the budget frees, rather than lost.
