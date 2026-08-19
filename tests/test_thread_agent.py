@@ -5,12 +5,15 @@ question ("is anything else affected?") has no key, so it runs the same path the
 query API uses and the retrieval eval measures.
 """
 
+import pytest
+
 from freshet.autopilot.thread_agent import (
     ABSTAIN_REPLY,
     answer_question,
     is_human_reply,
     poll_threads,
 )
+from freshet.autopilot.thread_agent import RateLimited as ThreadRateLimited
 
 THREAD = "1700000000.000100"
 
@@ -182,3 +185,77 @@ def test_the_window_is_inferred_from_the_capped_question(monkeypatch):
     seen = _capture_search(monkeypatch)
     answer_question(None, _Emb(), _Composer(), "x" * 600 + " today")
     assert len(seen["q"]) == 500 and seen["since"] is None
+
+
+# --- call volume ------------------------------------------------------------
+# Measured against real Slack: polling every thread on every idle tick made 493
+# conversations.replies calls in three minutes and earned a 429.
+
+class _Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_polling_is_throttled_between_ticks(monkeypatch):
+    from freshet.autopilot import thread_agent
+
+    calls = []
+    monkeypatch.setattr(thread_agent, "poll_threads",
+                        lambda *a, **k: (calls.append(1), 0)[1])
+    clock = _Clock()
+    poller = thread_agent.ThreadPoller(interval_s=30, now=clock)
+
+    poller(None, None, None, None, "#ops")     # first tick polls
+    for t in (1, 5, 29):                        # a busy idle loop
+        clock.t = t
+        poller(None, None, None, None, "#ops")
+    assert len(calls) == 1, "an idle loop must not poll Slack every second"
+    clock.t = 31
+    poller(None, None, None, None, "#ops")
+    assert len(calls) == 2
+
+
+def test_a_rate_limit_backs_the_whole_loop_off(monkeypatch):
+    from freshet.autopilot import thread_agent
+
+    calls = []
+
+    def _boom(*a, **k):
+        calls.append(1)
+        raise thread_agent.RateLimited("ratelimited")
+    monkeypatch.setattr(thread_agent, "poll_threads", _boom)
+    clock = _Clock()
+    poller = thread_agent.ThreadPoller(interval_s=30, now=clock)
+
+    assert poller(None, None, None, None, "#ops") == 0    # swallowed, not raised
+    clock.t = 35                                          # normal interval elapsed
+    poller(None, None, None, None, "#ops")
+    assert len(calls) == 1, "backoff must outlast the ordinary interval"
+    clock.t = 95
+    poller(None, None, None, None, "#ops")
+    assert len(calls) == 2
+
+
+def test_a_rate_limited_thread_raises_rather_than_looping(monkeypatch):
+    """Per-thread 'continue' on a 429 just earns more 429s."""
+    _patch_search(monkeypatch)
+    conn = _Conn([("INC-1", THREAD, None)])
+
+    class _Limited:
+        def conversations_replies(self, **kw):
+            raise RuntimeError("{'ok': False, 'error': 'ratelimited'}")
+
+        def chat_postMessage(self, **kw):
+            return {"ok": True}
+
+    with pytest.raises(ThreadRateLimited):
+        poll_threads(conn, _Emb(), _Composer(), _Limited(), "#ops")
+
+
+def test_other_errors_still_skip_just_that_thread(monkeypatch):
+    _patch_search(monkeypatch)
+    conn = _Conn([("INC-1", THREAD, None)])
+    assert poll_threads(conn, _Emb(), _Composer(), _Client([], fail=True), "#ops") == 0

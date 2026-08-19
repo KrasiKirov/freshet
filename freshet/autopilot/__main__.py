@@ -16,7 +16,7 @@ import threading
 
 from freshet.autopilot.consumer import drain_due_briefs, handle_and_drain
 from freshet.autopilot.sinks.factory import make_sink
-from freshet.autopilot.thread_agent import poll_threads
+from freshet.autopilot.thread_agent import ThreadPoller
 from freshet.common.db import connect
 from freshet.common.kafka_io import consume_loop
 from freshet.pipeline.embedding import make_embedder
@@ -70,8 +70,10 @@ def main() -> None:
         client = WebClient(token=os.environ["SLACK_BOT_TOKEN"])
         channel = os.environ.get("SLACK_CHANNEL", "#general")
 
+        poller = ThreadPoller()
+
         def threads() -> None:      # noqa: F811 — bound only when Slack is configured
-            poll_threads(conn, embedder, composer, client, channel)
+            poller(conn, embedder, composer, client, channel)
 
     print(f"[autopilot] listening on {LIFECYCLE_TOPIC} "
           f"(window={args.window_s}s, briefs=LLM-composed, citations verified)")
