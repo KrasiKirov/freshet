@@ -177,11 +177,6 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(freshet_normalizer_events_total[1m]))",
-          "legendFormat": "normalizer",
-          "refId": "A"
-        },
-        {
           "expr": "sum(rate(freshet_embedder_events_total[1m]))",
           "legendFormat": "embedder",
           "refId": "B"

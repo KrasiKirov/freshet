@@ -18,12 +18,31 @@ _UTILISATION_RE = re.compile(
     r"saturation|capacity|load)\b", re.I)
 
 
+# A percentage only means failure if the SAME sentence is about failing. Excluding
+# utilisation words was not enough: "99.9% availability" and "traffic is up 40%"
+# both cleared it and were reported as "source reports ~99.9% errors". Requiring
+# error context in the sentence is the positive test the negative one was missing.
+_ERROR_CONTEXT_RE = re.compile(
+    r"\b(error|errors|failur\w*|failing|failed|fail|timeout\w*|timing out|"
+    r"5\d{2}s?|4\d{2}s?|unavailab\w*|degrad\w*|drop\w*|reject\w*)\b", re.I)
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
 def max_stated_pct(hit_texts: list[str]) -> float | None:
-    """Largest percentage stated in the retrieved text, ignoring utilisation
-    readings (see _UTILISATION_RE). Returns None when nothing qualifies."""
-    vals = [float(m)
-            for t in hit_texts if not _UTILISATION_RE.search(t)
-            for m in _PCT_RE.findall(t)]
+    """Largest percentage stated in a sentence that is ABOUT failure.
+
+    Scoped per sentence, not per update: an update routinely reports a failure
+    and an unrelated figure in different sentences, and taking the max across the
+    whole text let the unrelated one win.
+    """
+    vals: list[float] = []
+    for text in hit_texts:
+        for sentence in _SENTENCE_SPLIT.split(text):
+            if _UTILISATION_RE.search(sentence):
+                continue
+            if not _ERROR_CONTEXT_RE.search(sentence):
+                continue
+            vals.extend(float(m) for m in _PCT_RE.findall(sentence))
     return max(vals) if vals else None
 
 

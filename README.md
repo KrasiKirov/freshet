@@ -11,7 +11,8 @@ provider states one.
 ```
 42 Statuspage /history.atom feeds
   │  poller — ThreadPoolExecutor + stdlib urllib, 60s sweep,
-  │  ETag conditional requests, staggered start, per-host backoff
+  │  ETag conditional requests (persisted across restarts), staggered
+  │  start, exponential per-host backoff, one batched produce per sweep
   ▼
 Kafka  raw.incidents
   │  Flink SQL — checkpointed dedup by (provider, incident, update),

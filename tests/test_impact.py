@@ -10,7 +10,7 @@ def _span(minutes):
 
 
 def test_max_stated_pct_parses_and_takes_max():
-    assert max_stated_pct(["crossed 5% (now 11%)", "noise"]) == 11.0
+    assert max_stated_pct(["error rate crossed 5% (now 11%)", "noise"]) == 11.0
 
 
 def test_max_stated_pct_ignores_non_percent_numbers():
@@ -32,22 +32,22 @@ def test_max_stated_pct_ignores_utilisation_percentages():
 
 def test_high_when_pct_high():
     o, r = _span(20)
-    assert classify_impact(["a"], o, r, ["now 40%"]) == "High"
+    assert classify_impact(["a"], o, r, ["errors now 40%"]) == "High"
 
 
 def test_high_when_breadth_ge_3():
     o, r = _span(5)
-    assert classify_impact(["a", "b", "c"], o, r, ["now 2%"]) == "High"
+    assert classify_impact(["a", "b", "c"], o, r, ["errors now 2%"]) == "High"
 
 
 def test_high_when_long_duration():
     o, r = _span(90)
-    assert classify_impact(["a"], o, r, ["now 8%"]) == "High"
+    assert classify_impact(["a"], o, r, ["errors now 8%"]) == "High"
 
 
 def test_low_when_quiet_short_single_service():
     o, r = _span(5)
-    assert classify_impact(["a"], o, r, ["now 2%"]) == "Low"
+    assert classify_impact(["a"], o, r, ["errors now 2%"]) == "Low"
 
 
 def test_medium_otherwise():
@@ -60,7 +60,7 @@ def test_no_stated_figure_defaults_to_medium_not_low():
     # Medium, not Low. An explicitly low % on the same shape IS Low.
     o, r = _span(5)
     assert classify_impact(["a"], o, r, ["service recovered, no numbers here"]) == "Medium"
-    assert classify_impact(["a"], o, r, ["now 2%"]) == "Low"
+    assert classify_impact(["a"], o, r, ["errors now 2%"]) == "Low"
 
 
 def test_monotonic_more_services_never_lowers():
@@ -80,6 +80,36 @@ def test_monotonic_higher_pct_never_lowers():
 
 
 def test_estimate_impact_line_ongoing_and_stated():
-    line = estimate_impact(["a", "b", "c"], T0, None, ["now 40%"])
+    line = estimate_impact(["a", "b", "c"], T0, None, ["errors now 40%"])
     assert line.startswith("Impact: High — 3 services, ongoing")
     assert "~40% errors" in line
+
+
+# --- a percentage only counts when its sentence is about failing --------------
+
+def test_a_percentage_with_no_error_context_is_ignored():
+    """"now 40%" used to classify High. A bare figure says nothing about impact."""
+    assert max_stated_pct(["now 40%"]) is None
+    assert max_stated_pct(["traffic is up 40% since the deploy"]) is None
+
+
+def test_an_availability_figure_is_not_an_error_rate():
+    """The inverse trap: 99.9% availability is GOOD news read as catastrophic."""
+    assert max_stated_pct(["we maintained 99.9% availability"]) is None
+
+
+def test_an_error_percentage_still_counts():
+    assert max_stated_pct(["error rate 40%"]) == 40.0
+    assert max_stated_pct(["approximately 12% of requests are failing"]) == 12.0
+    assert max_stated_pct(["12% of requests returned 500s"]) == 12.0
+
+
+def test_the_figure_must_share_a_sentence_with_the_failure():
+    """Scoped per sentence: an unrelated figure elsewhere in the same update
+    must not be adopted as the error rate."""
+    text = "Some requests are failing. Separately, signups rose 80% this week."
+    assert max_stated_pct([text]) is None
+
+
+def test_a_utilisation_reading_is_still_excluded_even_with_error_words():
+    assert max_stated_pct(["errors seen while cpu usage hit 95%"]) is None

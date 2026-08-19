@@ -39,6 +39,10 @@ ALTER TABLE vector_records
     ADD COLUMN IF NOT EXISTS text_tsv tsvector
     GENERATED ALWAYS AS (to_tsvector('english', text)) STORED;
 
+-- No ANN index yet, deliberately. At this corpus size an exact scan is fast and
+-- exact; HNSW trades recall for latency and would need its own recall check to
+-- stay honest. Add `USING hnsw (embedding vector_cosine_ops)` when row count or
+-- query p95 actually justifies it — not before.
 CREATE INDEX IF NOT EXISTS vector_records_text_tsv_idx
     ON vector_records USING GIN (text_tsv);
 

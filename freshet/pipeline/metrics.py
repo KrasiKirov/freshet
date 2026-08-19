@@ -19,18 +19,9 @@ log = logging.getLogger(__name__)
 
 LATENCY_BUCKETS = (0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0)
 
-NORMALIZED_EVENTS = Counter(
-    "freshet_normalizer_events_total",
-    "Events validated and republished by the normalizer",
-)
 DEADLETTER_EVENTS = Counter(
     "freshet_deadletter_total",
     "Messages routed to the dead-letter topic (normalizer + embedder)",
-)
-INGEST_LAG = Histogram(
-    "freshet_ingest_lag_seconds",
-    "Seconds from event time (ts) to pipeline receipt (ingested_at)",
-    buckets=LATENCY_BUCKETS,
 )
 
 INDEXED_EVENTS = Counter(

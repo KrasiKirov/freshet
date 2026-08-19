@@ -108,6 +108,13 @@ validated first on the six cases keyword matching gets wrong ("The root cause ha
 fixed" names nothing; "triggered by date time triggers" is a false match) and scored
 6/6 before being trusted with the corpus.
 
+**Outstanding: a human has not signed off these labels.** The next step is a
+20-row spot check — read 20 of the 64 `labels_live.json` entries, confirm the
+cause sentence names a cause and the question seeks one, then set
+`curated: reviewed`. Until that happens the live numbers stay indicative.
+
+- [ ] 20-row human review of `freshet/eval/fixtures/labels_live.json`
+
 **Honest limits.** The labels are `curated: assistant-reviewed` — reviewed against the
 criterion above, but not signed off by a human, and the reviewer is the same system
 that produced them. Every rejection and collapse is recorded in `_review` so the calls

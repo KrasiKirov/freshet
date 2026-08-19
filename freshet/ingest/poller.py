@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import random
 import time
 import urllib.error
@@ -25,7 +26,7 @@ import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
-from freshet.common.kafka_io import make_producer, produce_sync
+from freshet.common.kafka_io import BufferedProducer
 from freshet.ingest.registry import Page, load_pages
 from freshet.ingest.sources import IncidentUpdate
 from freshet.ingest.statuspage import parse_atom
@@ -46,9 +47,38 @@ class ConditionalCache:
     """Remembers ETag / Last-Modified per URL so an unchanged feed costs a 304
     instead of a full body — the single biggest politeness lever we have."""
 
-    def __init__(self) -> None:
+    def __init__(self, path: str | None = None) -> None:
         self._etag: dict[str, str] = {}
         self._modified: dict[str, str] = {}
+        # Persisted so a restart resumes with 304s instead of re-downloading all
+        # 42 feeds — the validators are the whole politeness lever, and losing
+        # them on every restart threw it away.
+        self._path = path or os.environ.get("FRESHET_POLL_CACHE") or ""
+        self._load()
+
+    def _load(self) -> None:
+        if not self._path or not os.path.exists(self._path):
+            return
+        try:
+            with open(self._path) as fh:
+                data = json.load(fh)
+            self._etag = dict(data.get("etag") or {})
+            self._modified = dict(data.get("modified") or {})
+            log.info("poll cache: %d validators restored", len(self._etag))
+        except Exception as exc:                  # noqa: BLE001 - cache is advisory
+            log.warning("poll cache unreadable (%s); starting cold", exc)
+
+    def save(self) -> None:
+        """Best-effort: a cache write must never interrupt polling."""
+        if not self._path:
+            return
+        try:
+            tmp = f"{self._path}.tmp"
+            with open(tmp, "w") as fh:
+                json.dump({"etag": self._etag, "modified": self._modified}, fh)
+            os.replace(tmp, self._path)           # atomic: no half-written cache
+        except Exception as exc:                  # noqa: BLE001 - cache is advisory
+            log.warning("could not persist poll cache: %s", exc)
 
     def headers_for(self, url: str) -> dict[str, str]:
         headers = {"User-Agent": USER_AGENT}
@@ -78,19 +108,55 @@ def http_fetch(url: str, headers: dict) -> tuple[int, dict, str | None]:
         raise
 
 
+MAX_BACKOFF_S = 300.0
+
+
+class HostBackoff:
+    """Skip a failing host for a growing interval instead of retrying every sweep.
+
+    The README claimed per-host backoff; the code only logged and retried on the
+    next sweep, so a host that was down stayed in every sweep's critical path.
+    """
+
+    def __init__(self, now=time.monotonic) -> None:
+        self._until: dict[str, float] = {}
+        self._failures: dict[str, int] = {}
+        self._now = now
+
+    def skip(self, url: str) -> bool:
+        return self._now() < self._until.get(url, 0.0)
+
+    def failed(self, url: str) -> float:
+        n = self._failures[url] = self._failures.get(url, 0) + 1
+        delay = min(MAX_BACKOFF_S, 2.0 ** n)
+        self._until[url] = self._now() + delay
+        return delay
+
+    def succeeded(self, url: str) -> None:
+        self._failures.pop(url, None)
+        self._until.pop(url, None)
+
+
 def poll_once(pages: list[Page], fetch: FetchFn,
-              cache: ConditionalCache) -> list[IncidentUpdate]:
+              cache: ConditionalCache,
+              backoff: HostBackoff | None = None) -> list[IncidentUpdate]:
     """One sweep over every page, oldest update first.
 
     A failing host is logged and skipped: one bad third party must never stall
     ingestion of the other forty-one.
     """
     def one(page: Page) -> list[IncidentUpdate]:
+        if backoff is not None and backoff.skip(page.url):
+            return []
         try:
             status, headers, body = fetch(page.url, cache.headers_for(page.url))
         except Exception as exc:                  # noqa: BLE001 - third-party host
-            log.warning("poll failed provider=%s err=%s", page.provider, exc)
+            delay = backoff.failed(page.url) if backoff is not None else 0.0
+            log.warning("poll failed provider=%s err=%s (backing off %.0fs)",
+                        page.provider, exc, delay)
             return []
+        if backoff is not None:
+            backoff.succeeded(page.url)
         if status == 304 or not body:
             return []
         cache.remember(page.url, headers)
@@ -126,7 +192,8 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
     """Poll until stopped, producing every observed update to Kafka."""
     pages = load_pages()
     cache = ConditionalCache()
-    producer = make_producer(brokers)
+    backoff = HostBackoff()
+    producer = BufferedProducer(brokers)
     log.info("polling %d feeds every %.0fs", len(pages), interval_s)
 
     # Stagger the first sweep so a restart does not hit every host at once.
@@ -135,10 +202,16 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
     produced = sweeps = 0
     while max_sweeps is None or sweeps < max_sweeps:
         started = time.monotonic()
-        for update in poll_once(pages, http_fetch, cache):
-            produce_sync(producer, RAW_TOPIC, json.dumps(to_message(update)),
-                         key=update.dedup_key)
+        # One buffered batch per sweep, flushed and checked at the end: a
+        # synchronous produce per update paid a round trip 3,600 times a sweep.
+        # flush_checked raises on any failed delivery, so a sweep cannot report
+        # success while dropping updates.
+        for update in poll_once(pages, http_fetch, cache, backoff):
+            producer.produce(RAW_TOPIC, json.dumps(to_message(update)),
+                             key=update.dedup_key)
             produced += 1
+        producer.flush_checked()
+        cache.save()
         sweeps += 1
         elapsed = time.monotonic() - started
         log.info("sweep %d done in %.1fs (%d produced)", sweeps, elapsed, produced)
