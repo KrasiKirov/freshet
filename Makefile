@@ -111,6 +111,10 @@ autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
 
+calibrate-abstention: ##eval
+	@# Proposes an abstention floor from paraphrased live labels. Never writes it.
+	$(PYTHON) -m freshet.eval.calibrate_abstention
+
 label-live: ##eval
 	@# Curate cause labels from the LIVE index (LLM judge; output is draft).
 	$(PYTHON) -m freshet.eval.label_live

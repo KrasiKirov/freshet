@@ -19,7 +19,7 @@ EMBEDDING_DIM = 768  # BAAI/bge-base-en-v1.5 output size
 # Per-model abstention floors. Cosine-similarity distributions differ by model:
 # MiniLM spreads roughly 0..1, while bge compresses similarities upward (~0.5+
 # even for unrelated pairs), so a shared floor cannot work. Both values are
-# calibrated with scripts/calibrate_abstention.py on the benchmark corpus: bge
+# calibrated with freshet/eval/calibrate_abstention.py on the benchmark corpus: bge
 # separates cleanly (on-corpus ≥ 0.735 vs hardest off-corpus negative 0.662;
 # 0.7 is the gap midpoint). Override with FRESHET_MIN_SIMILARITY; recalibrate
 # when the corpus or model changes.

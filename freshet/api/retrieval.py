@@ -92,7 +92,7 @@ def should_abstain(similarities: list[float], min_similarity: float) -> bool:
     """Abstain when nothing is retrieved or the best cosine similarity is below
     the threshold. Similarity (interpretable, 0..1) is a better abstention
     signal than the rank-based fused score. Thresholds are per-embedder,
-    calibrated with scripts/calibrate_abstention.py (see pipeline.embedding)."""
+    calibrated with freshet/eval/calibrate_abstention.py (see pipeline.embedding)."""
     if not similarities:
         return True
     return max(similarities) < min_similarity

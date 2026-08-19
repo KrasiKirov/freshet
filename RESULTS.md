@@ -70,6 +70,17 @@ genuinely paraphrased on-call language, the calibrated 0.70 floor declines more 
 half the questions it has evidence for. That is a real result about the floor, not
 about the corpus, and it is left as measured rather than tuned away.
 
+**The floor was investigated and left alone.** `make calibrate-abstention` measures
+the similarity distribution the 0.70 floor is meant to cut, using paraphrased live
+questions only (title-derived ones share vocabulary with the documents and would
+justify a floor real language never clears). Answerable on-corpus questions bottom
+out at **0.616**; off-corpus questions reach **0.687**. They overlap, so no threshold
+separates them — the floor is not what loses those 33 questions, retrieval is. The
+tool prints a proposal and never writes one; here it correctly proposes nothing.
+
+Only 27 of 64 questions retrieve the cause at all even with abstention disabled,
+which is the same 0.42 recall seen above rather than a separate problem.
+
 **Hybrid still leads on recall@5**, but its margin over vector-only is now 0.031 and
 MRR slightly favours vector-only (0.241 vs 0.235) — indistinguishable at n = 64. The
 strong claim for hybrid is over the lexical arm, not over dense retrieval.
