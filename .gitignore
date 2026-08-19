@@ -11,9 +11,10 @@ __pycache__/
 .venv/
 venv/
 
-# Generator output
-events.jsonl
+# Stray eval/scratch output, but NOT the replay fixture: it is the committed,
+# deterministic corpus the tests and the offline demo both run on.
 *.jsonl
+!freshet/eval/fixtures/replay.jsonl
 
 # Eval comparison scratch
 results/_compare_*/

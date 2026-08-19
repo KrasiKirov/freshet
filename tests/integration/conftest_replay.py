@@ -15,7 +15,7 @@ from pathlib import Path
 from freshet.common.schemas import Event, EventSource
 from freshet.pipeline.embedder import records_for_event, upsert_record
 
-FIXTURE = Path("freshet/eval/fixtures/replay.jsonl")
+FIXTURE = Path(__file__).resolve().parents[2] / "freshet/eval/fixtures/replay.jsonl"
 
 
 def load_replay(limit: int | None = None) -> list[dict]:

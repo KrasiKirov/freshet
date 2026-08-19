@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-FIXTURE = Path("freshet/eval/fixtures/replay.jsonl")
+FIXTURE = Path(__file__).resolve().parents[1] / "freshet/eval/fixtures/replay.jsonl"
 
 
 def test_replay_fixture_is_usable():
