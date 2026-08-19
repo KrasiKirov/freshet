@@ -141,6 +141,7 @@ EMBED_ATTEMPTS = 3
 
 
 def make_handler(conn, emb: Embedder, producer, *,
+                 heartbeat: Heartbeat | None = None,
                  topic: str = NORMALIZED_TOPIC,
                  deadletter_topic: str = DEADLETTER_TOPIC,
                  attempts: int = EMBED_ATTEMPTS,
@@ -154,7 +155,7 @@ def make_handler(conn, emb: Embedder, producer, *,
     """
     from freshet.common.kafka_io import produce_sync
 
-    heartbeat = Heartbeat("embedder")
+    heartbeat = heartbeat or Heartbeat("embedder")
 
     def _dead_letter(error: str, value: str) -> None:
         produce_sync(producer, deadletter_topic, build_deadletter(error, value, topic))
@@ -203,6 +204,11 @@ def make_handler(conn, emb: Embedder, producer, *,
     return handle
 
 
+def _beat(heartbeat: Heartbeat, conn) -> None:
+    """consume_loop wants a None-returning hook."""
+    heartbeat.beat(conn)
+
+
 def run(
     brokers: str,
     group: str = "embedder",
@@ -222,10 +228,19 @@ def run(
     emb = embedder or make_embedder("bge")
     conn = connect(dsn)
     producer = make_producer(brokers)
-    handle = make_handler(conn, emb, producer, topic=topic, deadletter_topic=deadletter_topic)
+    # One heartbeat shared by the handler and the idle tick. Beating only on
+    # handled messages made a quiet stretch indistinguishable from downtime:
+    # at ~2 updates/hour the freshness window reset every few minutes and the
+    # measurement could never accumulate.
+    heartbeat = Heartbeat("embedder")
+    handle = make_handler(conn, emb, producer, topic=topic,
+                          deadletter_topic=deadletter_topic, heartbeat=heartbeat)
 
     try:
-        n = consume_loop(brokers, group, [topic], handle, max_messages, auto_commit=False, stop=stop, idle_timeout_s=idle_timeout_s)
+        n = consume_loop(brokers, group, [topic], handle, max_messages,
+                         auto_commit=False, stop=stop,
+                         idle_timeout_s=idle_timeout_s,
+                         idle_hook=lambda: _beat(heartbeat, conn))
     finally:
         producer.flush()
         conn.close()

@@ -67,3 +67,15 @@ def test_a_short_pause_does_not_end_the_run():
 
 def test_no_heartbeat_means_nothing_can_be_scored():
     assert continuous_run_start(_Conn([])) is None
+
+
+def test_liveness_is_proven_when_no_messages_arrive():
+    """The embedder beats on the consume loop's IDLE tick, not only when it
+    handles a message. Beating only on traffic made a quiet stretch look like an
+    outage: at ~2 updates/hour the freshness window reset every few minutes."""
+    import inspect
+
+    from freshet.pipeline import embedder
+    src = inspect.getsource(embedder.run)
+    assert "idle_hook=lambda: _beat(heartbeat, conn)" in src, (
+        "an idle embedder must still prove it is alive")

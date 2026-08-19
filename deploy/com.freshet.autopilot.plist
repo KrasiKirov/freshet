@@ -5,23 +5,29 @@
 <dict>
   <key>Label</key><string>com.freshet.autopilot</string>
 
-  <!-- `make run-forever` sources .env.local, so secrets stay out of this file
-       and out of git. -->
+  <!-- Runs the venv python DIRECTLY, not `cd … && make`.
+       A launchd agent does not inherit the Terminal's permission to read
+       ~/Documents, so `make` failed with "getcwd: Operation not permitted"
+       before it could find a target. Absolute paths and an explicit
+       WorkingDirectory avoid needing getcwd at all.
+       If the agent still cannot read the repo, grant Full Disk Access to
+       /bin/sh in System Settings > Privacy & Security, or move the repo
+       outside ~/Documents. -->
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/zsh</string><string>-lc</string>
-    <string>cd __REPO__ &amp;&amp; exec make run-forever</string>
+    <string>__REPO__/deploy/run-autopilot.sh</string>
   </array>
+  <key>WorkingDirectory</key><string>__REPO__</string>
 
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key>
   <dict>
-    <!-- Restart on crash, but NOT on a clean exit: a deliberate stop should stay
-         stopped, and a config error that exits 0 should not spin. -->
+    <!-- Restart on crash, but NOT on a clean exit: a deliberate stop stays
+         stopped, and a config error that exits 0 must not spin. -->
     <key>SuccessfulExit</key><false/>
   </dict>
-  <!-- A crash-loop must not become a spend-loop. The LLM budget is the real
-       guard (it lives in Postgres and survives restarts); this is the second. -->
+  <!-- A crash-loop must not become a spend-loop. The LLM budget in Postgres is
+       the real guard; this is the second. -->
   <key>ThrottleInterval</key><integer>60</integer>
 
   <!-- Background priority: this shares the laptop with actual work. -->
