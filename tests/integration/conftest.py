@@ -50,3 +50,20 @@ def conn():
 def emb():
     from freshet.pipeline.embedding import make_embedder
     return make_embedder(os.environ.get("FRESHET_TEST_EMBEDDER", "bge"))
+
+
+@pytest.fixture
+def llm():
+    """A deterministic stand-in for the LLM composer.
+
+    Generation is mandatory in production, so there is no keyless path to fall
+    back on — tests inject this instead of requiring an API key in CI. It cites a
+    real event id so `verify_citations` keeps the citation rather than stripping it.
+    """
+    class FakeComposer:
+        def compose(self, question: str, hits) -> str:
+            first = hits[0]
+            return (f"Summary for the question: {question} "
+                    f"[{first.event_id} @ {first.ts:%Y-%m-%d %H:%M:%S}]")
+
+    return FakeComposer()

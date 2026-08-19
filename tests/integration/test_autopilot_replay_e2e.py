@@ -24,7 +24,7 @@ def _busiest_provider(rows) -> str:
     return Counter(r["provider"] for r in rows).most_common(1)[0][0]
 
 
-def test_a_brief_is_produced_for_a_real_incident(conn, emb):
+def test_a_brief_is_produced_for_a_real_incident(conn, emb, llm):
     rows = seed_from_replay(conn, emb, limit=300)
     service = _busiest_provider(rows)
     incident_id = next(r["incident_id"] for r in reversed(rows) if r["provider"] == service)
@@ -32,7 +32,7 @@ def test_a_brief_is_produced_for_a_real_incident(conn, emb):
     from freshet.autopilot.brief import render_brief
     from freshet.autopilot.investigate import gather_findings
 
-    findings = gather_findings(conn, emb, service, incident_id, status="opened")
+    findings = gather_findings(conn, emb, service, incident_id, status="opened", composer=llm)
     text = render_brief(findings)
 
     assert text.strip(), "a brief must be produced for a real incident"
@@ -45,7 +45,7 @@ def test_a_brief_is_produced_for_a_real_incident(conn, emb):
         assert "]" in line and "@" in line, f"malformed citation: {line}"
 
 
-def test_the_brief_cites_real_updates(conn, emb):
+def test_the_brief_cites_real_updates(conn, emb, llm):
     """The gap Task 14 pinned is closed: a brief over real status-feed data now
     carries cited updates instead of three "not identified" lines."""
     rows = seed_from_replay(conn, emb, limit=300)
@@ -55,7 +55,7 @@ def test_the_brief_cites_real_updates(conn, emb):
     from freshet.autopilot.brief import render_brief
     from freshet.autopilot.investigate import gather_findings
 
-    text = render_brief(gather_findings(conn, emb, service, incident_id, status="opened"))
+    text = render_brief(gather_findings(conn, emb, service, incident_id, status="opened", composer=llm))
     assert "Updates:" in text
     cited = [ln for ln in text.splitlines() if "[" in ln]
     assert cited, "the brief must cite the updates it reports"
@@ -94,7 +94,7 @@ def test_retrieval_finds_the_incident_it_was_asked_about(conn, emb):
     assert all(h.service == service for h in result.hits)
 
 
-def test_the_brief_only_cites_the_incident_it_is_about(conn, emb):
+def test_the_brief_only_cites_the_incident_it_is_about(conn, emb, llm):
     """A brief for incident X must not cite incident Y. Retrieval filters by
     SERVICE, so a similarity search happily returns a provider's other incidents;
     the update timeline must be a direct lookup of this incident's own updates."""
@@ -105,14 +105,14 @@ def test_the_brief_only_cites_the_incident_it_is_about(conn, emb):
     from freshet.autopilot.brief import render_brief
     from freshet.autopilot.investigate import gather_findings
 
-    text = render_brief(gather_findings(conn, emb, service, incident_id, status="opened"))
+    text = render_brief(gather_findings(conn, emb, service, incident_id, status="opened", composer=llm))
     cited = [ln for ln in text.splitlines() if ln.strip().startswith(("0", "1", "2"))]
     assert cited, "expected cited update lines"
     for line in cited:
         assert incident_id in line, f"brief cites a DIFFERENT incident: {line}"
 
 
-def test_a_stated_cause_is_surfaced_when_the_provider_gives_one(conn, emb):
+def test_a_stated_cause_is_surfaced_when_the_provider_gives_one(conn, emb, llm):
     """Across 300 real updates at least one provider states a cause in its own
     words ("caused by", "due to", ...). Those briefs must show it rather than
     "not identified"; briefs for incidents with no stated cause must not."""
@@ -128,7 +128,7 @@ def test_a_stated_cause_is_surfaced_when_the_provider_gives_one(conn, emb):
             continue
         with_cause += 1
         service = next(r["provider"] for r in rows if r["incident_id"] == incident_id)
-        findings = gather_findings(conn, emb, service, incident_id, status="resolved")
+        findings = gather_findings(conn, emb, service, incident_id, status="resolved", composer=llm)
         assert findings.cause_text, f"{incident_id}: cause stated but not surfaced"
         assert findings.cause_cite and "@" in findings.cause_cite
 

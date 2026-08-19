@@ -5,7 +5,7 @@ a grounded-answer composer (keyless template default, optional Anthropic).
 Run:
     uvicorn freshet.api.app:app --port 8000
 Config via env: FRESHET_DSN, FRESHET_EMBEDDER (bge|stub),
-FRESHET_COMPOSER (auto|template|anthropic), FRESHET_LLM_MODEL, ANTHROPIC_API_KEY,
+FRESHET_LLM_MODEL, ANTHROPIC_API_KEY (required — generation is not optional),
 FRESHET_MIN_SIMILARITY (abstention floor; default is per-embedder).
 """
 
@@ -132,7 +132,7 @@ def get_deps():
         if _embedder is None:
             _embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
         if _composer is None:
-            _composer = make_composer(os.environ.get("FRESHET_COMPOSER", "auto"))
+            _composer = make_composer()
         if _pool is None:
             from freshet.common.db import make_pool
 

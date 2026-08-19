@@ -1,10 +1,16 @@
-"""Grounded-answer composition behind a pluggable interface.
+"""Grounded-answer composition.
 
-TemplateComposer is the keyless default: a deterministic, extractive answer that
-cites every event. AnthropicComposer (optional, `pip install -e ".[llm]"`,
-requires ANTHROPIC_API_KEY) writes a fluent grounded answer. The retrieval layer
-decides abstention; a composer is only called when there is evidence to ground
-in, so neither composer needs to invent a refusal.
+Generation is not optional: an LLM writes every answer and every incident brief.
+ANTHROPIC_API_KEY is therefore a hard requirement, and its absence fails loudly
+rather than silently degrading to something that only looks like an answer.
+
+Every citation the model emits is checked against the evidence it was given
+(`verify_citations`). Instruction is not enforcement, and a fabricated
+`[event_id @ timestamp]` reaching a responder would be this system's worst
+failure mode.
+
+The retrieval layer decides abstention, so a composer is only called when there
+is evidence to ground in and never needs to invent a refusal.
 """
 
 from __future__ import annotations
@@ -48,27 +54,7 @@ def _citation(h: RetrievedHit) -> str:
 
 
 class Composer(Protocol):
-    # True only for composers that GENERATE prose. Callers that want a summary
-    # (rather than an answer to a question) must skip non-generative composers:
-    # the extractive template answers a question by listing evidence, which in a
-    # brief just repeats the timeline and leaks the prompt.
-    generative: bool
-
     def compose(self, question: str, hits: list[RetrievedHit]) -> str: ...
-
-
-class TemplateComposer:
-    generative = False
-
-    """Deterministic, dependency-free, no API key. The default."""
-
-    def compose(self, question: str, hits: list[RetrievedHit]) -> str:
-        if not hits:
-            return NO_EVIDENCE
-        lines = [f"Most relevant events for {question!r}:"]
-        for h in hits:
-            lines.append(f"- {_citation(h)} ({h.source}) {h.text}")
-        return "\n".join(lines)
 
 
 _SYSTEM = (
@@ -84,8 +70,6 @@ _SYSTEM = (
 
 
 class AnthropicComposer:
-    generative = True
-
     """Fluent grounded answers via the Anthropic API. Lazy-imports the SDK so the
     keyless core never depends on it. Model is FRESHET_LLM_MODEL or sonnet-4-6."""
 
@@ -117,22 +101,13 @@ class AnthropicComposer:
         return verify_citations(answer, hits)
 
 
-def make_composer(kind: str = "auto") -> Composer:
-    """`template` | `anthropic` | `auto`. auto picks Anthropic only when a key is
-    present and the SDK import + client construction succeed, else template."""
-    if kind == "template":
-        return TemplateComposer()
-    if kind == "anthropic":
-        return AnthropicComposer()
-    # LLM-first: generation is the "G" in RAG and the default path. The template
-    # composer remains a real fallback so CI and the demo run without a key, but
-    # a missing key is a DEGRADED mode and says so rather than failing silently.
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            return AnthropicComposer()
-        except Exception as exc:
-            log.warning("LLM composer unavailable (%s); falling back to template", exc)
-            return TemplateComposer()
-    log.warning("ANTHROPIC_API_KEY not set — using the extractive template composer. "
-                "Answers will be deterministic but not fluent.")
-    return TemplateComposer()
+def make_composer(kind: str = "anthropic") -> Composer:
+    """Build the composer. Generation is mandatory, so a missing key is an error,
+    not a cue to fall back — a silently extractive "answer" is worse than a clear
+    failure. Tests inject a fake client instead of setting a key."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is required: Freshet generates every answer and "
+            "brief with an LLM. Set the key, or inject a composer in tests."
+        )
+    return AnthropicComposer()

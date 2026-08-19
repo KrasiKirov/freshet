@@ -1,34 +1,49 @@
+"""Composer contract. Generation is mandatory, so these tests inject a fake
+client rather than setting a key — the LLM path is exercised, not skipped."""
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
-from freshet.api.composer import TemplateComposer, make_composer
-from freshet.api.retrieval import RetrievedHit
+import pytest
 
-
-def _hit(event_id="e1", text="5xx error spike on scheduler-api") -> RetrievedHit:
-    now = datetime(2026, 6, 13, 9, 30, 0, tzinfo=UTC)
-    return RetrievedHit(
-        chunk_id=f"chk_{event_id}_0", event_id=event_id, service="scheduler-api",
-        ts=now, indexed_at=now, source="alert", text=text, type="alert_fired",
-        similarity=0.8, score=0.9,
-    )
+from freshet.api.composer import NO_EVIDENCE, AnthropicComposer, make_composer
 
 
-def test_template_composer_cites_events():
-    out = TemplateComposer().compose("what is wrong?", [_hit()])
-    assert "e1" in out
-    assert "09:30" in out
-    assert "5xx error spike" in out
+def _hit(eid="e1", text="5xx errors are elevated"):
+    return SimpleNamespace(event_id=eid, source="alert", text=text,
+                           ts=datetime(2026, 8, 18, 12, 0, tzinfo=UTC))
 
 
-def test_template_composer_handles_no_hits():
-    out = TemplateComposer().compose("anything?", [])
-    assert "don't have" in out.lower() or "no " in out.lower()
+def _client(answer: str):
+    class FakeClient:
+        class messages:
+            @staticmethod
+            def create(**kw):
+                FakeClient.last = kw
+                return SimpleNamespace(
+                    content=[SimpleNamespace(type="text", text=answer)])
+    return FakeClient
 
 
-def test_make_composer_explicit_template():
-    assert isinstance(make_composer("template"), TemplateComposer)
+def test_the_model_is_given_the_evidence_and_the_question():
+    client = _client("Grounded answer [e1 @ 2026-08-18 12:00:00].")
+    AnthropicComposer(client=client).compose("what is wrong?", [_hit()])
+    sent = client.last["messages"][0]["content"]
+    assert "what is wrong?" in sent
+    assert "5xx errors are elevated" in sent, "the hit's text must reach the model"
+    assert "e1" in sent, "the model must be given the id it is expected to cite"
 
 
-def test_make_composer_auto_without_key(monkeypatch):
+def test_no_evidence_short_circuits_without_calling_the_model():
+    class Exploding:
+        class messages:
+            @staticmethod
+            def create(**kw):
+                raise AssertionError("must not call the model with no evidence")
+    assert AnthropicComposer(client=Exploding()).compose("q", []) == NO_EVIDENCE
+
+
+def test_make_composer_fails_loudly_without_a_key(monkeypatch):
+    """A silently extractive 'answer' is worse than a clear failure."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert isinstance(make_composer("auto"), TemplateComposer)
+    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY is required"):
+        make_composer()

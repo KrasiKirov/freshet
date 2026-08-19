@@ -266,18 +266,3 @@ def test_render_brief_shows_a_summary_and_the_cause_together():
     assert "Updates:" in text
 
 
-def test_no_generated_summary_without_a_generative_composer():
-    """The template composer answers QUESTIONS; it is not a brief writer. Asking
-    it for a narrative leaked the internal prompt into the brief and repeated
-    every update the Updates section already lists."""
-    from types import SimpleNamespace
-
-    from freshet.api.composer import TemplateComposer
-    assert TemplateComposer().generative is False
-
-    class FakeLLM:
-        generative = True
-        def compose(self, question, hits):
-            return "A fluent grounded summary."
-    assert FakeLLM().generative is True
-    assert isinstance(SimpleNamespace(), object)

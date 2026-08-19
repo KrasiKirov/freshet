@@ -18,9 +18,6 @@ from freshet.autopilot.impact import estimate_impact
 log = logging.getLogger(__name__)
 
 
-class _NotGenerative(Exception):
-    """No LLM composer available, so no narrative is generated."""
-
 _RUNBOOK_SQL = ("SELECT text FROM vector_records WHERE service = %s AND type = 'runbook'"
                 " ORDER BY ts LIMIT 1")
 _INCIDENT_META_SQL = "SELECT opened_at, resolved_at FROM incidents WHERE incident_id = %s"
@@ -92,12 +89,8 @@ def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
         from freshet.api.composer import make_composer
         composer = composer or make_composer()
         try:
-            if not getattr(composer, "generative", False):
-                raise _NotGenerative
             f.narrative = composer.compose(
                 f"What is happening with {service}? Summarise in two sentences.", own)
-        except _NotGenerative:
-            pass                      # keyless: the Updates section IS the summary
         except Exception as exc:      # never let generation break an alert
             log.warning("summary generation failed (%r); brief renders without it", exc)
     f.impact = _impact_for(conn, incident_id, service, res.hits)

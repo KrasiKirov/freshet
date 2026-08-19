@@ -43,7 +43,10 @@ Note: the data is **real**, but these are the providers' recent incidents,
 typically **hours to days old**.
 
 With `ANTHROPIC_API_KEY` in `.env.local`
-the answers are LLM-written; without a key it falls back to a keyless cited template.
+answers and incident briefs are LLM-written, and every citation the model
+emits is verified against the retrieved evidence. ANTHROPIC_API_KEY is required:
+generation is not optional, so a missing key fails loudly rather than silently
+degrading to something that only looks like an answer.
 The header gauges read **pipeline latency**
 (`ingested -> queryable`) rather than end-to-end freshness, because on a status feed
 the event is already old on arrival, so end-to-end would measure the age of the news
