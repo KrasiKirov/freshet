@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 
 from freshet.api.composer import NO_EVIDENCE
+from freshet.api.timeframe import infer_window
 from freshet.autopilot.sinks.base import Sink
 
 log = logging.getLogger(__name__)
@@ -48,16 +49,33 @@ def is_human_reply(message: dict, thread_ts: str) -> bool:
 
 
 def answer_question(conn, embedder, composer, question: str) -> str:
-    """The query API's path, verbatim: hybrid retrieval, abstention, cited answer."""
+    """Hybrid retrieval, abstention, cited answer — the path the eval measures.
+
+    A temporal phrase in the question ("what broke today?") narrows retrieval to
+    that window. Without it the question competes on semantics alone, and in a
+    corpus of four years of status updates the word "incident" matches boilerplate
+    from months ago rather than anything from today — which is the wrong answer
+    from a product whose entire claim is freshness.
+    """
     from freshet.api.retrieval import hybrid_search
 
-    result = hybrid_search(conn, embedder, question[:MAX_QUESTION_CHARS], k=6)
+    question = question[:MAX_QUESTION_CHARS]
+    since, window = infer_window(question)
+    result = hybrid_search(conn, embedder, question, k=6, since=since)
     if result.abstained:
-        return ABSTAIN_REPLY
+        return _with_window(ABSTAIN_REPLY, window)
     # The question is untrusted text from a Slack user; the composer already
     # refuses instructions found in evidence, and every citation it emits is
     # verified against the retrieved events before this is posted.
-    return composer.compose(question, result.hits) or NO_EVIDENCE
+    answer = composer.compose(question, result.hits) or NO_EVIDENCE
+    return _with_window(answer, window)
+
+
+def _with_window(answer: str, window: str | None) -> str:
+    """Say which window was applied. An inferred filter the reader cannot see is
+    indistinguishable from the bot ignoring half their question."""
+    return f"{answer}\n\n_time filter: {window} (inferred from your question)_" \
+        if window else answer
 
 
 def poll_threads(conn, embedder, composer, client, channel: str, *,

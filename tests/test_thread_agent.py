@@ -134,3 +134,51 @@ def test_a_very_long_question_is_capped(monkeypatch):
                         lambda c, e, q, **k: (seen.__setitem__("q", q), _Res())[1])
     answer_question(None, _Emb(), _Composer(), "x" * 5000)
     assert len(seen["q"]) == 500
+
+
+# --- temporal questions must reach recent evidence ---------------------------
+# This moved here from the query endpoint. Without it, "what broke today?" asked
+# in a Slack thread competes on semantics alone and returns boilerplate from
+# months ago — the exact bug the window inference was built to fix.
+
+def _capture_search(monkeypatch, abstained=False):
+    seen = {}
+
+    class _Res:
+        def __init__(self):
+            self.hits, self.abstained = [1], abstained
+
+    def _fake(conn, emb, q, **kw):
+        seen["q"], seen["since"], seen["k"] = q, kw.get("since"), kw.get("k")
+        return _Res()
+    monkeypatch.setattr("freshet.api.retrieval.hybrid_search", _fake)
+    return seen
+
+
+def test_a_temporal_question_narrows_retrieval_to_that_window(monkeypatch):
+    seen = _capture_search(monkeypatch)
+    out = answer_question(None, _Emb(), _Composer(), "what broke today?")
+    assert seen["since"] is not None, "the filter must reach retrieval"
+    assert "time filter: today" in out, "an inferred filter must be visible"
+
+
+def test_a_plain_question_applies_no_window(monkeypatch):
+    seen = _capture_search(monkeypatch)
+    out = answer_question(None, _Emb(), _Composer(), "why did Cloudflare fail?")
+    assert seen["since"] is None
+    assert "time filter" not in out
+
+
+def test_an_abstained_temporal_question_still_shows_its_window(monkeypatch):
+    _capture_search(monkeypatch, abstained=True)
+    out = answer_question(None, _Emb(), _Composer(), "what broke today?")
+    assert out.startswith(ABSTAIN_REPLY)
+    assert "time filter: today" in out, "the reader must see WHY nothing came back"
+
+
+def test_the_window_is_inferred_from_the_capped_question(monkeypatch):
+    """The cap is applied before inference, so a temporal word past the cap
+    cannot silently change the window."""
+    seen = _capture_search(monkeypatch)
+    answer_question(None, _Emb(), _Composer(), "x" * 600 + " today")
+    assert len(seen["q"]) == 500 and seen["since"] is None
