@@ -126,6 +126,10 @@ ALTER TABLE incidents ADD COLUMN IF NOT EXISTS brief_due_at timestamptz;
 -- drain post it once the brief lands.
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_needed boolean NOT NULL DEFAULT false;
 
+-- Newest thread reply already answered, as a Slack ts string. Without it the
+-- responder re-answers the whole thread on every poll.
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS thread_seen_ts text;
+
 -- Proof the pipeline was actually up. Freshness scores how fast an update became
 -- queryable, but "ts >= min(indexed_at)" only excludes BACKFILL — it cannot tell
 -- a slow pipeline from a stopped one. After a 14-hour outage the catch-up burst
