@@ -12,6 +12,7 @@ FRESHET_MIN_SIMILARITY (abstention floor; default is per-embedder).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import urllib.parse
@@ -26,12 +27,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from freshet.api.composer import NO_EVIDENCE, Composer, make_composer
-from freshet.api.retrieval import RetrievedHit, hybrid_search
+from freshet.api.retrieval import RetrievedHit, check_index_model, hybrid_search
 from freshet.pipeline.embedding import Embedder, make_embedder
 
 ABSTAIN_MESSAGE = (
     "I don't have enough recent, relevant evidence to answer that confidently."
 )
+log = logging.getLogger(__name__)
+
 _STATIC = Path(__file__).parent / "static"
 
 PROMETHEUS_URL = os.environ.get("FRESHET_PROMETHEUS_URL", "http://localhost:9090")
@@ -137,6 +140,10 @@ def get_deps():
             from freshet.common.db import make_pool
 
             _pool = make_pool()
+            with _pool.connection() as c:
+                warning = check_index_model(c, _embedder)   # raises on a real conflict
+            if warning:
+                log.warning("[api] %s", warning)
     # yield a pooled connection for this request; it returns to the pool on exit
     with _pool.connection() as conn:
         yield conn, _embedder, _composer

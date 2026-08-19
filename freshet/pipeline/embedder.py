@@ -57,18 +57,20 @@ def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorReco
 
 UPSERT_SQL = """
 INSERT INTO vector_records
-    (chunk_id, event_id, incident_id, service, ts, indexed_at, source, text, severity, type, embedding)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector)
+    (chunk_id, event_id, incident_id, service, ts, indexed_at, source, text, severity, type, embedding, model)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
 ON CONFLICT (chunk_id) DO UPDATE
     SET indexed_at = EXCLUDED.indexed_at,
         text = EXCLUDED.text,
         severity = EXCLUDED.severity,
         type = EXCLUDED.type,
-        embedding = EXCLUDED.embedding
+        embedding = EXCLUDED.embedding,
+        model = EXCLUDED.model
 """
 
 
-def upsert_record(conn, rec: VectorRecord, embedding: list[float]) -> None:
+def upsert_record(conn, rec: VectorRecord, embedding: list[float],
+                  model: str | None = None) -> None:
     conn.execute(
         UPSERT_SQL,
         (
@@ -83,6 +85,7 @@ def upsert_record(conn, rec: VectorRecord, embedding: list[float]) -> None:
             rec.severity.value if rec.severity else None,
             rec.type,
             vec_literal(embedding),
+            model,
         ),
     )
 
@@ -145,7 +148,7 @@ def make_handler(conn, emb: Embedder, producer, *,
             # bug, not message poison — fail loudly
             raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
         for rec, vector in zip(records, vectors, strict=True):
-            upsert_record(conn, rec, vector)
+            upsert_record(conn, rec, vector, getattr(emb, "name", None))
             observe_indexed(rec, ingested_at=ev.ingested_at)
 
     return handle

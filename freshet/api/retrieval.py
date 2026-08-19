@@ -177,3 +177,37 @@ def hybrid_search(
     retrieval_topk = hits[:k]
     abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
     return HybridResult(hits=retrieval_topk, abstained=abstained)
+
+
+# Demo-scale index: a full GROUP BY is cheap. At production scale this would move
+# to a small provenance table written once per indexing run.
+_INDEX_MODELS_SQL = "SELECT coalesce(model, 'unknown'), count(*) FROM vector_records GROUP BY 1"
+
+
+def check_index_model(conn, embedder) -> str | None:
+    """Compare the index's embedding provenance against the querying embedder.
+
+    Raises on a genuine model conflict: vectors from two models are not
+    comparable, so every similarity collapses toward zero and the API abstains on
+    everything — which reads as "no relevant evidence" and hides the real cause.
+    Failing loudly is the whole point. Rows predating the `model` column are
+    labelled 'unknown' and only produce a returned warning, since a legacy index
+    is usually fine and must not block startup.
+    """
+    name = getattr(embedder, "name", None)
+    if name is None:
+        return None
+    counts = dict(conn.execute(_INDEX_MODELS_SQL).fetchall())
+    if not counts:
+        return None                       # empty index: nothing to conflict with
+    conflicting = {m: n for m, n in counts.items() if m not in (name, "unknown")}
+    if conflicting:
+        raise RuntimeError(
+            f"index/embedder mismatch: querying with {name!r}, but the index holds "
+            f"{conflicting} — those vectors are not comparable, so every query would "
+            f"abstain. Re-index with {name!r} (make embedder) or set FRESHET_EMBEDDER "
+            f"to the model that built the index.")
+    if "unknown" in counts:
+        return (f"{counts['unknown']} rows predate embedding provenance; assuming "
+                f"they were built with {name!r}")
+    return None

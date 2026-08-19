@@ -16,6 +16,12 @@ CREATE TABLE IF NOT EXISTS vector_records (
     embedding   vector(768) NOT NULL
 );
 
+-- Which model produced each embedding. Vectors from different models are not
+-- comparable, but a mismatch is invisible in the scores: every similarity simply
+-- collapses toward zero and the API abstains, looking exactly like "nothing
+-- relevant". Recording the model lets that be detected and reported instead.
+ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS model text;
+
 CREATE INDEX IF NOT EXISTS vector_records_service_ts_idx
     ON vector_records (service, ts DESC);
 

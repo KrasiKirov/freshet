@@ -28,12 +28,19 @@ MIN_SIMILARITY_BGE = 0.7
 
 
 class Embedder(Protocol):
+    # Identifies which model produced a vector. Stored beside every embedding so a
+    # query can tell "no relevant evidence" apart from "this index was built by a
+    # different model" — they are indistinguishable from similarity scores alone.
+    name: str
+
     def encode(self, texts: list[str]) -> list[list[float]]: ...
     def encode_query(self, texts: list[str]) -> list[list[float]]: ...
 
 
 class StubEmbedder:
     """Deterministic fake embeddings: same text -> same unit vector."""
+
+    name = "stub"
 
     # random unit vectors follow no model distribution; keep the MiniLM floor so
     # existing tests and keyless demos behave unchanged
@@ -70,6 +77,7 @@ class SentenceTransformerEmbedder:
         from sentence_transformers import SentenceTransformer
 
         self.model = SentenceTransformer(model_name)
+        self.name = model_name
         self.query_instruction = query_instruction
         self.min_similarity = min_similarity
 
