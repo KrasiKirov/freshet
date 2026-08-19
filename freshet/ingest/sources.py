@@ -1,14 +1,13 @@
-"""The ingest seam.
+"""The wire model for one status-feed update.
 
-`IncidentSource` is the only thing the poller depends on, so the entire ingest
-path can be exercised with a fixture implementation and zero network. Adding a
-new provider means writing one adapter and changing nothing else.
+The poller produces these, the Flink job dedups them by `dedup_key`, and the
+embedder indexes them. A provider adapter (see `statuspage.py`) is just a pure
+function producing this type, so ingest is testable with no network.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,11 +28,3 @@ class IncidentUpdate:
         is what the Flink job keys on to emit each update exactly once."""
         return f"{self.provider}:{self.incident_id}:{self.update_id}"
 
-
-@runtime_checkable
-class IncidentSource(Protocol):
-    name: str
-
-    def fetch(self) -> list[IncidentUpdate]:
-        """Return the updates currently visible from this source."""
-        ...

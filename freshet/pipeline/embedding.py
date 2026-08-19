@@ -91,7 +91,6 @@ def make_embedder(kind: str) -> Embedder:
         # Retired from live use: MiniLM's 384-dim vectors cannot index into the
         # vector(768) schema, so every DB path would fail deep in psycopg. Its
         # benchmark numbers survive as the frozen baseline
-        # (results/retrieval_metrics_minilm.json); for off-DB experiments,
         # construct SentenceTransformerEmbedder() directly.
         raise ValueError(
             "minilm (384-dim) no longer fits the vector(768) schema — use 'bge' "

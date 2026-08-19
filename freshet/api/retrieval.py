@@ -6,7 +6,7 @@ user value travels as a bound parameter.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from freshet.pipeline.embedding import Embedder, vec_literal
@@ -132,26 +132,6 @@ class NeighborEvent:
     type: str
     text: str
 
-
-def events_around(conn, service: str, ts: datetime, window_s: float = 900.0
-                  ) -> list[NeighborEvent]:
-    """Temporal neighbours: events for `service` within ±window_s of `ts`,
-    time-ordered, deduped by event_id (rows are chunks). No embeddings — this is
-    the non-semantic lookup that surfaces a terse change event a single semantic
-    query misses."""
-    lo, hi = ts - timedelta(seconds=window_s), ts + timedelta(seconds=window_s)
-    rows = conn.execute(
-        """
-        SELECT DISTINCT ON (event_id) event_id, ts, type, text
-        FROM vector_records
-        WHERE service = %s AND ts BETWEEN %s AND %s
-        ORDER BY event_id, ts
-        """,
-        (service, lo, hi),
-    ).fetchall()
-    out = [NeighborEvent(event_id=r[0], ts=r[1], type=r[2], text=r[3]) for r in rows]
-    out.sort(key=lambda n: n.ts)
-    return out
 
 
 def _rows_to_map(rows: list[tuple], score_idx: int) -> dict[str, tuple[Any, float]]:

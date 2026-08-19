@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from freshet.ingest.sources import IncidentSource, IncidentUpdate
+from freshet.ingest.sources import IncidentUpdate
 
 
 def _u(**kw):
@@ -27,12 +27,3 @@ def test_incident_update_is_frozen():
     raise AssertionError("IncidentUpdate must be immutable")
 
 
-def test_fixture_source_satisfies_the_protocol():
-    class FixtureSource:
-        name = "fixture"
-
-        def fetch(self) -> list[IncidentUpdate]:
-            return [_u()]
-
-    src: IncidentSource = FixtureSource()
-    assert [u.dedup_key for u in src.fetch()] == ["github:inc1:u1"]
