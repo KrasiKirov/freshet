@@ -14,11 +14,16 @@ import os
 import signal
 import threading
 
-from freshet.autopilot.consumer import handle_lifecycle
+from freshet.autopilot.consumer import drain_due_briefs, handle_lifecycle
 from freshet.autopilot.sinks.factory import make_sink
 from freshet.common.db import connect
 from freshet.common.kafka_io import consume_loop
 from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC
+
+
+def _drain(conn, sink) -> None:
+    """consume_loop wants a None-returning hook; the count is only for tests."""
+    drain_due_briefs(conn, sink=sink)
 
 
 def main() -> None:
@@ -50,6 +55,9 @@ def main() -> None:
             args.brokers, args.group, [LIFECYCLE_TOPIC],
             lambda v: handle_lifecycle(conn, v, window_s=args.window_s, sink=sink),
             max_messages=args.max_messages, auto_commit=False, stop=stop,
+            # Briefs are delivered here, not on the message path: the debounce is
+            # a due-time in Postgres, so offsets commit while it elapses.
+            idle_hook=lambda: _drain(conn, sink),
         )
     finally:
         conn.close()

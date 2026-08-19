@@ -93,6 +93,7 @@ def consume_loop(
     idle_timeout_s: float | None = None,
     commit_every: int = 1,
     pre_commit: Callable[[], None] | None = None,
+    idle_hook: Callable[[], None] | None = None,
 ) -> int:
     """Run a simple consume loop, calling handler(value_str) per message.
 
@@ -101,7 +102,9 @@ def consume_loop(
     (at-least-once). `commit_every` batches those commits: offsets are committed
     every N messages (and on clean loop exit), so a crash redelivers at most the
     current batch — still at-least-once, downstream idempotency absorbs the
-    duplicates. `pre_commit` runs immediately before every offset commit; a
+    duplicates. `idle_hook` runs whenever a poll returns no message, for work that must
+    happen off the message path. `pre_commit` runs immediately before every
+    offset commit; a
     producing handler passes its BufferedProducer.flush_checked here so no
     offset is ever committed past an unacknowledged produce. If pre_commit or
     the handler raises, pending offsets are NOT committed (redelivery, never
@@ -136,6 +139,11 @@ def consume_loop(
                 break
             msg = c.poll(1.0)
             if msg is None:
+                # Idle time is when deferred work runs: the autopilot drains briefs
+                # that have come due. Doing it here (rather than blocking inside the
+                # handler) keeps offsets moving while a debounce window elapses.
+                if idle_hook is not None:
+                    idle_hook()
                 if idle_timeout_s is not None and time.monotonic() - last_msg >= idle_timeout_s:
                     break
                 continue

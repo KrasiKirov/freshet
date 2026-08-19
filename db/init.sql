@@ -26,6 +26,12 @@ ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS model text;
 -- rather than by whichever sentence fragment the chunker produced.
 ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS title text;
 
+-- When a brief becomes due. The debounce used to be a blocking sleep inside the
+-- Kafka handler, which held the partition for 45s per incident and delayed every
+-- offset behind it. Scheduling in Postgres lets the handler return immediately
+-- (so the offset commits) while an idle tick delivers the brief when it is due.
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS brief_due_at timestamptz;
+
 CREATE INDEX IF NOT EXISTS vector_records_service_ts_idx
     ON vector_records (service, ts DESC);
 

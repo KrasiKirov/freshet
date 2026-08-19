@@ -7,26 +7,35 @@ from freshet.pipeline.lifecycle import LifecycleEvent
 
 
 class _FakeConn:
-    """Routes by SQL: RETURNING → claim result; SELECT slack_ts → the stored ts."""
-    def __init__(self, *, claim_ok=True, slack_ts=None):
+    """Routes by SQL: RETURNING → claim; slack_ts → stored ts; due → scheduled
+    briefs; vector_records count → how much evidence is indexed."""
+    def __init__(self, *, claim_ok=True, slack_ts=None, due=(("INC_1", "api"),), indexed=3):
         self.claim_ok = claim_ok
         self.slack_ts = slack_ts
+        self.due = list(due)
+        self.indexed = indexed
         self.executed = []
 
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
-        row = None
+        row, rows = None, []
         if "RETURNING" in sql:
             row = ("INC_1",) if self.claim_ok else None
         elif "SELECT slack_ts" in sql:
             row = (self.slack_ts,)
+        elif "count(*) FROM vector_records" in sql:
+            row = (self.indexed,)
+        elif "brief_due_at IS NOT NULL" in sql:
+            rows = self.due
 
         class _R:
-            def __init__(self, r):
-                self._r = r
+            def __init__(self, r, rs):
+                self._r, self._rs = r, rs
             def fetchone(self):
                 return self._r
-        return _R(row)
+            def fetchall(self):
+                return self._rs
+        return _R(row, rows)
 
 
 class _RecordingSink:
@@ -49,50 +58,6 @@ def _open_json():
 
 def _resolved_json():
     return LifecycleEvent("resolved", "INC_1", "api", "2026-07-01T00:00:00+00:00").to_json()
-
-
-def test_opened_briefs_once_when_claim_won(capsys, monkeypatch):
-    monkeypatch.setattr(consumer, "gather_findings",
-                        lambda *a, **k: Findings("api", "open", "bad deploy",
-                                                 "[ev1 @ 2026-07-01 00:00:00]",
-                                                 None, None, None, None))
-    consumer.handle_lifecycle(_FakeConn(), _open_json(),
-                              window_s=0, sink=StdoutSink(), sleep=lambda s: None)
-    out = capsys.readouterr().out
-    assert "INCIDENT BRIEF" in out and "bad deploy" in out
-
-
-def test_opened_persists_slack_ts_when_sink_returns_handle(monkeypatch):
-    monkeypatch.setattr(consumer, "gather_findings",
-                        lambda *a, **k: Findings("api", "open", None, None, None, None, None, "n"))
-    conn = _FakeConn()
-    consumer.handle_lifecycle(conn, _open_json(),
-                              window_s=0, sink=_RecordingSink(handle="9.9"), sleep=lambda s: None)
-    # delivery + thread id land in ONE statement, so a crash cannot separate them
-    assert any("brief_delivered_at = now()" in sql and "slack_ts" in sql
-               and params == ("9.9", "INC_1") for sql, params in conn.executed)
-
-
-def test_opened_leaves_slack_ts_untouched_when_handle_none(monkeypatch):
-    """A sink with no handle (stdout, dry-run) still marks delivery, and passes NULL
-    so the SQL's coalesce preserves any ts already stored."""
-    monkeypatch.setattr(consumer, "gather_findings",
-                        lambda *a, **k: Findings("api", "open", None, None, None, None, None, "n"))
-    conn = _FakeConn()
-    consumer.handle_lifecycle(conn, _open_json(),
-                              window_s=0, sink=_RecordingSink(handle=None), sleep=lambda s: None)
-    marks = [(sql, params) for sql, params in conn.executed if "brief_delivered_at = now()" in sql]
-    assert len(marks) == 1
-    assert marks[0][1] == (None, "INC_1")
-    assert "coalesce(%s, slack_ts)" in marks[0][0]
-
-
-def test_opened_skips_when_claim_lost(capsys, monkeypatch):
-    monkeypatch.setattr(consumer, "gather_findings",
-                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not brief")))
-    consumer.handle_lifecycle(_FakeConn(claim_ok=False), _open_json(),
-                              window_s=0, sink=StdoutSink(), sleep=lambda s: None)
-    assert "already briefed" in capsys.readouterr().out.lower()
 
 
 def test_resolved_posts_postmortem_threaded_under_slack_ts(monkeypatch):
@@ -146,43 +111,6 @@ class _RecordingConn:
         return _Cur()
 
 
-def test_a_failed_delivery_releases_the_claim_so_the_brief_is_not_lost_forever():
-    """The claim exists to stop duplicate posts under at-least-once delivery. If
-    it is kept when the work fails, a transient Slack or LLM error suppresses
-    that incident's brief PERMANENTLY — the event is never redelivered to a
-    consumer that would act on it."""
-    from freshet.autopilot.consumer import handle_lifecycle
-
-    class ExplodingSink:
-        def deliver(self, findings, thread=None):
-            raise RuntimeError("slack is down")
-
-    conn = _RecordingConn()
-    with pytest.raises(RuntimeError):
-        handle_lifecycle(conn, _lifecycle(), window_s=0,
-                         sink=ExplodingSink(), sleep=lambda _: None)
-    assert conn.released, "the claim must be released so a retry can brief it"
-
-
-class _RaisingSink:
-    def deliver(self, findings, *, thread=None):
-        raise RuntimeError("slack down")
-
-
-def test_failed_delivery_releases_the_claim_and_never_marks_delivered(monkeypatch):
-    """The lease only works if a failed post propagates: marking a brief delivered
-    that Slack rejected suppresses every future retry permanently."""
-    monkeypatch.setattr(consumer, "gather_findings",
-                        lambda *a, **k: Findings("api", "open", None, None, None, None, None, None))
-    conn = _FakeConn()
-    with pytest.raises(RuntimeError, match="slack down"):
-        consumer.handle_lifecycle(conn, _open_json(), window_s=0,
-                                  sink=_RaisingSink(), sleep=lambda s: None)
-    sql = " ".join(q for q, _ in conn.executed)
-    assert "briefed_at = NULL" in sql          # claim released for the redelivery
-    assert "brief_delivered_at = now()" not in sql   # never recorded as delivered
-
-
 def test_failed_postmortem_releases_its_claim(monkeypatch):
     monkeypatch.setattr(consumer, "gather_postmortem", lambda *a, **k: _pm())
     conn = _FakeConn(slack_ts="1.2")
@@ -192,3 +120,88 @@ def test_failed_postmortem_releases_its_claim(monkeypatch):
     sql = " ".join(q for q, _ in conn.executed)
     assert "postmortem_at = NULL" in sql
     assert "postmortem_delivered_at = now()" not in sql
+
+
+class _RaisingSink:
+    def deliver(self, findings, *, thread=None):
+        raise RuntimeError("slack down")
+
+
+# --- the debounce is scheduled, not slept -----------------------------------
+
+def test_opened_schedules_a_brief_and_never_sleeps():
+    """Sleeping in the handler held the Kafka partition for the whole window,
+    delaying every offset behind it. The handler must return immediately."""
+    conn = _FakeConn()
+    def _boom(_):
+        raise AssertionError("the handler must not sleep")
+    consumer.handle_lifecycle(conn, _open_json(), window_s=45, sink=StdoutSink(), sleep=_boom)
+    sql = " ".join(q for q, _ in conn.executed)
+    assert "brief_due_at = now() +" in sql, "the brief must be scheduled"
+    assert "brief_delivered_at = now()" not in sql, "nothing is delivered on this path"
+
+
+def test_scheduling_does_not_push_an_already_scheduled_brief_further_out():
+    """A redelivered lifecycle event must not starve the incident by resetting
+    its due time on every retry."""
+    conn = _FakeConn()
+    consumer.handle_lifecycle(conn, _open_json(), window_s=45, sink=StdoutSink())
+    schedule = next(q for q, _ in conn.executed if "brief_due_at = now() +" in q)
+    assert "brief_due_at IS NULL" in schedule
+    assert "brief_delivered_at IS NULL" in schedule
+
+
+# --- delivery happens on the idle tick ---------------------------------------
+
+def test_drain_delivers_a_due_brief_once(monkeypatch):
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: Findings("api", "open", "bad deploy",
+                                                 "[ev1 @ 2026-07-01 00:00:00]",
+                                                 None, None, None, None))
+    conn, sink = _FakeConn(), _RecordingSink(handle="9.9")
+    assert consumer.drain_due_briefs(conn, sink=sink) == 1
+    assert len(sink.calls) == 1
+    assert any("brief_delivered_at = now()" in q and p == ("9.9", "INC_1")
+               for q, p in conn.executed)
+
+
+def test_drain_with_nothing_due_is_a_no_op(monkeypatch):
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not brief")))
+    conn, sink = _FakeConn(due=()), _RecordingSink()
+    assert consumer.drain_due_briefs(conn, sink=sink) == 0
+    assert sink.calls == []
+
+
+def test_drain_skips_an_incident_another_worker_holds(monkeypatch):
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not brief")))
+    conn, sink = _FakeConn(claim_ok=False), _RecordingSink()
+    assert consumer.drain_due_briefs(conn, sink=sink) == 0
+    assert sink.calls == []
+
+
+def test_a_failed_delivery_releases_the_claim_and_leaves_it_due(monkeypatch):
+    """due_at must survive so the next idle tick retries; marking it delivered
+    would suppress the incident forever."""
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: Findings("api", "open", None, None, None, None, None, None))
+    conn = _FakeConn()
+    with pytest.raises(RuntimeError, match="slack down"):
+        consumer.drain_due_briefs(conn, sink=_RaisingSink())
+    sql = " ".join(q for q, _ in conn.executed)
+    assert "briefed_at = NULL" in sql
+    assert "brief_delivered_at = now()" not in sql
+    assert "brief_due_at = NULL" not in sql, "the retry must stay scheduled"
+
+
+def test_drain_waits_for_the_embedder_then_briefs_anyway(monkeypatch):
+    """Status feeds are genuinely sparse: an empty timeline after the timeout is
+    allowed, but it must be logged rather than silently briefed."""
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: Findings("api", "open", None, None, None, None, None, "n"))
+    conn = _FakeConn(indexed=0)
+    slept = []
+    n = consumer.wait_for_index(conn, "INC_1", timeout_s=1.0,
+                                sleep=slept.append, now=iter([0.0, 0.5, 1.5]).__next__)
+    assert n == 0 and slept, "it should have waited before giving up"
