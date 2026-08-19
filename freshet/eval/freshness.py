@@ -107,19 +107,28 @@ def main() -> None:
     args = parser.parse_args()
 
     from freshet.common.db import connect
+    from freshet.common.heartbeat import continuous_run_start
 
     conn = connect()
     try:
         if args.since_minutes is None:
-            # Live arrivals only: posted after we began indexing.
-            rows = conn.execute(
-                """
-                SELECT EXTRACT(EPOCH FROM ts)::float8,
-                       EXTRACT(EPOCH FROM indexed_at)::float8
-                FROM vector_records
-                WHERE ts >= (SELECT min(indexed_at) FROM vector_records)
-                """
-            ).fetchall()
+            # Only the CURRENT continuous run. `ts >= min(indexed_at)` excluded
+            # backfill but not downtime catch-up: after a 14h outage the burst of
+            # late-indexed updates scored as 9.8h staleness and reported streaming
+            # as 14x slower than batch. Uptime has to be proven, not assumed.
+            run_start = continuous_run_start(conn)
+            if run_start is None:
+                rows = []
+                filter_desc = "no pipeline heartbeat: nothing can be scored"
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT EXTRACT(EPOCH FROM ts)::float8,
+                           EXTRACT(EPOCH FROM indexed_at)::float8
+                    FROM vector_records
+                    WHERE ts >= %(start)s AND indexed_at >= %(start)s
+                    """, {"start": run_start}).fetchall()
+                filter_desc = (f"current continuous run (since {run_start.isoformat()})")
         else:
             rows = conn.execute(
                 """
@@ -130,21 +139,24 @@ def main() -> None:
                 """,
                 {"mins": args.since_minutes},
             ).fetchall()
+            filter_desc = f"posted within {args.since_minutes} minutes"
     finally:
         conn.close()
 
     streaming = [streaming_staleness(posted, indexed) for posted, indexed in rows]
     batch = [batch_staleness(posted) for posted, _ in rows]
     report = summarize(streaming, batch)
-    report["filter"] = ("live arrivals (ts >= min(indexed_at))"
-                    if args.since_minutes is None
-                    else f"posted within {args.since_minutes} minutes")
+    report["filter"] = (filter_desc if args.since_minutes is None
+                        else f"posted within {args.since_minutes} minutes")
     report["note"] = (
         "t0 = the provider's own posting time, so the poll wait we do not control "
         "is included. Only LIVE arrivals are scored (posted after indexing began); "
         "backfilled history would otherwise report the moment the pipeline was "
         "switched on rather than its speed. The batch arm is derived from the "
-        "refresh cadence: uniformly-arriving events wait interval/2 on average."
+        "refresh cadence: uniformly-arriving events wait interval/2 on average. "
+        "Only the pipeline's CURRENT continuous run is scored, proven by heartbeat: "
+        "a restart or an outage starts a new run rather than charging the catch-up "
+        "burst to the pipeline's speed."
     )
 
     report = finalize_report(report)

@@ -1,11 +1,7 @@
 {
-  "streaming_mean_s": 37580.57,
-  "streaming_p50_s": 33782.08,
-  "streaming_p95_s": 62821.65,
-  "batch_mean_s": 2376.36,
-  "batch_interval_s": 3600.0,
-  "ratio": 0.06,
-  "n": 33,
-  "filter": "live arrivals (ts >= min(indexed_at))",
-  "note": "t0 = the provider's own posting time, so the poll wait we do not control is included. Only LIVE arrivals are scored (posted after indexing began); backfilled history would otherwise report the moment the pipeline was switched on rather than its speed. The batch arm is derived from the refresh cadence: uniformly-arriving events wait interval/2 on average."
+  "n": 0,
+  "filter": "current continuous run (since 2026-08-19T19:46:00+00:00)",
+  "note": "t0 = the provider's own posting time, so the poll wait we do not control is included. Only LIVE arrivals are scored (posted after indexing began); backfilled history would otherwise report the moment the pipeline was switched on rather than its speed. The batch arm is derived from the refresh cadence: uniformly-arriving events wait interval/2 on average. Only the pipeline's CURRENT continuous run is scored, proven by heartbeat: a restart or an outage starts a new run rather than charging the catch-up burst to the pipeline's speed.",
+  "status": "not yet measured",
+  "explanation": "No live arrivals scored: every indexed update was posted before indexing began. Run the poller, stream and embedder together for several hours, then re-run."
 }

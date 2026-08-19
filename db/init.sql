@@ -126,3 +126,20 @@ ALTER TABLE incidents ADD COLUMN IF NOT EXISTS brief_due_at timestamptz;
 -- drain post it once the brief lands.
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_needed boolean NOT NULL DEFAULT false;
 
+-- Proof the pipeline was actually up. Freshness scores how fast an update became
+-- queryable, but "ts >= min(indexed_at)" only excludes BACKFILL — it cannot tell
+-- a slow pipeline from a stopped one. After a 14-hour outage the catch-up burst
+-- scored as 9.8-hour staleness and reported streaming as 14x SLOWER than hourly
+-- batch. The heartbeat makes the uptime window explicit, so only updates posted
+-- while the pipeline was demonstrably running are scored.
+CREATE TABLE IF NOT EXISTS pipeline_heartbeat (
+    component text PRIMARY KEY,
+    beat_at   timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_heartbeat_log (
+    component text NOT NULL,
+    beat_at   timestamptz NOT NULL,
+    PRIMARY KEY (component, beat_at)
+);
+

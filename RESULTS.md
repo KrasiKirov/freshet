@@ -24,92 +24,21 @@ a ratio of 0.06** — streaming apparently *losing* to hourly batch — purely b
 three years of backfilled history had all been indexed at once. The filter is what
 makes the metric measure pipeline speed rather than when it was switched on.
 
-**Status: not yet measured.** `n = 0`. Live updates arrive at ~2/hour across 42
-providers, so a meaningful sample needs a multi-hour run. Derived from the 60s
-cadence the figure should land near **58×** (~31s vs ~1800s), of which ~30s is
-poll cadence and ~1s is this pipeline — but that is an expectation, and it stays
-labelled as one until `n` supports it.
+**Status: not yet measured**, and the eval now says so rather than emitting zeros.
 
-## Retrieval quality
+The earlier number here (`n=33`, ratio 0.06 — streaming apparently 14x SLOWER than
+hourly batch) was an artifact and has been deleted. Its cause is worth recording:
+the filter `ts >= min(indexed_at)` excludes backfilled HISTORY but cannot tell a
+slow pipeline from a stopped one. The pipeline had been down ~14 hours; every
+update posted during the outage was indexed in the catch-up burst afterwards and
+scored as ~9.8 hours of staleness. The measurement was of my own outage.
 
-`make retrieval-eval` (frozen corpus) and `RETRIEVAL_EVAL_SOURCE=live make retrieval-eval`.
-
-v2 shipped with no retrieval measurement at all, which made every retrieval change
-unfalsifiable. Two corpora, both real provider text — no synthetic data:
-
-| | frozen fixture | live index |
-|---|---|---|
-| incidents | 225 (5 providers) | ~1,180 (42 providers) |
-| labeled | **12**, human-reviewed | **81**, LLM-judged (draft) |
-| reproducible anywhere | yes | no — needs a populated index |
-
-**Live index, n = 55.** Every part of this is real provider text — the documents,
-the queries, and the ground truth:
-
-| arm | recall@5 | MRR | top-1 cite |
-|---|---|---|---|
-| **hybrid (shipped)** | **0.455** | **0.321** | **0.255** |
-| vector-only | 0.418 | 0.313 | 0.236 |
-| keyword-only | 0.364 | 0.253 | 0.182 |
-| *blind recency (guard)* | *0.000* | *0.000* | *0.000* |
-
-**The query is the incident's own first update**, verbatim, with the title prefix
-stripped — the symptom as the provider wrote it, which is what an on-call engineer
-actually reacts to. The task is then: from that symptom, retrieve the update where
-the provider states the cause. The query's own document is excluded from scoring
-(otherwise it is trivially its own top hit, which forced top-1 to 0.000 on every
-arm — an artifact of the setup, not a property of retrieval).
-
-**Why generated questions were scrapped.** An earlier version asked an LLM to write
-the questions. A check across those 64 paraphrases found **7 that invented a
-specific the incident never involved** — Postman became "the mail delivery
-application", Render "the rendering system". Fabricated inputs were feeding the
-benchmark, so the numbers they produced (hybrid 0.422) are withdrawn.
-
-**Hybrid leads on all three metrics** here, which is the clearest evidence for it so
-far: on title-derived questions hybrid and keyword-only were 0.031 apart, and on
-generated paraphrases hybrid and vector-only were indistinguishable on MRR.
-
-**A correction to an earlier finding.** The paraphrased run reported 33 of 64
-questions abstaining, and I read that as the 0.70 floor being miscalibrated for real
-language. On real text it is **0 of 55**, with off-corpus still 6 of 6. The floor was
-not the problem — short synthetic questions were. No threshold was changed.
-
-**Frozen fixture, n = 12**: hybrid 0.917 / 0.583 / 0.417 — statistically identical to
-v1's 0.917 / 0.576 / 0.417 on the same corpus, which is the check that v2's retrieval
-did not regress when rerank, multi-query and recency decay were deleted. At n = 12 the
-arms are indistinguishable (vector-only shows a higher MRR); at n = 81 hybrid leads on
-recall@5, which is the evidence for keeping it.
-
-**The guard.** A query-blind ranker (recency order, ignores the question) is scored
-every run and reported next to the system. v1's root-cause benchmark was game-able —
-a positional rule that understood nothing scored 1.000 — so a benchmark that a blind
-rule can win is treated as void. It scores 0.000 here.
-
-**Abstention on real language**: 0/12 on-corpus abstentions on the fixture, 13/81 on the
-live set (the system declines 16% of labeled questions), and 6/6 off-corpus questions
-abstain.
-
-**How the live labels were built.** Candidates are shortlisted by cause marker, then an
-LLM judges whether each update NAMES a cause — it never sees the query or the ranking,
-so it cannot leak an answer into the metric. Each question is generated from the
-incident TITLE alone, so it cannot encode which update is correct. The judge was
-validated first on the six cases keyword matching gets wrong ("The root cause has been
-fixed" names nothing; "triggered by date time triggers" is a false match) and scored
-6/6 before being trusted with the corpus.
-
-**Outstanding: a human has not signed off these labels.** The next step is a
-20-row spot check — read 20 of the 64 `labels_live.json` entries, confirm the
-cause sentence names a cause and the question seeks one, then set
-`curated: reviewed`. Until that happens the live numbers stay indicative.
-
-- [ ] 20-row human review of `freshet/eval/fixtures/labels_live.json`
-
-**Honest limits.** The labels are `curated: assistant-reviewed` — reviewed against the
-criterion above, but not signed off by a human, and the reviewer is the same system
-that produced them. Every rejection and collapse is recorded in `_review` so the calls
-are auditable. Weak-but-kept causes remain ("This was caused by a database impairment"
-names little), and title-derived questions flatter the lexical arm.
+Uptime is now proven rather than assumed: the embedder writes a heartbeat, and
+only the CURRENT unbroken run is scored (a gap over 5 minutes starts a new run).
+A restart therefore resets the window instead of charging its backlog to the
+pipeline's speed. With no live arrivals yet the report carries `status: not yet
+measured` and no ratio at all, and `FRESHNESS_MIN_N` fails the run rather than
+reporting a thin sample.
 
 ## Measured on the live pipeline
 

@@ -16,6 +16,7 @@ import threading
 import time
 from datetime import UTC, datetime
 
+from freshet.common.heartbeat import Heartbeat
 from freshet.common.incidents import ensure_incident
 from freshet.common.schemas import Event, VectorRecord
 from freshet.pipeline.chunking import chunk_text
@@ -153,6 +154,8 @@ def make_handler(conn, emb: Embedder, producer, *,
     """
     from freshet.common.kafka_io import produce_sync
 
+    heartbeat = Heartbeat("embedder")
+
     def _dead_letter(error: str, value: str) -> None:
         produce_sync(producer, deadletter_topic, build_deadletter(error, value, topic))
         DEADLETTER_EVENTS.inc()
@@ -193,6 +196,9 @@ def make_handler(conn, emb: Embedder, producer, *,
         if ev.incident_id:
             conn.execute(_INCIDENT_EVENT_SQL, (ev.incident_id, ev.event_id))
         EMBEDDER_MESSAGES.inc()      # one per Kafka message, not per chunk
+        # Proof of uptime for the freshness eval: without it a catch-up burst
+        # after an outage is indistinguishable from a slow pipeline.
+        heartbeat.beat(conn)
 
     return handle
 
