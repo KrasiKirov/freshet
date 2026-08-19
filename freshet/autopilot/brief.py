@@ -30,18 +30,6 @@ def cite_hit(hit) -> str:
     return f"[{hit.event_id} @ {hit.ts:%Y-%m-%d %H:%M:%S}]"
 
 
-def findings_from_timeline(tl, status: str, runbook: str | None) -> Findings:
-    return Findings(
-        service=tl.service or "incident",
-        status=status,
-        cause_text=tl.cause.text if tl.cause else None,
-        cause_cite=cite_hit(tl.cause) if tl.cause else None,
-        fix_text=tl.fix.text if tl.fix else None,
-        fix_cite=cite_hit(tl.fix) if tl.fix else None,
-        runbook=runbook,
-        narrative=None,
-    )
-
 
 # Phrases where a provider actually NAMES a cause. Deliberately narrow: an
 # update saying "we have identified the issue" announces progress, not a cause,
@@ -71,7 +59,6 @@ _FOUND_BUT_UNNAMED = re.compile(
     r"|identified the (?:source|cause) of (?:the|this)\s",
     re.I)
 _SENTENCE = re.compile(r"[^.!?]+[.!?]")
-
 
 def _cause_sentence(text: str) -> str | None:
     """The single sentence in which a cause is stated, or None.
@@ -116,8 +103,8 @@ def findings_from_updates(service: str, status: str, hits,
     """Brief the incident's own updates, newest first, each cited.
 
     Status feeds state what is happening in the provider's own words but contain
-    no change events, so `findings_from_timeline` correctly declines to name a
-    cause — and "no cause found" is not a useful brief on its own. This reports
+    no change events, so no cause can be derived from event types — and "no cause
+    found" is not a useful brief on its own. This reports
     what the feed actually said, which is only possible because those updates
     were indexed seconds after being posted.
     """

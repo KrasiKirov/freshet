@@ -79,7 +79,7 @@ def release_postmortem(conn, incident_id: str) -> None:
 
 
 def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Sink,
-                     sleep=time.sleep, client=None) -> None:
+                     sleep=time.sleep, composer=None) -> None:
     ev = LifecycleEvent.from_json(raw_json)
 
     if ev.type == "opened":
@@ -105,7 +105,7 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
         try:
             row = conn.execute(_GET_SLACK_TS_SQL, (ev.incident_id,)).fetchone()
             slack_ts = row[0] if row else None
-            pm = gather_postmortem(conn, embedder, ev.service, ev.incident_id, client=client)
+            pm = gather_postmortem(conn, embedder, ev.service, ev.incident_id, composer=composer)
             sink.deliver(pm, thread=slack_ts)
             mark_postmortem_delivered(conn, ev.incident_id)
         except Exception:

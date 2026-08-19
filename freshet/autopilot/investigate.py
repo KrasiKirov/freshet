@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from datetime import datetime
 
 from freshet.autopilot.brief import (
     Findings,
     cause_from_updates,
-    findings_from_timeline,
     findings_from_updates,
 )
 from freshet.autopilot.impact import estimate_impact
@@ -65,6 +63,21 @@ def _impact_for(conn, incident_id: str, service: str, hits) -> str:
     return estimate_impact(services, opened_at, resolved_at, [h.text for h in hits])
 
 
+def _summarise(updates, service: str, composer, question: str) -> str | None:
+    """One narrative path for briefs and postmortems alike. Both used to have
+    their own: the postmortem's bypassed citation verification entirely, so it
+    could ship a fabricated citation that a brief never could."""
+    if not updates:
+        return None
+    from freshet.api.composer import make_composer
+    composer = composer or make_composer()
+    try:
+        return composer.compose(question, updates)
+    except Exception as exc:          # never let generation break an alert
+        log.warning("summary generation failed (%r); rendering without it", exc)
+        return None
+
+
 def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
                     *, composer=None) -> Findings:
     runbook = fetch_runbook(conn, service)
@@ -74,8 +87,8 @@ def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
     # folded into this one's impact line. An incident's events are a known set —
     # look them up rather than search for them.
     own = fetch_incident_updates(conn, incident_id)
-    from freshet.api.synthesis import build_timeline
-    f = findings_from_timeline(build_timeline(own), status, runbook)
+    f = Findings(service=service, status=status, cause_text=None, cause_cite=None,
+                 fix_text=None, fix_cite=None, runbook=runbook, narrative=None)
     # Cause/fix is kept for corpora that contain change events; the update
     # timeline is ADDED, not substituted, because status feeds have none. It is
     # sourced by direct lookup so the brief cannot cite a different incident.
@@ -90,14 +103,9 @@ def gather_findings(conn, embedder, service: str, incident_id: str, status: str,
     # short summary in this incident's own updates and every citation it emits is
     # verified against them. It summarises only — the Cause line stays a verbatim
     # provider quote, so the model never gets to diagnose.
-    if own:
-        from freshet.api.composer import make_composer
-        composer = composer or make_composer()
-        try:
-            f.narrative = composer.compose(
-                f"What is happening with {service}? Summarise in two sentences.", own)
-        except Exception as exc:      # never let generation break an alert
-            log.warning("summary generation failed (%r); brief renders without it", exc)
+    f.narrative = _summarise(own, service, composer,
+                             f"What is happening with {service}? "
+                             "Summarise in two sentences.")
     f.impact = _impact_for(conn, incident_id, service, own)
     return f
 
@@ -118,28 +126,23 @@ def _format_duration(opened_at, resolved_at) -> str | None:
     return f"{mins // 60}h {mins % 60}m"
 
 
-def gather_postmortem(conn, embedder, service: str, incident_id: str, *, client=None) -> Findings:
+def gather_postmortem(conn, embedder, service: str, incident_id: str,
+                      *, composer=None) -> Findings:
     row = conn.execute(_INCIDENT_ROW_SQL, (incident_id,)).fetchone()
     opened_at, resolved_at, resolution_summary = row if row else (None, None, None)
     duration = _format_duration(opened_at, resolved_at)
 
-    from freshet.api.synthesis import build_timeline, synthesize_narrative
-    # Same scoping rule as the brief: a postmortem must describe ONE incident.
     own = fetch_incident_updates(conn, incident_id)
-    tl = build_timeline(own)
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            narrative = synthesize_narrative(tl, client=client)
-        except Exception as exc:  # degrade to the extractive timeline, never crash
-            print(f"[autopilot] narrative synthesis failed ({exc!r}); using extractive timeline")
-            narrative = tl.render()
-    else:
-        narrative = tl.render()
-
+    narrative = _summarise(own, service, composer,
+                           f"Summarise the resolved {service} incident in two sentences.")
     runbook = fetch_runbook(conn, service)
     summary = resolution_summary or "resolved"
     meta = f"Duration {duration} · {summary}" if duration else summary
     f = Findings(service=service, status="resolved", cause_text=None, cause_cite=None,
                  fix_text=None, fix_cite=None, runbook=runbook, narrative=narrative, meta=meta)
+    stated = cause_from_updates(own)
+    if stated:
+        f.cause_text, f.cause_cite = stated
+    f.updates = findings_from_updates(service, "resolved", own, runbook).updates
     f.impact = _impact_for(conn, incident_id, service, own)
     return f

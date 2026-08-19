@@ -64,20 +64,29 @@ def test_the_brief_cites_real_updates(conn, emb, llm):
 
 
 
-def test_a_cause_is_never_invented_from_real_updates(conn, emb):
-    """Real status updates are typed `status_update`, never a change event, so
-    build_timeline must structurally decline to name a cause. If this ever fails,
-    the system has started guessing."""
-    seed_from_replay(conn, emb, limit=300)
+def test_a_cause_is_never_invented_from_real_updates(conn, emb, llm):
+    """Most real incidents never state a cause. Those briefs must say nothing
+    rather than reach for the nearest plausible sentence — inventing a root cause
+    for an on-call responder is the worst thing this system could do."""
+    rows = seed_from_replay(conn, emb, limit=300)
 
-    from freshet.api.retrieval import hybrid_search
-    from freshet.api.synthesis import build_timeline
+    from freshet.autopilot.brief import cause_from_updates
+    from freshet.autopilot.investigate import fetch_incident_updates, gather_findings
 
-    result = hybrid_search(conn, emb, "what caused the outage", k=8, min_similarity=0.0)
-    assert result.hits, "the seeded corpus should retrieve something"
-    assert build_timeline(result.hits).cause is None, (
-        "real feeds contain no change events; naming a cause would be invention"
-    )
+    silent = 0
+    for incident_id in {r["incident_id"] for r in rows}:
+        updates = fetch_incident_updates(conn, incident_id)
+        if not updates or cause_from_updates(updates) is not None:
+            continue          # this incident DOES state a cause; covered elsewhere
+        silent += 1
+        service = next(r["provider"] for r in rows if r["incident_id"] == incident_id)
+        findings = gather_findings(conn, emb, service, incident_id,
+                                   status="opened", composer=llm)
+        assert findings.cause_text is None, (
+            f"{incident_id}: no cause was stated, so none may be reported")
+
+    assert silent > 0, "expected most real incidents to state no cause at all"
+
 
 
 def test_retrieval_finds_the_incident_it_was_asked_about(conn, emb):

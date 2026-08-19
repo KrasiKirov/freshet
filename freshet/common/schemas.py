@@ -62,12 +62,12 @@ class EventType(str, Enum):
     CERT_RENEWED = "cert_renewed"
     MIGRATION_APPLIED = "migration_applied"
     MIGRATION_REVERTED = "migration_reverted"
-    COMMIT = "commit"  # connector-sourced code change (see synthesis._CAUSE_TYPES)
+    COMMIT = "commit"
 
 
 # The cause ("change") and fix ("remediation") event types across all incident
 # archetypes. Single source of truth for "what is a cause/fix event" — imported by
-# synthesis (timeline) and the evals. Kept in sync with ARCHETYPES by a test.
+# the incident schema. Status feeds emit `status_update`, which is in neither set.
 CHANGE_TYPES = frozenset({
     "deploy_started", "config_changed", "dependency_down",
     "memory_leak_shipped", "cert_expired", "migration_applied",

@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from freshet.autopilot.brief import (
     Findings,
     cite_hit,
-    findings_from_timeline,
     render_brief,
 )
 
@@ -40,19 +39,6 @@ def test_render_shows_impact_when_set():
                  impact="Impact: High — 3 services, ongoing")
     assert "Impact: High — 3 services, ongoing" in render_brief(f)
 
-
-def test_findings_from_timeline_uses_cause_hit():
-    tl_cause = _Hit("evC", datetime(2026, 7, 1, 9, 0, 0, tzinfo=UTC), "rollout")
-
-    @dataclass
-    class _TL:
-        service: str
-        cause: object
-        fix: object
-    tl = _TL(service="api", cause=tl_cause, fix=None)
-    f = findings_from_timeline(tl, status="open", runbook=None)
-    assert f.service == "api" and f.cause_text == "rollout"
-    assert f.cause_cite == "[evC @ 2026-07-01 09:00:00]" and f.fix_text is None
 
 
 def test_render_prefers_narrative_when_present():
