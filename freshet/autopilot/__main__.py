@@ -2,10 +2,10 @@
 
     python -m freshet.autopilot --brokers localhost:9092
 
-Incident briefs are always the keyless extractive timeline. Loads ANTHROPIC_API_KEY
-from the environment (make autopilot sources .env.local) to enable LLM narrative
-synthesis for postmortems on resolved incidents; falls back to the keyless
-extractive timeline without a key."""
+Generation is not optional: ANTHROPIC_API_KEY is REQUIRED (make autopilot sources
+.env.local). Briefs and postmortems are LLM-composed over the incident's own
+indexed updates, and every citation the model emits is verified against that
+evidence before the brief is rendered."""
 
 from __future__ import annotations
 
@@ -40,9 +40,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
-    postmortem = "LLM narrative" if os.environ.get("ANTHROPIC_API_KEY") else "keyless timeline"
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise SystemExit(
+            "[autopilot] ANTHROPIC_API_KEY is required: briefs are LLM-composed. "
+            "Set it in .env.local (make autopilot sources it).")
     print(f"[autopilot] listening on {LIFECYCLE_TOPIC} "
-         f"(window={args.window_s}s, briefs=keyless timeline, postmortem={postmortem})")
+          f"(window={args.window_s}s, briefs=LLM-composed, citations verified)")
 
     try:
         consume_loop(
