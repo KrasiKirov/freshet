@@ -62,7 +62,11 @@ CREATE TABLE normalized_updates (
 CREATE TABLE incident_lifecycle (
   incident_id STRING,
   service     STRING,
-  status      STRING,
+  -- The column name IS the JSON field name on the wire. The consumer
+  -- (pipeline/lifecycle.py LifecycleEvent) reads `type`, and this projection emits
+  -- opened/resolved rather than the provider's raw status, so `type` is both the
+  -- contract and the accurate name. Backticked: `type` is reserved in Flink SQL.
+  `type`      STRING,
   ts          TIMESTAMP_LTZ(3),
   title       STRING
 ) WITH (
@@ -112,7 +116,7 @@ WHERE seq = 1;
 INSERT INTO incident_lifecycle
 SELECT incident_id, provider AS service,
        CASE WHEN LOWER(status) IN ('investigating', 'identified') THEN 'opened'
-            ELSE 'resolved' END AS status,
+            ELSE 'resolved' END AS `type`,
        created_at AS ts, incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (

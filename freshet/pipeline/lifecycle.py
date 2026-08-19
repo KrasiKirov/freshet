@@ -23,5 +23,12 @@ class LifecycleEvent:
     @classmethod
     def from_json(cls, raw: str) -> LifecycleEvent:
         d = json.loads(raw)
-        return cls(type=d["type"], incident_id=d["incident_id"],
+        # `status` is the legacy field name: the Flink sink emitted it before the
+        # column was renamed to `type`, and those records are still on the topic.
+        # Accepting both keeps a replay of retained history from poison-pilling
+        # the consumer on its first message.
+        kind = d.get("type", d.get("status"))
+        if kind is None:
+            raise KeyError("lifecycle event has neither 'type' nor 'status'")
+        return cls(type=kind, incident_id=d["incident_id"],
                    service=d["service"], ts=d["ts"])
