@@ -73,7 +73,7 @@ def _patch_search(monkeypatch, abstained=False, hits=(1,)):
     class _Res:
         def __init__(self):
             self.hits, self.abstained = list(hits), abstained
-    monkeypatch.setattr("freshet.api.retrieval.hybrid_search", lambda *a, **k: _Res())
+    monkeypatch.setattr("freshet.rag.retrieval.hybrid_search", lambda *a, **k: _Res())
     return thread_agent
 
 
@@ -119,7 +119,7 @@ def test_answer_question_uses_retrieval_not_a_key_lookup(monkeypatch):
     def _fake(conn, emb, q, **kw):
         seen["q"], seen["k"] = q, kw.get("k")
         return _Res()
-    monkeypatch.setattr("freshet.api.retrieval.hybrid_search", _fake)
+    monkeypatch.setattr("freshet.rag.retrieval.hybrid_search", _fake)
     out = answer_question(None, _Emb(), _Composer(), "has this happened before?")
     assert seen["q"] == "has this happened before?" and seen["k"] == 6
     assert out.startswith("answer to")
@@ -130,7 +130,7 @@ def test_a_very_long_question_is_capped(monkeypatch):
 
     class _Res:
         hits, abstained = [1], False
-    monkeypatch.setattr("freshet.api.retrieval.hybrid_search",
+    monkeypatch.setattr("freshet.rag.retrieval.hybrid_search",
                         lambda c, e, q, **k: (seen.__setitem__("q", q), _Res())[1])
     answer_question(None, _Emb(), _Composer(), "x" * 5000)
     assert len(seen["q"]) == 500
@@ -151,7 +151,7 @@ def _capture_search(monkeypatch, abstained=False):
     def _fake(conn, emb, q, **kw):
         seen["q"], seen["since"], seen["k"] = q, kw.get("since"), kw.get("k")
         return _Res()
-    monkeypatch.setattr("freshet.api.retrieval.hybrid_search", _fake)
+    monkeypatch.setattr("freshet.rag.retrieval.hybrid_search", _fake)
     return seen
 
 

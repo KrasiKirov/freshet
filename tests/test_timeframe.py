@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from freshet.api.timeframe import infer_window
+from freshet.rag.timeframe import infer_window
 
 NOW = datetime(2026, 8, 19, 14, 30, tzinfo=UTC)
 MIDNIGHT = datetime(2026, 8, 19, 0, 0, tzinfo=UTC)

@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from freshet.api.retrieval import hybrid_search
+from freshet.rag.retrieval import hybrid_search
 
 pytestmark = pytest.mark.integration
 
@@ -72,7 +72,7 @@ def test_a_service_filter_gets_the_same_browse_contract(conn, emb, seeded):
 
 def test_retrieved_hits_carry_the_incident_title(conn, emb):
     """The API cannot label a citation by name unless retrieval returns one."""
-    from freshet.api.retrieval import hybrid_search
+    from freshet.rag.retrieval import hybrid_search
     r = hybrid_search(conn, emb, "elevated errors", k=5)
     assert r.hits, "need hits for this to mean anything"
     titled = [h for h in r.hits if h.title]

@@ -173,7 +173,7 @@ def index_corpus(conn, embedder, events: list[Event], batch: int = 64) -> int:
 def _single_arm(conn, embedder, question: str, sql_fn, k: int,
                 exclude: str | None = None) -> list[str]:
     """Run ONE retrieval arm directly, for the vector-only / keyword-only rows."""
-    from freshet.api.retrieval import vec_literal
+    from freshet.rag.retrieval import vec_literal
 
     [qvec] = embedder.encode_query([question])
     rows = conn.execute(sql_fn(None, None),
@@ -204,8 +204,8 @@ LIVE_LABELS = FIXTURES.parent / "labels_live.json"
 def main() -> None:
     import psycopg
 
-    from freshet.api.retrieval import hybrid_search, keyword_sql, vector_sql
     from freshet.pipeline.embedding import make_embedder
+    from freshet.rag.retrieval import hybrid_search, keyword_sql, vector_sql
 
     # `live` scores the running index (42 providers, current) against labels
     # curated from it; the default fixture corpus is frozen but reproducible

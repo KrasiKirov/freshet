@@ -21,7 +21,7 @@ import re
 from datetime import UTC, datetime
 from typing import Protocol
 
-from freshet.api.retrieval import RetrievedHit
+from freshet.rag.retrieval import RetrievedHit
 
 NO_EVIDENCE = "I don't have enough indexed evidence to answer that."
 

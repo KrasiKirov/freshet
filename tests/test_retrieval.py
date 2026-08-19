@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from freshet.api.retrieval import keyword_sql, vector_sql
+from freshet.rag.retrieval import keyword_sql, vector_sql
 
 
 def test_vector_sql_has_similarity_and_order():
@@ -30,7 +30,7 @@ def test_filters_apply_to_both_arms():
 
 
 def test_rrf_rewards_agreement_across_arms():
-    from freshet.api.retrieval import reciprocal_rank_fusion
+    from freshet.rag.retrieval import reciprocal_rank_fusion
 
     vec = ["a", "b", "c"]
     kw = ["b", "d"]
@@ -47,7 +47,7 @@ def test_rrf_rewards_agreement_across_arms():
 
 
 def test_should_abstain_on_weak_similarity():
-    from freshet.api.retrieval import should_abstain
+    from freshet.rag.retrieval import should_abstain
 
     assert should_abstain([], min_similarity=0.3) is True
     assert should_abstain([0.05, 0.1], min_similarity=0.3) is True
@@ -57,8 +57,8 @@ def test_should_abstain_on_weak_similarity():
 def test_hybrid_search_fuses_arms_and_flags_abstention():
     from datetime import datetime
 
-    from freshet.api.retrieval import HybridResult, hybrid_search
     from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import HybridResult, hybrid_search
 
     now = datetime.now(UTC)
     # column order mirrors retrieval._COLS: (..., type, title) then the
@@ -98,8 +98,8 @@ def test_hybrid_search_uses_embedder_min_similarity():
     (bge's compressed cosine range needs a higher floor than MiniLM's)."""
     from datetime import datetime
 
-    from freshet.api.retrieval import hybrid_search
     from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import hybrid_search
 
     class HighFloorEmbedder(StubEmbedder):
         min_similarity = 0.9
@@ -128,8 +128,8 @@ def test_hybrid_search_uses_embedder_min_similarity():
 def test_hybrid_search_abstains_when_similarity_weak():
     from datetime import datetime
 
-    from freshet.api.retrieval import hybrid_search
     from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import hybrid_search
 
     now = datetime.now(UTC)
     weak = [("chk_e9_0", "e9", "auth", now, now, "metric", "cpu 12%", "metric", None, 0.04)]
@@ -150,7 +150,7 @@ def test_keyword_only_hits_carry_a_real_similarity_not_zero():
     """A hit found only by the lexical arm used to get similarity 0.0 — a MISSING
     value, not a measured one. Abstention keys off cosine, so an exact lexical
     match with no vector match was silently discarded as "no evidence"."""
-    from freshet.api.retrieval import keyword_sql
+    from freshet.rag.retrieval import keyword_sql
 
     sql = keyword_sql(None, None)
     assert "embedding <=>" in sql, (
@@ -160,7 +160,7 @@ def test_keyword_only_hits_carry_a_real_similarity_not_zero():
 
 
 def test_abstention_uses_the_similarity_of_a_keyword_only_hit():
-    from freshet.api.retrieval import should_abstain
+    from freshet.rag.retrieval import should_abstain
 
     # a strong lexical match whose cosine was measured, not defaulted
     assert should_abstain([0.82], min_similarity=0.70) is False

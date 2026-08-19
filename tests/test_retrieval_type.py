@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
-from freshet.api.retrieval import RetrievedHit
 from freshet.pipeline.embedding import EMBEDDING_DIM
+from freshet.rag.retrieval import RetrievedHit
 
 
 def test_retrieved_hit_has_type():

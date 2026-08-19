@@ -67,7 +67,7 @@ def find_recurrences(conn, embedder, *, service: str, incident_id: str,
                      query_text: str, before: datetime | None,
                      limit: int = MAX_RECURRENCES) -> list[Recurrence]:
     """Prior incidents for this service that read like this one."""
-    from freshet.api.retrieval import hybrid_search
+    from freshet.rag.retrieval import hybrid_search
 
     if not query_text.strip() or is_maintenance(query_text):
         return []

@@ -7,7 +7,7 @@ result. Cosine similarity cannot tell the two apart; provenance can.
 """
 import pytest
 
-from freshet.api.retrieval import check_index_model
+from freshet.rag.retrieval import check_index_model
 
 
 class _Conn:

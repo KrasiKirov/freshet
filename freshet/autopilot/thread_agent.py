@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import logging
 
-from freshet.api.composer import NO_EVIDENCE
-from freshet.api.timeframe import infer_window
 from freshet.autopilot.sinks.base import Sink
+from freshet.rag.composer import NO_EVIDENCE
+from freshet.rag.timeframe import infer_window
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def answer_question(conn, embedder, composer, question: str) -> str:
     from months ago rather than anything from today — which is the wrong answer
     from a product whose entire claim is freshness.
     """
-    from freshet.api.retrieval import hybrid_search
+    from freshet.rag.retrieval import hybrid_search
 
     question = question[:MAX_QUESTION_CHARS]
     since, window = infer_window(question)

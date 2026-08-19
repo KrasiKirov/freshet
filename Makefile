@@ -60,50 +60,6 @@ test: ##dev
 test-integration: ##dev
 	$(PYTHON) -m pytest -q -m integration
 
-# Serve the query API on :8000 (stack must be up; FRESHET_EMBEDDER=stub to skip model).
-# Sources .env.local so ANTHROPIC_API_KEY enables the LLM answer composer.
-FLINK_VERSION := 1.20.0
-FLINK_HOME := .flink/flink-$(FLINK_VERSION)
-
-# One-time: fetch the Flink distribution and the Kafka connector.
-# The job is Flink SQL (pure JVM) — PyFlink is not used and not installable here,
-# because apache-flink requires apache-beam, which ships no macOS ARM64 wheel.
-flink-dist: ##stack
-	@mkdir -p .flink
-	@test -d $(FLINK_HOME) || (cd .flink && \
-	  curl -sSL -o flink.tgz https://archive.apache.org/dist/flink/flink-$(FLINK_VERSION)/flink-$(FLINK_VERSION)-bin-scala_2.12.tgz && \
-	  tar -xzf flink.tgz && rm flink.tgz)
-	@test -f $(FLINK_HOME)/lib/flink-sql-connector-kafka.jar || curl -sSL -o $(FLINK_HOME)/lib/flink-sql-connector-kafka.jar \
-	  https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.3.0-1.20/flink-sql-connector-kafka-3.3.0-1.20.jar
-	@echo "flink $(FLINK_VERSION) ready in $(FLINK_HOME)"
-
-# Start the local Flink cluster and submit the dedup + lifecycle job.
-stream: flink-dist ##run
-	@$(FLINK_HOME)/bin/start-cluster.sh >/dev/null 2>&1 || true
-	@sleep 5
-	@# Cancel any job already running. Each submission carries its OWN dedup state,
-	@# so a second job does not share the first's — it re-emits every update, and the
-	@# topic (and the embedder's workload) multiplies by the number of live jobs.
-	@for j in $$(curl -s -m 5 http://localhost:8081/jobs 2>/dev/null \
-	    | tr ',' '\n' | grep -B1 RUNNING | grep -o '[0-9a-f]\{32\}'); do \
-	  echo "cancelling running job $$j"; \
-	  curl -s -X PATCH "http://localhost:8081/jobs/$$j?mode=cancel" >/dev/null; \
-	done
-	@sleep 3
-	$(FLINK_HOME)/bin/sql-client.sh -f freshet/stream/dedup_job.sql
-
-stream-stop: ##run
-	@$(FLINK_HOME)/bin/stop-cluster.sh
-
-embedder: ##run
-	$(PYTHON) -m freshet.pipeline.embedder
-
-poller: ##run
-	$(PYTHON) -m freshet.ingest.poller
-
-api: ##run
-	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
-	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
 
 # Autopilot: consume incident.lifecycle and print a cited brief per new incident.
 # Sources .env.local for ANTHROPIC_API_KEY, which the brief composer requires.

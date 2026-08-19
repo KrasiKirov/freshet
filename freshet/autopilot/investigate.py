@@ -80,7 +80,7 @@ def _summarise(updates, service: str, composer, question: str) -> str | None:
     could ship a fabricated citation that a brief never could."""
     if not updates:
         return None
-    from freshet.api.composer import make_composer
+    from freshet.rag.composer import make_composer
     composer = composer or make_composer()
     try:
         return composer.compose(question, updates)

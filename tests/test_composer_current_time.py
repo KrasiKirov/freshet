@@ -7,8 +7,8 @@ for a freshness-first system, so this is load-bearing.
 """
 from datetime import UTC, datetime
 
-from freshet.api.composer import AnthropicComposer
-from freshet.api.retrieval import RetrievedHit
+from freshet.rag.composer import AnthropicComposer
+from freshet.rag.retrieval import RetrievedHit
 
 
 class _FakeMessages:

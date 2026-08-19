@@ -7,7 +7,7 @@ be unverifiable — the worst failure mode this system has.
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from freshet.api.composer import AnthropicComposer, verify_citations
+from freshet.rag.composer import AnthropicComposer, verify_citations
 
 
 def _hit(eid, text="something happened"):

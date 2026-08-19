@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from freshet.api.composer import NO_EVIDENCE, AnthropicComposer, make_composer
+from freshet.rag.composer import NO_EVIDENCE, AnthropicComposer, make_composer
 
 
 def _hit(eid="e1", text="5xx errors are elevated"):

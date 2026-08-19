@@ -6,6 +6,12 @@ An agent that watches **42 public status feeds** and posts a cited incident brie
 to Slack seconds after a provider updates — quoting a root cause when the
 provider states one.
 
+Slack is the only surface. Reply in the thread and it answers from the whole
+corpus — 42 providers, four years of updates — through the same retrieval path
+the eval measures, citing the updates it used. The brief itself is a key lookup
+(an incident's updates are addressable); the follow-up questions are not, which
+is where retrieval earns its place.
+
 ## How it works
 
 ```
@@ -21,12 +27,18 @@ Kafka  raw.incidents
 Kafka  normalized.updates          Kafka  incident.lifecycle
   │  embedder — batches → bge → pgvector          │
   ▼                                               ▼
-hybrid retrieval                            Autopilot
-dense (bge) + Postgres full-text,           cited Slack brief
-RRF fusion, abstention floor                on open; postmortem
-  │                                         on resolve
-  ▼
-LLM composer — every citation verified against the retrieved evidence
+pgvector  ─────────────────────────────────►  Autopilot
+                                              cited Slack brief on open,
+                                              threaded postmortem on resolve
+                                                    │
+                            reply in the thread ───►│  hybrid retrieval
+                                                    │  dense (bge) + full-text,
+                                                    │  RRF fusion, abstention,
+                                                    │  window inferred from the
+                                                    │  question
+                                                    ▼
+                              LLM composer — every citation verified
+                              against the retrieved evidence
 ```
 
 The feeds are polled, not pushed, so this is **a streaming pipeline over a polled

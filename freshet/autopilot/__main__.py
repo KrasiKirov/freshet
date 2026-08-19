@@ -14,7 +14,6 @@ import os
 import signal
 import threading
 
-from freshet.api.composer import make_composer
 from freshet.autopilot.consumer import drain_due_briefs, handle_and_drain
 from freshet.autopilot.sinks.factory import make_sink
 from freshet.autopilot.thread_agent import poll_threads
@@ -22,6 +21,7 @@ from freshet.common.db import connect
 from freshet.common.kafka_io import consume_loop
 from freshet.pipeline.embedding import make_embedder
 from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC
+from freshet.rag.composer import make_composer
 
 
 def _handle(conn, raw: str, window_s: float, sink, embedder) -> None:

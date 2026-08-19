@@ -1,6 +1,6 @@
 import inspect
 
-from freshet.api.retrieval import hybrid_search
+from freshet.rag.retrieval import hybrid_search
 
 
 def test_hybrid_search_has_no_rerank_or_decay_params():

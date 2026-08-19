@@ -58,7 +58,7 @@ class _Hit:
 
 
 def _patched_search(monkeypatch, hits):
-    from freshet.api import retrieval
+    from freshet.rag import retrieval
 
     class _Res:
         def __init__(self, h):

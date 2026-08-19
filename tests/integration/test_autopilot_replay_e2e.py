@@ -95,7 +95,7 @@ def test_retrieval_finds_the_incident_it_was_asked_about(conn, emb):
     rows = seed_from_replay(conn, emb, limit=300)
     service = _busiest_provider(rows)
 
-    from freshet.api.retrieval import hybrid_search
+    from freshet.rag.retrieval import hybrid_search
 
     result = hybrid_search(conn, emb, "service degradation", k=5, service=service,
                            min_similarity=0.0)
@@ -163,7 +163,7 @@ def test_the_brief_never_reads_evidence_outside_its_incident(conn, emb, llm, mon
     service = _busiest_provider(rows)
     incident_id = next(r["incident_id"] for r in reversed(rows) if r["provider"] == service)
 
-    import freshet.api.retrieval as retrieval
+    import freshet.rag.retrieval as retrieval
 
     def forbidden(*a, **kw):
         raise AssertionError("gather_findings must not run an unscoped search")

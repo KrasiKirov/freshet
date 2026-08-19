@@ -62,9 +62,9 @@ def propose_floor(on_corpus: list[float], off_corpus: list[float],
 
 
 def main() -> None:
-    from freshet.api.retrieval import hybrid_search
     from freshet.common.db import connect
     from freshet.pipeline.embedding import make_embedder
+    from freshet.rag.retrieval import hybrid_search
 
     labels = json.loads(pathlib.Path(LIVE_LABELS).read_text())
     conn = connect()
