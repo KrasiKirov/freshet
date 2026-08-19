@@ -5,8 +5,17 @@ core (and CI without the [slack] extra) never imports it."""
 from __future__ import annotations
 
 import re
+import time
 
 from freshet.autopilot.brief import Findings, render_brief
+
+# A transient Slack error (429, a blip) must not take the autopilot down, but an
+# undeliverable brief must NOT be reported as delivered: the consumer marks the
+# incident delivered on return, which would permanently suppress the retry. So:
+# retry a few times, then RAISE. The consumer releases its claim and the Kafka
+# offset stays uncommitted, so the brief is redelivered rather than lost.
+MAX_ATTEMPTS = 3
+RETRY_BASE_S = 2.0
 
 _EMOJI = {"open": "🔴", "investigating": "🔴", "identified": "🔴",
           "monitoring": "🟠", "resolved": "🟢", "postmortem": "🟢"}
@@ -53,11 +62,13 @@ def slack_blocks(f: Findings) -> list[dict]:
 
 
 class SlackSink:
-    def __init__(self, token: str, channel: str, dry_run: bool = False, client=None):
+    def __init__(self, token: str, channel: str, dry_run: bool = False, client=None,
+                 sleep=time.sleep):
         self._token = token
         self._channel = channel
         self._dry_run = dry_run
         self._client = client  # injection seam for tests; None in production
+        self._sleep = sleep    # injection seam: tests must not actually back off
 
     @property
     def dry_run(self) -> bool:
@@ -81,10 +92,15 @@ class SlackSink:
                     "Slack posting needs slack_sdk: pip install -e \".[slack]\""
                 ) from exc
             client = WebClient(token=self._token)
-        try:
-            resp = client.chat_postMessage(channel=self._channel, text=text,
-                                           blocks=blocks, thread_ts=thread)
-            return resp["ts"] if resp is not None else None
-        except Exception as exc:  # never crash the autopilot loop on a delivery failure
-            print(f"[slack] post failed: {exc!r}")
-            return None
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                resp = client.chat_postMessage(channel=self._channel, text=text,
+                                               blocks=blocks, thread_ts=thread)
+                return resp["ts"] if resp is not None else None
+            except Exception as exc:
+                if attempt == MAX_ATTEMPTS:
+                    raise
+                print(f"[slack] post failed (attempt {attempt}/{MAX_ATTEMPTS}): "
+                      f"{exc!r}; retrying in {RETRY_BASE_S * attempt:.0f}s")
+                self._sleep(RETRY_BASE_S * attempt)
+        raise AssertionError("unreachable: the loop returns or raises")

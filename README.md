@@ -80,6 +80,12 @@ but that figure is an expectation, not a measurement, until `n` is meaningful.
 - **Briefs are non-deterministic**, since an LLM writes them. Citations are
   verified on both id and timestamp, so a fabricated one is stripped rather than
   shipped.
+- **Delivery is at-least-once, not exactly-once.** The sink posts, then the
+  database records it. A crash between those two steps replays the incident after
+  the lease expires and can post a duplicate. That is the deliberate direction to
+  fail in — a duplicate alert is recoverable, a dropped one is not — and closing
+  it would need a Slack idempotency key (the API has none) or a transactional
+  outbox.
 - The `robots.txt` on Statuspage disallows `/api/`, so ingestion uses the Atom
   feeds the platform publishes for subscription.
 

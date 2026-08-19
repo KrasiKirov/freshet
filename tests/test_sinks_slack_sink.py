@@ -1,5 +1,7 @@
+import pytest
+
 from freshet.autopilot.brief import Findings
-from freshet.autopilot.sinks.slack import SlackSink
+from freshet.autopilot.sinks.slack import MAX_ATTEMPTS, RETRY_BASE_S, SlackSink
 
 
 def _f():
@@ -53,10 +55,35 @@ def test_dry_run_returns_none_and_shows_thread(capsys):
 
 
 class _BoomClient:
+    """Fails `fails` times, then succeeds (always, if fails is None)."""
+    def __init__(self, fails=None):
+        self.fails = fails
+        self.attempts = 0
+
     def chat_postMessage(self, **kw):
-        raise RuntimeError("boom")
+        self.attempts += 1
+        if self.fails is None or self.attempts <= self.fails:
+            raise RuntimeError("boom")
+        return {"ok": True, "ts": "1.2"}
 
 
-def test_post_failure_is_swallowed_and_logged(capsys):
-    SlackSink(token="x", channel="#c", client=_BoomClient()).deliver(_f())  # must NOT raise
-    assert "post failed" in capsys.readouterr().out.lower()
+def test_persistent_post_failure_raises():
+    # Regression: this used to be swallowed and return None, so the consumer marked
+    # the brief delivered and no retry could ever fire again. Delivery failures MUST
+    # propagate — the consumer releases its claim and the Kafka offset is not committed.
+    client = _BoomClient()
+    sink = SlackSink(token="x", channel="#c", client=client, sleep=lambda s: None)
+    with pytest.raises(RuntimeError, match="boom"):
+        sink.deliver(_f())
+    assert client.attempts == MAX_ATTEMPTS
+
+
+def test_transient_failure_is_retried_then_succeeds(capsys):
+    # A 429 or a blip must not take the autopilot down for an incident it can deliver.
+    client = _BoomClient(fails=MAX_ATTEMPTS - 1)
+    slept = []
+    sink = SlackSink(token="x", channel="#c", client=client, sleep=slept.append)
+    assert sink.deliver(_f()) == "1.2"
+    assert client.attempts == MAX_ATTEMPTS
+    assert slept == [RETRY_BASE_S * n for n in range(1, MAX_ATTEMPTS)]  # backs off
+    assert "retrying" in capsys.readouterr().out.lower()

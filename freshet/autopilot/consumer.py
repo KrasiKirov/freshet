@@ -37,10 +37,13 @@ _POSTMORTEM_CLAIM_SQL = (
     "   AND brief_delivered_at IS NOT NULL"     # only postmortem what we briefed
     f"  AND (postmortem_at IS NULL OR postmortem_at < now() - interval '{LEASE_MINUTES} minutes')"
     " RETURNING incident_id")
-_MARK_BRIEF_SQL = "UPDATE incidents SET brief_delivered_at = now() WHERE incident_id = %s"
+# Delivery and the Slack thread id are recorded in ONE statement (the connection
+# is autocommit, so two would be two commits): a crash between them would leave a
+# delivered brief with no slack_ts, and the postmortem would post unthreaded.
+_MARK_BRIEF_SQL = ("UPDATE incidents SET brief_delivered_at = now(),"
+                   " slack_ts = coalesce(%s, slack_ts) WHERE incident_id = %s")
 _MARK_POSTMORTEM_SQL = ("UPDATE incidents SET postmortem_delivered_at = now()"
                         " WHERE incident_id = %s")
-_SET_SLACK_TS_SQL = "UPDATE incidents SET slack_ts = %s WHERE incident_id = %s"
 _GET_SLACK_TS_SQL = "SELECT slack_ts FROM incidents WHERE incident_id = %s"
 # A claim is a promise to deliver, not a record that we did. If the work after it
 # fails, the claim MUST be released: Kafka will redeliver the lifecycle event, but
@@ -58,10 +61,11 @@ def claim_postmortem(conn, incident_id: str) -> bool:
     return conn.execute(_POSTMORTEM_CLAIM_SQL, (incident_id,)).fetchone() is not None
 
 
-def mark_brief_delivered(conn, incident_id: str) -> None:
-    """Record that the sink accepted the brief. Delivery is final: no expired
-    lease may re-post it."""
-    conn.execute(_MARK_BRIEF_SQL, (incident_id,))
+def mark_brief_delivered(conn, incident_id: str, slack_ts: str | None = None) -> None:
+    """Record that the sink accepted the brief, and the thread id it returned.
+    Delivery is final: no expired lease may re-post it. Only ever called after
+    deliver() RETURNS — a sink that fails raises, and the claim is released."""
+    conn.execute(_MARK_BRIEF_SQL, (slack_ts, incident_id))
 
 
 def mark_postmortem_delivered(conn, incident_id: str) -> None:
@@ -93,9 +97,7 @@ def handle_lifecycle(conn, embedder, raw_json: str, *, window_s: float, sink: Si
         except Exception:
             release_incident(conn, ev.incident_id)
             raise
-        mark_brief_delivered(conn, ev.incident_id)
-        if ts:
-            conn.execute(_SET_SLACK_TS_SQL, (ts, ev.incident_id))
+        mark_brief_delivered(conn, ev.incident_id, ts)
         return
 
     if ev.type == "resolved":

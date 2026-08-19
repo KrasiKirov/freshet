@@ -79,3 +79,9 @@ event ages — a feature that silently did nothing.
 - **Briefs are non-deterministic**, since an LLM writes them. Citations are
   verified on both event id and timestamp against the retrieved evidence, so a
   fabricated one is stripped rather than shipped.
+- **Delivery is at-least-once.** A failed Slack post now raises: the consumer
+  releases its claim and the Kafka offset stays uncommitted, so the brief is
+  retried instead of being recorded as delivered. The cost of that choice is the
+  opposite failure — a crash after the post but before the database write can
+  duplicate an alert. Exactly-once would need an outbox; a duplicate alert is the
+  cheaper of the two failures.

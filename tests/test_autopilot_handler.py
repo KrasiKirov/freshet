@@ -68,17 +68,23 @@ def test_opened_persists_slack_ts_when_sink_returns_handle(monkeypatch):
     conn = _FakeConn()
     consumer.handle_lifecycle(conn, object(), _open_json(),
                               window_s=0, sink=_RecordingSink(handle="9.9"), sleep=lambda s: None)
-    assert any("UPDATE incidents SET slack_ts" in sql and params == ("9.9", "INC_1")
-               for sql, params in conn.executed)
+    # delivery + thread id land in ONE statement, so a crash cannot separate them
+    assert any("brief_delivered_at = now()" in sql and "slack_ts" in sql
+               and params == ("9.9", "INC_1") for sql, params in conn.executed)
 
 
-def test_opened_no_slack_ts_update_when_handle_none(monkeypatch):
+def test_opened_leaves_slack_ts_untouched_when_handle_none(monkeypatch):
+    """A sink with no handle (stdout, dry-run) still marks delivery, and passes NULL
+    so the SQL's coalesce preserves any ts already stored."""
     monkeypatch.setattr(consumer, "gather_findings",
                         lambda *a, **k: Findings("api", "open", None, None, None, None, None, "n"))
     conn = _FakeConn()
     consumer.handle_lifecycle(conn, object(), _open_json(),
                               window_s=0, sink=_RecordingSink(handle=None), sleep=lambda s: None)
-    assert not any("UPDATE incidents SET slack_ts" in sql for sql, _ in conn.executed)
+    marks = [(sql, params) for sql, params in conn.executed if "brief_delivered_at = now()" in sql]
+    assert len(marks) == 1
+    assert marks[0][1] == (None, "INC_1")
+    assert "coalesce(%s, slack_ts)" in marks[0][0]
 
 
 def test_opened_skips_when_claim_lost(capsys, monkeypatch):
@@ -156,3 +162,33 @@ def test_a_failed_delivery_releases_the_claim_so_the_brief_is_not_lost_forever()
         handle_lifecycle(conn, object(), _lifecycle(), window_s=0,
                          sink=ExplodingSink(), sleep=lambda _: None)
     assert conn.released, "the claim must be released so a retry can brief it"
+
+
+class _RaisingSink:
+    def deliver(self, findings, *, thread=None):
+        raise RuntimeError("slack down")
+
+
+def test_failed_delivery_releases_the_claim_and_never_marks_delivered(monkeypatch):
+    """The lease only works if a failed post propagates: marking a brief delivered
+    that Slack rejected suppresses every future retry permanently."""
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: Findings("api", "open", None, None, None, None, None, None))
+    conn = _FakeConn()
+    with pytest.raises(RuntimeError, match="slack down"):
+        consumer.handle_lifecycle(conn, object(), _open_json(), window_s=0,
+                                  sink=_RaisingSink(), sleep=lambda s: None)
+    sql = " ".join(q for q, _ in conn.executed)
+    assert "briefed_at = NULL" in sql          # claim released for the redelivery
+    assert "brief_delivered_at = now()" not in sql   # never recorded as delivered
+
+
+def test_failed_postmortem_releases_its_claim(monkeypatch):
+    monkeypatch.setattr(consumer, "gather_postmortem", lambda *a, **k: _pm())
+    conn = _FakeConn(slack_ts="1.2")
+    with pytest.raises(RuntimeError, match="slack down"):
+        consumer.handle_lifecycle(conn, object(), _resolved_json(), window_s=0,
+                                  sink=_RaisingSink(), sleep=lambda s: None)
+    sql = " ".join(q for q, _ in conn.executed)
+    assert "postmortem_at = NULL" in sql
+    assert "postmortem_delivered_at = now()" not in sql
