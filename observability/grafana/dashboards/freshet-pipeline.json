@@ -206,7 +206,7 @@
       },
       "targets": [
         {
-          "expr": "clamp_min(sum by (redpanda_group) (redpanda_kafka_max_offset{redpanda_namespace=\"kafka\",redpanda_topic=~\"raw.events|normalized.events\"} - on(redpanda_topic, redpanda_partition) group_right() redpanda_kafka_consumer_group_committed_offset{redpanda_group=~\".*(norm|emb).*\"}), 0)",
+          "expr": "clamp_min(sum by (redpanda_group) (redpanda_kafka_max_offset{redpanda_namespace=\"kafka\",redpanda_topic=~\"raw.incidents|normalized.updates\"} - on(redpanda_topic, redpanda_partition) group_right() redpanda_kafka_consumer_group_committed_offset{redpanda_group=~\".*(norm|emb).*\"}), 0)",
           "legendFormat": "{{redpanda_group}}",
           "refId": "A"
         }

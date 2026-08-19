@@ -69,8 +69,14 @@ CREATE TABLE incident_lifecycle (
   'connector' = 'kafka',
   'topic' = 'incident.lifecycle',
   'properties.bootstrap.servers' = 'localhost:9092',
-  'format' = 'json',
-  'json.timestamp-format.standard' = 'ISO-8601'
+  -- Partition by incident so 'opened' and 'resolved' for the same incident are
+  -- ordered. Kafka orders within a partition only: unkeyed, a 3-partition topic
+  -- (which `make up` creates) can deliver 'resolved' first, which the consumer
+  -- skips because no brief has been delivered — and the postmortem is then lost.
+  'key.format' = 'json',
+  'key.fields' = 'incident_id',
+  'value.format' = 'json',
+  'value.json.timestamp-format.standard' = 'ISO-8601'
 );
 
 EXECUTE STATEMENT SET

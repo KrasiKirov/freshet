@@ -1,6 +1,6 @@
 """Slack sink: build a small Block Kit layout from Findings and deliver it via
 chat.postMessage. slack_sdk is lazy-imported and only when actually posting, so the
-keyless core (and CI without the [slack] extra) never imports it."""
+core (and CI without the [slack] extra) never imports it."""
 
 from __future__ import annotations
 

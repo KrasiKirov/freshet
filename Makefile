@@ -92,8 +92,7 @@ api: ##run
 	$(PYTHON) -m uvicorn freshet.api.app:app --port 8000
 
 # Autopilot: consume incident.lifecycle and print a cited brief per new incident.
-# Sources .env.local so ANTHROPIC_API_KEY enables LLM postmortem narrative synthesis
-# (keyless extractive timeline otherwise).
+# Sources .env.local for ANTHROPIC_API_KEY, which the brief composer requires.
 autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092

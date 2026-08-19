@@ -75,7 +75,7 @@ _SYSTEM = (
 
 class AnthropicComposer:
     """Fluent grounded answers via the Anthropic API. Lazy-imports the SDK so the
-    keyless core never depends on it. Model is FRESHET_LLM_MODEL or sonnet-4-6."""
+    import stays local to this class. Model is FRESHET_LLM_MODEL or sonnet-4-6."""
 
     def __init__(self, model: str | None = None, client=None):
         if client is None:

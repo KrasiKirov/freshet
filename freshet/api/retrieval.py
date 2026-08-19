@@ -125,14 +125,6 @@ class HybridResult:
     abstained: bool
 
 
-@dataclass(frozen=True)
-class NeighborEvent:
-    event_id: str
-    ts: datetime
-    type: str
-    text: str
-
-
 
 def _rows_to_map(rows: list[tuple], score_idx: int) -> dict[str, tuple[Any, float]]:
     """Map chunk_id -> (row, arm_score). score_idx is the trailing score column."""

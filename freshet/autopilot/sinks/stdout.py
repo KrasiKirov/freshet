@@ -1,4 +1,4 @@
-"""Default, keyless sink: render the plain-text brief and print it (identical to
+"""Default sink: render the plain-text brief and print it (identical to
 sub-project ①'s original stdout behaviour)."""
 
 from __future__ import annotations

@@ -1,4 +1,5 @@
-"""Gather incident findings for the brief via the keyless extractive timeline."""
+"""Gather one incident's own evidence for the brief: its indexed updates, a
+cause quoted from them when the provider states one, and an LLM summary."""
 
 from __future__ import annotations
 

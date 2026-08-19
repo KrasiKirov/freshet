@@ -1,6 +1,6 @@
-"""M5 query API: hybrid retrieval (vector + keyword + filters) fused with
-reciprocal-rank fusion, recency-weighted, with abstention on weak evidence and
-a grounded-answer composer (extractive template default, optional Anthropic).
+"""Query API: hybrid retrieval (dense + keyword + filters) fused with
+reciprocal-rank fusion, abstaining on weak evidence, then an LLM-composed
+grounded answer whose every citation is verified against the retrieved events.
 
 Run:
     uvicorn freshet.api.app:app --port 8000

@@ -1,4 +1,4 @@
-"""Embedding worker: normalized.events -> embed -> idempotent upsert into pgvector.
+"""Embedding worker: normalized.updates -> embed -> idempotent upsert into pgvector.
 
 chunk_id derives from event_id, so redelivered or replayed events overwrite
 their own row instead of duplicating (at-least-once + idempotent = effectively
@@ -181,7 +181,7 @@ def run(
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Freshet embedding worker (normalized.events -> pgvector)")
+    p = argparse.ArgumentParser(description="Freshet embedding worker (normalized.updates -> pgvector)")
     p.add_argument("--brokers", default="localhost:9092")
     p.add_argument("--group", default="embedder")
     p.add_argument("--max", type=int, default=None)
