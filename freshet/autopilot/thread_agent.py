@@ -38,7 +38,8 @@ ABSTAIN_REPLY = ("I don't have enough relevant indexed evidence to answer that "
                  "confidently.")
 
 _OPEN_THREADS_SQL = (
-    "SELECT incident_id, slack_ts, thread_seen_ts FROM incidents"
+    "SELECT incident_id, slack_ts, thread_seen_ts,"
+    " coalesce(slack_channel_id, %s) FROM incidents"
     " WHERE slack_ts IS NOT NULL AND brief_delivered_at IS NOT NULL"
     f"  AND brief_delivered_at > now() - interval '{THREAD_WINDOW_HOURS} hours'"
     " ORDER BY brief_delivered_at DESC LIMIT %s")
@@ -129,10 +130,11 @@ def poll_threads(conn, embedder, composer, client, channel: str, *,
                  sink: Sink | None = None, limit: int = 20) -> int:
     """Answer new replies in threads we have briefed. Returns replies posted."""
     posted = 0
-    for incident_id, thread_ts, seen_ts in conn.execute(
-            _OPEN_THREADS_SQL, (limit,)).fetchall():
+    for incident_id, thread_ts, seen_ts, thread_channel in conn.execute(
+            _OPEN_THREADS_SQL, (channel, limit)).fetchall():
         try:
-            resp = client.conversations_replies(channel=channel, ts=thread_ts,
+            # the stored ID, not the #name: conversations.replies rejects names
+            resp = client.conversations_replies(channel=thread_channel, ts=thread_ts,
                                                 oldest=seen_ts or thread_ts)
             messages = list(resp["messages"] or [])
         except Exception as exc:
@@ -149,7 +151,8 @@ def poll_threads(conn, embedder, composer, client, channel: str, *,
             if seen_ts and message["ts"] <= seen_ts:
                 continue                        # already answered
             answer = answer_question(conn, embedder, composer, message["text"])
-            client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=answer)
+            client.chat_postMessage(channel=thread_channel, thread_ts=thread_ts,
+                                    text=answer)
             posted += 1
             newest = message["ts"] if not newest else max(newest, message["ts"])
         if newest and newest != seen_ts:

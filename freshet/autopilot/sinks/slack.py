@@ -68,6 +68,9 @@ class SlackSink:
         self._channel = channel
         self._dry_run = dry_run
         self._client = client  # injection seam for tests; None in production
+        # Slack returns the channel ID on every post. conversations.replies needs
+        # that ID, and resolving a #name would need a scope we do not have.
+        self.last_channel_id: str | None = None
         self._sleep = sleep    # injection seam: tests must not actually back off
 
     @property
@@ -96,7 +99,10 @@ class SlackSink:
             try:
                 resp = client.chat_postMessage(channel=self._channel, text=text,
                                                blocks=blocks, thread_ts=thread)
-                return resp["ts"] if resp is not None else None
+                if resp is None:
+                    return None
+                self.last_channel_id = resp.get("channel") or self.last_channel_id
+                return resp["ts"]
             except Exception as exc:
                 if attempt == MAX_ATTEMPTS:
                     raise

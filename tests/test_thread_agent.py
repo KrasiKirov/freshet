@@ -33,8 +33,11 @@ def test_our_own_messages_are_never_answered():
 
 
 class _Conn:
-    def __init__(self, rows):
-        self.rows, self.executed = rows, []
+    """Rows are (incident_id, slack_ts, seen_ts); the channel id column is
+    appended here the way coalesce(slack_channel_id, %s) returns it."""
+    def __init__(self, rows, channel_id="C123"):
+        self.rows = [(r + (channel_id,)) if len(r) == 3 else r for r in rows]
+        self.executed = []
 
     def execute(self, sql, params=None):
         self.executed.append((sql, params))

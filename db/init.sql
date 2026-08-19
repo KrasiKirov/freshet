@@ -130,6 +130,12 @@ ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_needed boolean NOT NUL
 -- responder re-answers the whole thread on every poll.
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS thread_seen_ts text;
 
+-- The channel ID Slack returned when the brief was posted. chat.postMessage
+-- accepts a #name, but conversations.replies requires the ID and resolving a
+-- name needs channels:read — a scope the bot does not have and does not need,
+-- because the post response already carries the ID.
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS slack_channel_id text;
+
 -- Proof the pipeline was actually up. Freshness scores how fast an update became
 -- queryable, but "ts >= min(indexed_at)" only excludes BACKFILL — it cannot tell
 -- a slow pipeline from a stopped one. After a 14-hour outage the catch-up burst

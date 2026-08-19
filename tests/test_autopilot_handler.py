@@ -23,7 +23,9 @@ class _FakeConn:
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
         row, rows = None, []
-        if "postmortem_needed" in sql and "RETURNING" in sql:
+        if "slack_ts IS NOT NULL" in sql:
+            rows = []                       # thread polling is not under test here
+        elif "postmortem_needed" in sql and "RETURNING" in sql:
             row = ("INC_1", "api", self.slack_ts) if self.postmortem_needed else None
         elif "RETURNING" in sql:
             row = ("INC_1",) if self.claim_ok else None
@@ -168,7 +170,8 @@ def test_drain_delivers_a_due_brief_once(monkeypatch):
     conn, sink = _FakeConn(), _RecordingSink(handle="9.9")
     assert consumer.drain_due_briefs(conn, sink=sink) == 1
     assert len(sink.calls) == 1
-    assert any("brief_delivered_at = now()" in q and p == ("9.9", "INC_1")
+    # params are (slack_ts, slack_channel_id, incident_id)
+    assert any("brief_delivered_at = now()" in q and p == ("9.9", None, "INC_1")
                for q, p in conn.executed)
 
 

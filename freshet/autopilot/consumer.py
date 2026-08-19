@@ -49,7 +49,9 @@ _POSTMORTEM_CLAIM_SQL = (
 # delivered brief with no slack_ts, and the postmortem would post unthreaded.
 _MARK_BRIEF_SQL = ("UPDATE incidents SET brief_delivered_at = now(),"
                    " brief_due_at = NULL,"
-                   " slack_ts = coalesce(%s, slack_ts) WHERE incident_id = %s")
+                   " slack_ts = coalesce(%s, slack_ts),"
+                   " slack_channel_id = coalesce(%s, slack_channel_id)"
+                   " WHERE incident_id = %s")
 _MARK_POSTMORTEM_SQL = ("UPDATE incidents SET postmortem_delivered_at = now()"
                         " WHERE incident_id = %s")
 _GET_SLACK_TS_SQL = "SELECT slack_ts FROM incidents WHERE incident_id = %s"
@@ -127,11 +129,12 @@ def wait_for_index(conn, incident_id: str, timeout_s: float = 10.0,
         sleep(0.5)
 
 
-def mark_brief_delivered(conn, incident_id: str, slack_ts: str | None = None) -> None:
+def mark_brief_delivered(conn, incident_id: str, slack_ts: str | None = None,
+                         channel_id: str | None = None) -> None:
     """Record that the sink accepted the brief, and the thread id it returned.
     Delivery is final: no expired lease may re-post it. Only ever called after
     deliver() RETURNS — a sink that fails raises, and the claim is released."""
-    conn.execute(_MARK_BRIEF_SQL, (slack_ts, incident_id))
+    conn.execute(_MARK_BRIEF_SQL, (slack_ts, channel_id, incident_id))
 
 
 def mark_postmortem_delivered(conn, incident_id: str) -> None:
@@ -227,7 +230,8 @@ def drain_due_briefs(conn, *, sink: Sink, limit: int = 10,
             # due_at stays set: the next idle tick retries this incident.
             release_incident(conn, incident_id)
             raise
-        mark_brief_delivered(conn, incident_id, ts)
+        mark_brief_delivered(conn, incident_id, ts,
+                             getattr(sink, "last_channel_id", None))
         delivered += 1
         # The brief has landed, so a postmortem deferred during the debounce
         # window can finally be posted — threaded under the brief we just sent.
