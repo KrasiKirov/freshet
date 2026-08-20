@@ -10,6 +10,7 @@ evidence before the brief is rendered."""
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import signal
 import threading
@@ -23,6 +24,9 @@ from freshet.pipeline.embedding import make_embedder
 from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC
 from freshet.rag.budget import BudgetedComposer
 from freshet.rag.composer import make_composer
+from freshet.rag.retrieval import check_index_model
+
+log = logging.getLogger(__name__)
 
 
 def _handle(conn, raw: str, window_s: float, sink, embedder) -> None:
@@ -57,6 +61,13 @@ def main() -> None:
     composer = BudgetedComposer(make_composer(), conn)
     sink = make_sink(args.sink)
     drain = DrainThrottle()
+    # Refuse to run against an index built by a different embedder. Vectors from
+    # two models are not comparable, so every query collapses toward zero and
+    # abstains — indistinguishable from "no relevant evidence" unless something
+    # checks. This guard lost its only caller when the query API was deleted.
+    warning = check_index_model(conn, embedder)
+    if warning:
+        log.warning("[autopilot] %s", warning)
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())

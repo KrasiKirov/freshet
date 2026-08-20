@@ -67,3 +67,42 @@ def test_real_embedders_expose_a_name():
     st = pytest.importorskip("sentence_transformers")  # noqa: F841
     from freshet.pipeline.embedding import make_embedder
     assert make_embedder("bge").name == "BAAI/bge-base-en-v1.5"
+
+
+def test_production_indexing_cannot_select_the_stub():
+    """StubEmbedder produces random unit vectors. It exists for tests and CI, and
+    pointing the real indexer at it filled the index with noise that looked like
+    data — every query abstained until the provenance column revealed why."""
+    import argparse
+    import contextlib
+    import io
+
+    from freshet.pipeline import embedder
+
+    parser_choices = None
+    real_parse = argparse.ArgumentParser.parse_args
+
+    def _capture(self, *a, **k):
+        nonlocal parser_choices
+        for action in self._actions:
+            if action.dest == "embedder":
+                parser_choices = action.choices
+        raise SystemExit(0)
+
+    argparse.ArgumentParser.parse_args = _capture
+    try:
+        with contextlib.suppress(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            embedder.main()
+    finally:
+        argparse.ArgumentParser.parse_args = real_parse
+
+    assert parser_choices == ["bge"], f"production must not offer a stub: {parser_choices}"
+
+
+def test_the_guard_is_wired_into_the_running_agent():
+    """It lost its only caller when the query API was deleted, becoming dead code."""
+    import inspect
+
+    from freshet.autopilot import __main__ as entry
+
+    assert "check_index_model(conn, embedder)" in inspect.getsource(entry.main)

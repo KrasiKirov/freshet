@@ -4,7 +4,7 @@ chunk_id derives from event_id, so redelivered or replayed events overwrite
 their own row instead of duplicating (at-least-once + idempotent = effectively
 once in the index). Long texts are chunked; each chunk is its own idempotent row.
 
-Run (stack up first; use --embedder stub to skip the model download):
+Run (stack up first):
     python -m freshet.pipeline.embedder --brokers localhost:9092
 """
 
@@ -252,7 +252,12 @@ def main() -> None:
     p.add_argument("--brokers", default="localhost:9092")
     p.add_argument("--group", default="embedder")
     p.add_argument("--max", type=int, default=None)
-    p.add_argument("--embedder", choices=["stub", "bge"], default="bge")
+    # No `stub` here on purpose. StubEmbedder exists so unit tests and CI run
+    # without a 440MB download, but it produces random unit vectors — pointing the
+    # real indexer at it silently fills the index with noise that looks like data,
+    # which is exactly what happened once and made every query abstain. Tests
+    # construct StubEmbedder() directly; production has no way to reach it.
+    p.add_argument("--embedder", choices=["bge"], default="bge")
     p.add_argument("--dsn", default=None)
     p.add_argument("--metrics-port", type=int, default=8002, help="Prometheus /metrics port (0 disables)")
     p.add_argument("--idle-timeout", type=float, default=None, help="exit after N seconds without messages (replay)")

@@ -40,7 +40,8 @@ class Severity(str, Enum):
     SEV4 = "SEV4"
 
 
-# Open vocabulary, but these are the canonical types the generator emits.
+# Open vocabulary. Live status feeds only ever emit 'status_update'; the rest
+# are retained because the schema is shared with the incident/brief path.
 class EventType(str, Enum):
     ERROR_SPIKE = "error_spike"
     LATENCY_SPIKE = "latency_spike"
