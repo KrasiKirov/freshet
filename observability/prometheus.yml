@@ -16,3 +16,4 @@ scrape_configs:
           - "host.docker.internal:8002"   # embedder 1
           - "host.docker.internal:8003"   # embedder 2 (scaling demo)
           - "host.docker.internal:8004"   # embedder 3 (scaling demo)
+          - "host.docker.internal:8005"   # poller (ingest stage)

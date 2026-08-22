@@ -34,6 +34,13 @@ from freshet.common.kafka_io import BufferedProducer
 from freshet.ingest.registry import Page, load_pages
 from freshet.ingest.sources import IncidentUpdate
 from freshet.ingest.statuspage import parse_atom
+from freshet.pipeline.metrics import (
+    POLL_BACKOFF_HOSTS,
+    POLL_FETCH,
+    POLL_SWEEP_SECONDS,
+    POLL_UPDATES,
+    start_metrics_server,
+)
 
 log = logging.getLogger(__name__)
 
@@ -277,6 +284,7 @@ def poll_once(pages: list[Page], fetch: FetchFn,
     """
     def one(page: Page) -> list[IncidentUpdate]:
         if backoff is not None and backoff.skip(page.url):
+            POLL_FETCH.labels(provider=page.provider, status="skipped").inc()
             return []
         try:
             status, headers, body = fetch(page.url, cache.headers_for(page.url))
@@ -286,9 +294,11 @@ def poll_once(pages: list[Page], fetch: FetchFn,
             log.warning("poll failed provider=%s err=%s (backing off %.0fs%s)",
                         page.provider, exc, delay,
                         ", as instructed" if after is not None else "")
+            POLL_FETCH.labels(provider=page.provider, status="error").inc()
             return []
         if backoff is not None:
             backoff.succeeded(page.url)
+        POLL_FETCH.labels(provider=page.provider, status=str(status)).inc()
         if status == 304 or not body:
             return []
         found = parse_atom(page.provider, body)
@@ -300,6 +310,7 @@ def poll_once(pages: list[Page], fetch: FetchFn,
             log.warning("poll parsed 0 updates provider=%s bytes=%d "
                         "(validator not stored; will refetch)", page.provider, len(body))
             return []
+        POLL_UPDATES.labels(provider=page.provider).inc(len(found))
         cache.remember(page.url, headers)
         return found
 
@@ -330,8 +341,9 @@ def to_message(update: IncidentUpdate) -> dict:
 
 
 def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
-        max_sweeps: int | None = None) -> int:
+        max_sweeps: int | None = None, metrics_port: int = 0) -> int:
     """Poll until stopped, producing every observed update to Kafka."""
+    start_metrics_server(metrics_port)
     pages = load_pages()
     cache = ConditionalCache()
     backoff = HostBackoff()
@@ -346,6 +358,9 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
     produced = sweeps = 0
     while max_sweeps is None or sweeps < max_sweeps:
         started = time.monotonic()
+        # `swept` is THIS sweep; `produced` is the run total. Logging the running
+        # total as though it were the sweep's count made a backfill drain unreadable.
+        swept = 0
         # One buffered batch per sweep, flushed and checked at the end: a
         # synchronous produce per update paid a round trip 3,600 times a sweep.
         # flush_checked raises on any failed delivery, so a sweep cannot report
@@ -353,12 +368,16 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
         for update in poll_once(pages, http_fetch, cache, backoff):
             producer.produce(RAW_TOPIC, json.dumps(to_message(update)),
                              key=update.partition_key)
-            produced += 1
+            swept += 1
+        produced += swept
         producer.flush_checked()
         cache.save(backoff)
         sweeps += 1
         elapsed = time.monotonic() - started
-        log.info("sweep %d done in %.1fs (%d produced)", sweeps, elapsed, produced)
+        POLL_SWEEP_SECONDS.observe(elapsed)
+        POLL_BACKOFF_HOSTS.set(backoff.active_count())
+        log.info("sweep %d done in %.1fs (%d this sweep, %d total)",
+                 sweeps, elapsed, swept, produced)
         if max_sweeps is None or sweeps < max_sweeps:
             # Jitter EVERY sweep. Staggering only the first one left the cadence at
             # a fixed 60s, so each host was hit at the same second of every minute
@@ -374,10 +393,15 @@ def main() -> None:
     parser.add_argument("--interval", type=float, default=POLL_INTERVAL_S)
     parser.add_argument("--sweeps", type=int, default=None,
                         help="stop after N sweeps (default: run forever)")
+    # 8001-8004 are taken by the normalizer and the embedder scaling demo; a
+    # collision would only log a warning and silently export nothing.
+    parser.add_argument("--metrics-port", type=int, default=8005,
+                        help="Prometheus /metrics port (0 disables)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
-    run(args.brokers, interval_s=args.interval, max_sweeps=args.sweeps)
+    run(args.brokers, interval_s=args.interval, max_sweeps=args.sweeps,
+        metrics_port=args.metrics_port)
 
 
 if __name__ == "__main__":

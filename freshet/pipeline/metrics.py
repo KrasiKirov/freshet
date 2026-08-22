@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from prometheus_client import Counter, Histogram, start_http_server
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +51,32 @@ PIPELINE_LATENCY = Histogram(
     buckets=LATENCY_BUCKETS,
 )
 
+
+# --- ingest stage ---
+# The poller had no metrics at all: the stage that determines freshness and talks to
+# 42 third parties was the one you could not see. `freshet_poll_updates_parsed`
+# dropping to zero for one provider, or jumping an order of magnitude, is the signal
+# that catches an adapter regression in an hour rather than by querying the index
+# months later — which is exactly how the openai amplification was found.
+POLL_FETCH = Counter(
+    "freshet_poll_fetch_total",
+    "Feed fetches by provider and outcome (200 / 304 / error / skipped)",
+    ["provider", "status"],
+)
+POLL_UPDATES = Counter(
+    "freshet_poll_updates_parsed_total",
+    "Updates parsed out of a feed body, by provider",
+    ["provider"],
+)
+POLL_BACKOFF_HOSTS = Gauge(
+    "freshet_poll_backoff_hosts",
+    "Hosts currently skipped because they are backing off",
+)
+POLL_SWEEP_SECONDS = Histogram(
+    "freshet_poll_sweep_seconds",
+    "Wall time for one sweep over every feed",
+    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0),
+)
 
 UNKNOWN_WIRE_VERSION = Counter(
     "freshet_unknown_wire_version_total",
