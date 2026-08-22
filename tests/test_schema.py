@@ -91,3 +91,28 @@ def test_type_stays_an_open_vocabulary_string():
     the topic."""
     ev = Event(service="s", source=EventSource.ALERT, type="deploy_started")
     assert ev.type == "deploy_started"
+
+
+def test_a_naive_timestamp_is_coerced_to_utc():
+    """Postgres `timestamptz` interprets a naive value in the SESSION time zone,
+    so an offset-less message silently shifts every freshness number this
+    project exists to measure."""
+    e = Event.model_validate_json(
+        '{"service":"s","source":"alert","type":"x","ts":"2026-08-22T10:00:00"}')
+    assert e.ts.tzinfo is not None
+    assert e.ts == datetime(2026, 8, 22, 10, 0, tzinfo=UTC)
+
+
+def test_an_offset_bearing_timestamp_keeps_its_instant():
+    e = Event.model_validate_json(
+        '{"service":"s","source":"alert","type":"x","ts":"2026-08-22T10:00:00-04:00"}')
+    assert e.ts == datetime(2026, 8, 22, 14, 0, tzinfo=UTC)
+
+
+def test_the_optional_pipeline_timestamps_are_coerced_too():
+    e = Event.model_validate_json(
+        '{"service":"s","source":"alert","type":"x","ts":"2026-08-22T10:00:00Z",'
+        '"ingested_at":"2026-08-22T10:00:01","indexed_at":"2026-08-22T10:00:02"}')
+    assert e.ingested_at.tzinfo is not None
+    assert e.indexed_at.tzinfo is not None
+    assert e.pipeline_latency_s() == 1.0
