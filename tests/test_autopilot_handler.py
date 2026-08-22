@@ -62,11 +62,12 @@ def _pm():
 
 def _open_json(ts=None):
     stamp = ts or datetime.now(UTC).isoformat()
-    return LifecycleEvent("opened", "INC_1", "api", stamp).to_json()
+    return LifecycleEvent(type="opened", incident_id="INC_1", service="api", ts=stamp).to_json()
 
 
 def _resolved_json():
-    return LifecycleEvent("resolved", "INC_1", "api", "2026-07-01T00:00:00+00:00").to_json()
+    return LifecycleEvent(type="resolved", incident_id="INC_1", service="api",
+                          ts="2026-07-01T00:00:00+00:00").to_json()
 
 
 def test_resolved_posts_postmortem_threaded_under_slack_ts(monkeypatch):
@@ -263,7 +264,7 @@ def test_drain_waits_for_the_embedder_then_briefs_anyway(monkeypatch):
 def _open_json_aged(hours):
     from datetime import UTC, datetime, timedelta
     ts = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
-    return LifecycleEvent("opened", "INC_OLD", "api", ts).to_json()
+    return LifecycleEvent(type="opened", incident_id="INC_OLD", service="api", ts=ts).to_json()
 
 
 def test_a_stale_open_is_not_scheduled(capsys):
