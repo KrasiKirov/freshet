@@ -7,11 +7,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 
-from freshet.autopilot.brief import (
-    Findings,
-    cause_from_updates,
-    findings_from_updates,
-)
+from freshet.autopilot.brief import Findings, cause_from_updates, update_lines
 from freshet.autopilot.impact import estimate_impact
 from freshet.rag.budget import BudgetExhausted
 
@@ -119,7 +115,7 @@ def gather_findings(conn, service: str, incident_id: str, status: str,
     # Cause/fix is kept for corpora that contain change events; the update
     # timeline is ADDED, not substituted, because status feeds have none. It is
     # sourced by direct lookup so the brief cannot cite a different incident.
-    f.updates = findings_from_updates(service, status, own, runbook).updates
+    f.updates = update_lines(own)
     # Change events give the strongest cause, but status feeds have none. Fall
     # back to the provider's own words IF an update actually states a cause.
     if not f.cause_text:
@@ -186,7 +182,7 @@ def gather_postmortem(conn, service: str, incident_id: str,
     stated = cause_from_updates(own)
     if stated:
         f.cause_text, f.cause_cite = stated
-    f.updates = findings_from_updates(service, "resolved", own, runbook).updates
+    f.updates = update_lines(own)
     f.impact = _impact_for(conn, incident_id, service, own)
     if embedder is not None and own:
         f.recurrence = _recurrence_for(conn, embedder, service, incident_id, own)
