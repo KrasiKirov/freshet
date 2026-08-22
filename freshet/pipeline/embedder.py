@@ -11,6 +11,7 @@ Run (stack up first):
 from __future__ import annotations
 
 import argparse
+import logging
 import signal
 import threading
 import time
@@ -28,8 +29,11 @@ from freshet.pipeline.metrics import (
     FRESHNESS,
     INDEXED_EVENTS,
     PIPELINE_LATENCY,
+    UNKNOWN_WIRE_VERSION,
     start_metrics_server,
 )
+
+log = logging.getLogger(__name__)
 
 # Produced by the Flink dedup job (freshet/stream/dedup_job.py). The poller is
 # stateless and writes raw.incidents; everything downstream of dedup reads this.
@@ -139,6 +143,12 @@ def observe_indexed(rec: VectorRecord, ingested_at: datetime | None = None) -> N
 # so one poison event cannot crash-loop the worker (crash → redelivery → crash).
 EMBED_ATTEMPTS = 3
 
+# Versions this worker knows how to interpret. A higher one is NOT an error — the
+# fields it does understand are still valid, and dead-lettering would drain a whole
+# producer rollout — but it must not pass silently, or a half-migrated producer is
+# indistinguishable from a healthy pipeline.
+KNOWN_WIRE_VERSIONS = frozenset({1})
+
 
 def make_handler(conn, emb: Embedder, producer, *,
                  heartbeat: Heartbeat | None = None,
@@ -167,6 +177,10 @@ def make_handler(conn, emb: Embedder, producer, *,
         except Exception as e:
             _dead_letter(str(e), value)
             return
+        if ev.v not in KNOWN_WIRE_VERSIONS:
+            UNKNOWN_WIRE_VERSION.inc()
+            log.warning("event %s carries wire version %d; this worker knows %s",
+                        ev.event_id, ev.v, sorted(KNOWN_WIRE_VERSIONS))
         records = records_for_event(ev)
         if not records:
             return

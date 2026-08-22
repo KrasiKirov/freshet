@@ -98,6 +98,13 @@ stream: flink-dist ##run
 stream-stop: ##run
 	@$(FLINK_HOME)/bin/stop-cluster.sh
 
+# What the stream job read vs what it emitted, per operator. json.ignore-parse-errors
+# drops non-JSON rows before they ever become rows, so they cannot be dead-lettered —
+# but the source still counted them. A source whose count climbs while the operators
+# behind it stay flat is a producer that has drifted from the schema.
+stream-health: ##run
+	@$(PYTHON) -m freshet.stream.health
+
 embedder: ##run
 	$(PYTHON) -m freshet.pipeline.embedder
 

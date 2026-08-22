@@ -36,6 +36,10 @@ log = logging.getLogger(__name__)
 RAW_TOPIC = "raw.incidents"
 USER_AGENT = "freshet/2.0 (+https://github.com/KrasiKirov/freshet)"
 MAX_WORKERS = 12
+# Wire-format version on raw.incidents. Bump when a field changes meaning; consumers
+# report an unknown version rather than guessing. Two renames have already shipped
+# without one and each needed a shim written after the fact.
+WIRE_VERSION = 1
 TIMEOUT_S = 15.0
 POLL_INTERVAL_S = 60.0
 
@@ -226,6 +230,7 @@ def to_message(update: IncidentUpdate) -> dict:
     """Wire form. `created_at` stays ISO so the Flink job can assign event time
     without needing this module."""
     return {
+        "v": WIRE_VERSION,
         "provider": update.provider,
         "incident_id": update.incident_id,
         "update_id": update.update_id,

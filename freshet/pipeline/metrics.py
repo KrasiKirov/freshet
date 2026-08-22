@@ -52,6 +52,12 @@ PIPELINE_LATENCY = Histogram(
 )
 
 
+UNKNOWN_WIRE_VERSION = Counter(
+    "freshet_unknown_wire_version_total",
+    "Events carrying a wire version this worker does not know",
+)
+
+
 def start_metrics_server(port: int) -> None:
     """Expose /metrics on the given port; 0 disables (tests, library callers).
 

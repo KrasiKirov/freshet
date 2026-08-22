@@ -133,3 +133,16 @@ def test_a_body_that_parses_stores_its_validator():
     poll_once(ONE, fetch, cache)
     poll_once(ONE, fetch, cache)
     assert seen[1]["If-None-Match"] == 'W/"abc"'
+
+
+def test_the_wire_message_carries_a_schema_version():
+    """Two field renames have already shipped without one — `status` -> `type` on
+    the lifecycle topic and `title` added to Event — and each needed a
+    compatibility shim written after the fact against unversioned records."""
+    from freshet.ingest.poller import WIRE_VERSION, to_message
+
+    def fetch(url, headers):
+        return 200, {}, _feed("i1", "2026-08-18T11:42:00Z")
+
+    [update] = poll_once(PAGES[:1], fetch, ConditionalCache())
+    assert to_message(update)["v"] == WIRE_VERSION

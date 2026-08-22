@@ -21,6 +21,9 @@
 -- Embedding stays out of this job so it can scale on its own axis.
 
 CREATE TABLE raw_incidents (
+  -- Wire-format version. NULL for the unversioned records still on the topic;
+  -- coalesced to 1 downstream.
+  v             INT,
   provider      STRING,
   incident_id   STRING,
   update_id     STRING,
@@ -46,6 +49,7 @@ CREATE TABLE raw_incidents (
 );
 
 CREATE TABLE normalized_updates (
+  v            INT,
   event_id     STRING,
   ts           TIMESTAMP_LTZ(3),
   ingested_at  TIMESTAMP_LTZ(3),
@@ -175,7 +179,8 @@ INSERT INTO normalized_updates
 -- Emits the project's canonical Event shape (freshet/common/schemas.py), which is
 -- what the embedder, retrieval and Autopilot all speak. `ingested_at` is our
 -- processing time, so the gap to `ts` is the poll wait we do not control.
-SELECT provider || ':' || incident_id || ':' || update_id AS event_id,
+SELECT coalesce(v, 1) AS v,
+       provider || ':' || incident_id || ':' || update_id AS event_id,
        created_at   AS ts,
        proc_time    AS ingested_at,
        provider     AS service,
