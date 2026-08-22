@@ -272,7 +272,7 @@ def test_the_narrative_sees_a_bounded_window_of_updates():
             from datetime import UTC, datetime
             self.ts = datetime.now(UTC)
 
-    _summarise([_U(i) for i in range(200)], "svc", _C(), "q")
+    _summarise([_U(i) for i in range(200)], _C(), "q")
     assert seen["n"] == MAX_NARRATIVE_UPDATES == 20
 
 
@@ -292,7 +292,7 @@ def test_a_short_incident_is_not_padded_or_truncated():
             from datetime import UTC, datetime
             self.ts = datetime.now(UTC)
 
-    _summarise([_U(i) for i in range(3)], "svc", _C(), "q")
+    _summarise([_U(i) for i in range(3)], _C(), "q")
     assert seen["n"] == 3
 
 

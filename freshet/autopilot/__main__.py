@@ -29,15 +29,20 @@ from freshet.rag.retrieval import check_index_model
 log = logging.getLogger(__name__)
 
 
-def _handle(conn, raw: str, window_s: float, sink, embedder) -> None:
+def _handle(conn, raw: str, window_s: float, sink, embedder, composer) -> None:
     """consume_loop wants a None-returning handler; the count is only for tests."""
-    handle_and_drain(conn, raw, window_s=window_s, sink=sink, embedder=embedder)
+    handle_and_drain(conn, raw, window_s=window_s, sink=sink, embedder=embedder,
+                     composer=composer)
 
 
-def _idle(conn, sink, embedder, threads, drain) -> None:
+def _idle(conn, sink, embedder, threads, drain, composer) -> None:
     """Idle work: deliver anything due, then answer new Slack thread replies.
-    Both are throttled — the tick itself fires about once a second."""
-    drain(conn, sink=sink, embedder=embedder)
+    Both are throttled — the tick itself fires about once a second.
+
+    `composer` is the BUDGETED composer. Forwarding it is load-bearing: without
+    it the brief path builds its own and spends outside the cap.
+    """
+    drain(conn, sink=sink, embedder=embedder, composer=composer)
     if threads is not None:
         threads()
 
@@ -98,11 +103,11 @@ def main() -> None:
             args.brokers, args.group, [LIFECYCLE_TOPIC],
             # handle_and_drain, not handle_lifecycle: a due brief must not wait
             # for an idle poll that a busy partition never produces.
-            lambda v: _handle(conn, v, args.window_s, sink, embedder),
+            lambda v: _handle(conn, v, args.window_s, sink, embedder, composer),
             max_messages=args.max_messages, auto_commit=False, stop=stop,
             # Briefs are delivered here, not on the message path: the debounce is
             # a due-time in Postgres, so offsets commit while it elapses.
-            idle_hook=lambda: _idle(conn, sink, embedder, threads, drain),
+            idle_hook=lambda: _idle(conn, sink, embedder, threads, drain, composer),
         )
     finally:
         conn.close()

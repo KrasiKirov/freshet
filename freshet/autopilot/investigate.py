@@ -79,15 +79,24 @@ def _impact_for(conn, incident_id: str, service: str, hits) -> str:
 MAX_NARRATIVE_UPDATES = 20
 
 
-def _summarise(updates, service: str, composer, question: str) -> str | None:
+def _summarise(updates, composer, question: str) -> str | None:
     """One narrative path for briefs and postmortems alike. Both used to have
     their own: the postmortem's bypassed citation verification entirely, so it
-    could ship a fabricated citation that a brief never could."""
+    could ship a fabricated citation that a brief never could.
+
+    A missing composer is a programming error, not a cue to build one. The old
+    `composer or make_composer()` fallback silently produced an UNBUDGETED
+    composer whenever a caller forgot to forward its own — which every caller on
+    the brief path did, so briefs and postmortems were never counted or capped.
+    """
+    if composer is None:
+        raise ValueError(
+            "gather_findings/gather_postmortem need an explicit composer: "
+            "constructing one here bypasses the LLM budget. Pass the "
+            "BudgetedComposer the entrypoint built.")
     if not updates:
         return None
     updates = list(updates)[:MAX_NARRATIVE_UPDATES]   # newest first
-    from freshet.rag.composer import make_composer
-    composer = composer or make_composer()
     try:
         return composer.compose(question, updates)
     except BudgetExhausted:
@@ -126,7 +135,7 @@ def gather_findings(conn, service: str, incident_id: str, status: str,
     # short summary in this incident's own updates and every citation it emits is
     # verified against them. It summarises only — the Cause line stays a verbatim
     # provider quote, so the model never gets to diagnose.
-    f.narrative = _summarise(own, service, composer,
+    f.narrative = _summarise(own, composer,
                              f"What is happening with {service}? "
                              "Summarise in two sentences.")
     f.impact = _impact_for(conn, incident_id, service, own)
@@ -172,7 +181,7 @@ def gather_postmortem(conn, service: str, incident_id: str,
     duration = _format_duration(opened_at, resolved_at)
 
     own = fetch_incident_updates(conn, incident_id)
-    narrative = _summarise(own, service, composer,
+    narrative = _summarise(own, composer,
                            f"Summarise the resolved {service} incident in two sentences.")
     runbook = fetch_runbook(conn, service)
     summary = resolution_summary or "resolved"

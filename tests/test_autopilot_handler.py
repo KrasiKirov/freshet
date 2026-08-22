@@ -302,3 +302,42 @@ def test_an_exhausted_budget_defers_the_brief_instead_of_dropping_it(monkeypatch
     assert "brief_delivered_at = now()" not in sql
     assert "brief_due_at = NULL" not in sql, "the due-time must survive"
     assert sink.calls == []
+
+
+def test_the_brief_path_refuses_to_run_without_a_composer():
+    """main() built a BudgetedComposer and gave it to the thread poller only.
+    _idle and _handle forwarded none, so the brief path fell through to
+    `composer or make_composer()` and built a bare, UNBUDGETED composer —
+    meaning the dominant LLM consumer, billed twice per incident, was never
+    counted or capped. A missing composer is now a programming error."""
+    from freshet.autopilot import investigate
+
+    class _Conn:
+        def execute(self, sql, params=None):
+            self._sql = sql
+            return self
+
+        def fetchall(self):
+            if "GROUP BY event_id" in self._sql:
+                return [("evt_1", datetime(2026, 8, 22, 10, 0, tzinfo=UTC),
+                         "Errors are elevated.", "api", "status_update", "alert")]
+            return []
+
+        def fetchone(self):
+            return None
+
+    with pytest.raises(ValueError, match="composer"):
+        investigate.gather_findings(_Conn(), "api", "INC_1", "open")
+
+
+def test_the_autopilot_idle_tick_forwards_its_composer():
+    """A regression guard on the wiring itself: the budget only binds if the
+    budgeted composer actually reaches drain_due_briefs."""
+    import inspect
+
+    from freshet.autopilot import __main__ as entry
+
+    assert "composer" in inspect.signature(entry._idle).parameters
+    assert "composer" in inspect.signature(entry._handle).parameters
+    assert "composer=composer" in inspect.getsource(entry._idle)
+    assert "composer=composer" in inspect.getsource(entry._handle)
