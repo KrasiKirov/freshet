@@ -102,10 +102,20 @@ class Cited(Protocol):
     because `_Update` only duck-types it.
     """
 
-    event_id: str
-    ts: datetime
-    text: str
-    source: str
+    # Read-only properties, not bare attributes: `investigate._Update` is a
+    # FROZEN dataclass, and a frozen field cannot satisfy a mutable protocol
+    # member. Nothing here ever writes to a hit, so read-only is also honest.
+    @property
+    def event_id(self) -> str: ...
+
+    @property
+    def ts(self) -> datetime: ...
+
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def source(self) -> str: ...
 
 
 class Composer(Protocol):

@@ -332,3 +332,27 @@ def test_a_long_update_is_clipped_at_a_sentence_boundary_not_mid_word():
     body = body[:body.rindex(" [")]
     assert body.endswith("...")
     assert body.removesuffix("...").endswith("requests."), body
+
+
+def test_a_brief_and_a_postmortem_are_assembled_by_the_same_code():
+    """They were ~80% duplicated, in different orders, and the drift was real:
+    the postmortem's narrative once bypassed citation verification entirely."""
+    import inspect
+
+    from freshet.autopilot import investigate
+
+    for fn in (investigate.gather_findings, investigate.gather_postmortem):
+        assert "_gather(" in inspect.getsource(fn), f"{fn.__name__} still duplicates"
+
+
+def test_an_incident_update_satisfies_the_composer_protocol():
+    """`_Update` structurally duck-typed RetrievedHit, and compose() was
+    annotated list[RetrievedHit] — a lie mypy could not see."""
+    from datetime import UTC, datetime
+
+    from freshet.autopilot.investigate import _Update
+    from freshet.rag.composer import Cited
+
+    u = _Update(event_id="evt_1", ts=datetime.now(UTC), text="x",
+                service="api", type="status_update")
+    assert isinstance(u, Cited)
