@@ -163,6 +163,11 @@ calibrate-abstention: ##eval
 	@# Proposes an abstention floor from paraphrased live labels. Never writes it.
 	$(PYTHON) -m freshet.eval.calibrate_abstention
 
+index-stats: ##eval
+	@# Recompute the index centroid that the abstention floor is measured against.
+	@# Re-run after a bulk re-index; a few minutes of drift is immaterial.
+	$(PYTHON) -m freshet.pipeline.index_stats $(ARGS)
+
 label-live: ##eval
 	@# Curate cause labels from the LIVE index (LLM judge; output is draft).
 	$(PYTHON) -m freshet.eval.label_live
