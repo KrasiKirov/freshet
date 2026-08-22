@@ -78,6 +78,39 @@ Neither justified its cost.
 and the shipped 30-minute default underflowed every score to 0.0 at realistic
 event ages — a feature that silently did nothing.
 
+## Embedding audit remediation
+
+Measured against a frozen snapshot of the live index (`freshet_embed_audit`,
+12,155 chunks / 7,166 events / 42 providers, all `BAAI/bge-base-en-v1.5`) so
+before/after numbers are comparable — the live index grows under a running
+poller and moved 11,069 -> 12,155 chunks during the audit itself. Findings and
+baselines: `docs/embedding-audit.md`.
+
+### F2 — the abstention metric could not fail
+
+`_main_live` excluded the query's own document from the ranking metrics via
+`dedupe_events`, but the abstention count came from `hybrid_search`'s internal
+hits, which still contained it. The live labels are verbatim indexed update
+text, so the top similarity was a near-self-match: the reported "0 on-corpus
+abstentions" was measuring "is this exact text in the index", which is trivially
+yes. `exclude_event_id` now drops that document in SQL, so both arms, both
+ranking metrics and the abstention decision see one candidate set.
+
+| arm | recall@5 before | after | mrr before | after |
+|---|---|---|---|---|
+| hybrid | 0.455 | 0.455 | 0.321 | 0.326 |
+| vector_only | 0.436 | 0.436 | 0.303 | 0.306 |
+| keyword_only | 0.345 | 0.345 | 0.254 | 0.260 |
+
+| abstention | before | after |
+|---|---|---|
+| on-corpus (of 55) | 0 | **4** |
+| off-corpus (of 6) | 6 | 6 |
+
+No `recall@5` moved. The small MRR shifts are the SQL-level exclusion changing
+which rows fill the per-arm `LIMIT`. The corrected on-corpus figure of 4/55 is
+the honest one, and it is the number F1's floor work is measured against.
+
 ## Honest limits
 
 - **4% of incidents state a cause.** The brief quotes the provider's sentence when

@@ -20,22 +20,30 @@ _VEC_SIM_IDX = 9        # vector arm: ..., title, similarity
 _KW_SIM_IDX = 10        # keyword arm: ..., title, rank, similarity
 
 
-def _where(service: str | None, since: datetime | None) -> str:
+def _where(service: str | None, since: datetime | None,
+           exclude_event_id: str | None = None) -> str:
     clauses = []
     if service is not None:
         clauses.append("service = %(service)s")
     if since is not None:
         clauses.append("ts >= %(since)s")
+    # Drops the query's OWN document. When the query is text lifted from an
+    # indexed update, that update is trivially its own top hit — and because
+    # abstention keys off the top similarity, leaving it in makes the
+    # abstention metric structurally incapable of firing.
+    if exclude_event_id is not None:
+        clauses.append("event_id <> %(exclude_event_id)s")
     return (" WHERE " + " AND ".join(clauses)) if clauses else ""
 
 
-def vector_sql(service: str | None, since: datetime | None) -> str:
+def vector_sql(service: str | None, since: datetime | None,
+               exclude_event_id: str | None = None) -> str:
     # chunk_id breaks distance ties deterministically: without it, tied rows come
     # back in physical heap order, which shifts run-to-run (the eval DELETEs and
     # re-INSERTs every run) and makes the benchmark non-reproducible.
     return (
         f"SELECT {_COLS}, 1 - (embedding <=> %(qvec)s::vector) AS similarity"
-        " FROM vector_records" + _where(service, since) +
+        " FROM vector_records" + _where(service, since, exclude_event_id) +
         " ORDER BY embedding <=> %(qvec)s::vector, chunk_id LIMIT %(k)s"
     )
 
@@ -51,8 +59,9 @@ def vector_sql(service: str | None, since: datetime | None) -> str:
 _OR_TSQUERY = "replace(websearch_to_tsquery('english', %(q)s)::text, '&', '|')::tsquery"
 
 
-def keyword_sql(service: str | None, since: datetime | None) -> str:
-    where = _where(service, since)
+def keyword_sql(service: str | None, since: datetime | None,
+                exclude_event_id: str | None = None) -> str:
+    where = _where(service, since, exclude_event_id)
     match = f"text_tsv @@ {_OR_TSQUERY}"
     where = (where + " AND " + match) if where else (" WHERE " + match)
     # ts_rank produces many ties across terse operational events, so rank alone
@@ -148,6 +157,7 @@ def hybrid_search(
     service: str | None = None,
     since: datetime | None = None,
     min_similarity: float | None = None,
+    exclude_event_id: str | None = None,
 ) -> HybridResult:
     # None -> abstention floor from the embedder's per-model attribute.
     if min_similarity is None:
@@ -158,9 +168,11 @@ def hybrid_search(
         params["service"] = service
     if since is not None:
         params["since"] = since
+    if exclude_event_id is not None:
+        params["exclude_event_id"] = exclude_event_id
 
-    vec_rows = conn.execute(vector_sql(service, since), params).fetchall()
-    kw_rows = conn.execute(keyword_sql(service, since), params).fetchall()
+    vec_rows = conn.execute(vector_sql(service, since, exclude_event_id), params).fetchall()
+    kw_rows = conn.execute(keyword_sql(service, since, exclude_event_id), params).fetchall()
 
     vec_map = _rows_to_map(vec_rows, _VEC_SIM_IDX)
     kw_map = _rows_to_map(kw_rows, _KW_SIM_IDX)

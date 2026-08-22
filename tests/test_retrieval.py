@@ -165,3 +165,46 @@ def test_abstention_uses_the_similarity_of_a_keyword_only_hit():
     # a strong lexical match whose cosine was measured, not defaulted
     assert should_abstain([0.82], min_similarity=0.70) is False
     assert should_abstain([0.0], min_similarity=0.70) is True
+
+
+def test_exclude_event_id_filters_both_arms():
+    """The query's own document must leave the candidate set BEFORE ranking and
+    abstention, not just before the eval's dedupe — otherwise a query lifted
+    from an indexed update abstains on nothing, trivially."""
+    from freshet.rag.retrieval import keyword_sql, vector_sql
+
+    vec = vector_sql(None, None, exclude_event_id="prov:inc:upd")
+    kw = keyword_sql(None, None, exclude_event_id="prov:inc:upd")
+    assert "event_id <> %(exclude_event_id)s" in vec
+    assert "event_id <> %(exclude_event_id)s" in kw
+    # and it composes with the existing filters rather than replacing them
+    both = vector_sql("acme", None, exclude_event_id="prov:inc:upd")
+    assert "service = %(service)s" in both
+    assert "event_id <> %(exclude_event_id)s" in both
+    # absent by default, so every existing caller is unchanged
+    assert "exclude_event_id" not in vector_sql(None, None)
+    assert "exclude_event_id" not in keyword_sql(None, None)
+
+
+def test_hybrid_search_binds_exclude_event_id():
+    """The value must travel as a bound parameter, never interpolated."""
+    from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import hybrid_search
+
+    seen = []
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            seen.append((sql, params))
+
+            class _Cur:
+                def fetchall(self_inner):
+                    return []
+
+            return _Cur()
+
+    hybrid_search(FakeConn(), StubEmbedder(), "q", k=5, exclude_event_id="prov:inc:upd")
+    assert len(seen) == 2                       # both arms
+    for sql, params in seen:
+        assert "prov:inc:upd" not in sql        # not interpolated
+        assert params["exclude_event_id"] == "prov:inc:upd"

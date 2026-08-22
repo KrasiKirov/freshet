@@ -33,7 +33,10 @@ from freshet.common.schemas import Event, EventSource
 
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures/real"
 RESULTS = pathlib.Path("results/retrieval_eval.json")
-EVAL_DB = "freshet_eval"
+# Overridable so two agents working the same checkout in parallel do not
+# TRUNCATE each other's eval database mid-run. Mirrors FRESHET_TEST_DB, which
+# tests/integration/conftest.py already reads for the same reason.
+EVAL_DB = os.environ.get("FRESHET_EVAL_DB", "freshet_eval")
 K = 5
 
 # Hard negatives: on-call vocabulary for systems these five feeds never cover,
@@ -178,11 +181,13 @@ def _single_arm(conn, embedder, question: str, sql_fn, k: int,
     from freshet.rag.retrieval import vec_literal
 
     [qvec] = embedder.encode_query([question])
-    rows = conn.execute(sql_fn(None, None),
-                        {"qvec": vec_literal(qvec), "q": question, "k": k}).fetchall()
+    params: dict[str, Any] = {"qvec": vec_literal(qvec), "q": question, "k": k}
+    if exclude is not None:
+        params["exclude_event_id"] = exclude
+    rows = conn.execute(sql_fn(None, None, exclude), params).fetchall()
     seen: list[str] = []
     for r in rows:
-        if r[1] != exclude and r[1] not in seen:
+        if r[1] not in seen:
             seen.append(r[1])
     return seen
 
@@ -299,7 +304,7 @@ def _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder) -> None:
     for entry in labels["labeled"]:
         causes, q = set(entry["cause_event_ids"]), entry["query"]
         self_doc = entry.get("query_event_id")     # the update the query came from
-        r = hybrid_search(conn, embedder, q, k=K + 1)
+        r = hybrid_search(conn, embedder, q, k=K + 1, exclude_event_id=self_doc)
         abstained += bool(r.abstained)
         arms["hybrid"].append(score_one(dedupe_events(r.hits, self_doc), causes))
         arms["vector_only"].append(
