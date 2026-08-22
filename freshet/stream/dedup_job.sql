@@ -106,8 +106,8 @@ CREATE TABLE incident_lifecycle (
   'properties.bootstrap.servers' = 'localhost:9092',
   -- Partition by incident so 'opened' and 'resolved' for the same incident are
   -- ordered. Kafka orders within a partition only: unkeyed, a 3-partition topic
-  -- (which `make up` creates) can deliver 'resolved' first, which the consumer
-  -- skips because no brief has been delivered — and the postmortem is then lost.
+  -- (declared in `deploy/topics.sh`) can deliver 'resolved' first, which the
+  -- consumer skips because no brief has been delivered — postmortem then lost.
   'key.format' = 'json',
   'key.fields' = 'incident_id',
   'value.format' = 'json',

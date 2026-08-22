@@ -41,8 +41,8 @@ up: ##stack
 		sleep 2; echo "  ...still waiting ($$i/30)"; \
 	done
 	@echo "stack healthy."
-	@docker exec freshet-redpanda rpk topic create raw.incidents normalized.updates deadletter.events incident.lifecycle -p 3 >/dev/null 2>&1 || true
-	@echo "topics ready (3 partitions)."
+	@sh deploy/topics.sh >/dev/null
+	@echo "topics declared (see deploy/topics.sh)."
 
 # Tear down and drop the Postgres volume.
 down: ##stack
