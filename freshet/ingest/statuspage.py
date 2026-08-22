@@ -39,6 +39,15 @@ _TAG = re.compile(r"<[^>]+>")
 _UPDATE = re.compile(
     r"<small>(?P<when>.*?)</small>\s*<br\s*/?>\s*<strong>(?P<status>.*?)</strong>\s*-\s*"
     r"(?P<body>.*?)(?=<small>|\Z)", re.I | re.S)
+# A second markup shape, served by providers not on Atlassian Statuspage
+# (openai, hashicorp). One block per entry holding the CURRENT state — these
+# feeds carry no per-update history, so one entry really is one update.
+_STATUS_LINE = re.compile(r"<b>\s*Status:\s*(?P<status>[^<]+?)\s*</b>(?P<body>.*)",
+                          re.I | re.S)
+# The trailing component list reflects LIVE component state, not the incident. It
+# changes whenever any component flips, so digesting it into the identity minted a
+# new update on every flip: 24.9 records per incident against a 2.8-7.5 baseline.
+_COMPONENTS = re.compile(r"<b>\s*Affected components\s*</b>.*\Z", re.I | re.S)
 _WHEN = re.compile(r"([A-Z][a-z]{2})\s+(\d{1,2})\s*,\s*(\d{1,2}):(\d{2})\s*([A-Z]{2,5})")
 _MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -117,32 +126,42 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
         name = _text(entry, "title")
         markup = html.unescape(_text(entry, "content"))
         blocks = list(_UPDATE.finditer(markup))
-
-        if not blocks:
-            # Provider does not use this markup (e.g. openai). Degrade to one
-            # record per revision rather than dropping the incident entirely.
-            out.append(_make(provider, incident_id, name, revised,
-                             "unknown", _plain(markup), revised.isoformat()))
+        if blocks:
+            for block in blocks:
+                body = _plain(block.group("body"))
+                marker = _plain(block.group("when"))
+                stamp = _parse_when(block.group("when"), revised) or revised
+                out.append(_make(provider, incident_id, name, stamp,
+                                 _plain(block.group("status")).lower(), body,
+                                 identity=f"{marker}|{body}"))
             continue
 
-        for block in blocks:
-            body = _plain(block.group("body"))
-            stamp = _parse_when(block.group("when"), revised) or revised
-            out.append(_make(provider, incident_id, name, stamp,
-                             _plain(block.group("status")).lower(), body,
-                             _plain(block.group("when"))))
+        single = _STATUS_LINE.search(markup)
+        if single is not None:
+            status = _plain(single.group("status")).lower()
+            body = _plain(_COMPONENTS.sub("", single.group("body")))
+            # One update per distinct status per incident. These feeds hold only
+            # the current state, so the entry's `updated` IS this update's time.
+            out.append(_make(provider, incident_id, name, revised, status, body,
+                             identity=f"status:{status}"))
+            continue
+
+        # Provider uses neither shape. Degrade to one record per revision rather
+        # than dropping the incident entirely.
+        out.append(_make(provider, incident_id, name, revised, "unknown",
+                         _plain(markup), identity=f"revision:{revised.isoformat()}"))
 
     out.sort(key=lambda u: u.created_at)
     return out
 
 
 def _make(provider: str, incident_id: str, name: str, stamp: datetime,
-          status: str, body: str, marker: str) -> IncidentUpdate:
-    # Identity is (body + its raw timestamp text), both stable and independent of
-    # the update's position in the feed, so an update keeps its key as newer ones
-    # arrive. The timestamp text is needed because providers repeat boilerplate
-    # bodies verbatim within one incident.
-    digest = hashlib.sha1(f"{marker}|{body}".encode()).hexdigest()[:12]
+          status: str, body: str, identity: str) -> IncidentUpdate:
+    # `identity` is what the update IS, chosen per markup shape and deliberately
+    # independent of anything that can change without the update changing. It must
+    # never include the position of the update in the feed (a newer update pushes
+    # it down) nor live component state (which flips on its own).
+    digest = hashlib.blake2s(identity.encode(), digest_size=6).hexdigest()
     return IncidentUpdate(
         provider=provider, incident_id=incident_id, update_id=digest,
         created_at=stamp, status=status, text=body, incident_name=name,

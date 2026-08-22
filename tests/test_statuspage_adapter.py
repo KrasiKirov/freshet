@@ -113,3 +113,58 @@ def test_identical_body_text_at_different_times_stays_two_distinct_updates():
     got = parse_atom("github", _feed(_entry(content=repeated)))
     assert len(got) == 2
     assert got[0].dedup_key != got[1].dedup_key
+
+
+# The second markup shape, served by openai / hashicorp. One block per entry,
+# holding the CURRENT state, followed by a live component-status list.
+def _status_block(status: str, body: str, components: str = "Login (Operational)") -> str:
+    return (f"&lt;b&gt;Status: {status}&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;{body}"
+            f"&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Affected components&lt;/b&gt;"
+            f"&lt;ul&gt;&lt;li&gt;{components}&lt;/li&gt;&lt;/ul&gt;")
+
+
+def test_status_line_markup_yields_the_providers_real_status():
+    """openai/hashicorp state the status in <b>Status: X</b>, not <strong>X</strong>.
+    Falling through to 'unknown' excluded them from BOTH lifecycle predicates, so
+    those providers could never be briefed."""
+    feed = _feed(_entry(content=_status_block("Resolved", "The issue has been resolved.")))
+    got = parse_atom("openai", feed)
+    assert len(got) == 1
+    assert got[0].status == "resolved"
+    assert got[0].text == "The issue has been resolved."
+
+
+def test_the_live_component_list_is_not_indexed():
+    """'Login (Operational)' describes the component's state right now, not the
+    incident. Indexing it floods both retrieval arms with boilerplate."""
+    feed = _feed(_entry(content=_status_block("Investigating", "Users report errors.")))
+    got = parse_atom("openai", feed)
+    assert "Operational" not in got[0].text
+    assert "Affected components" not in got[0].text
+
+
+def test_a_component_flipping_does_not_mint_a_new_update():
+    """The component list changes independently of the incident. When it was part
+    of the identity digest, one incident accumulated 185 event_ids and 555 chunks."""
+    first = parse_atom("openai", _feed(_entry(
+        content=_status_block("Investigating", "Users report errors.",
+                              components="Login (Operational)"))))
+    later = parse_atom("openai", _feed(_entry(
+        content=_status_block("Investigating", "Users report errors.",
+                              components="Login (Degraded Performance) API (Operational)"))))
+    assert first[0].dedup_key == later[0].dedup_key
+
+
+def test_a_new_status_on_the_same_incident_is_a_new_update():
+    investigating = parse_atom("openai", _feed(_entry(
+        content=_status_block("Investigating", "Users report errors."))))
+    resolved = parse_atom("openai", _feed(_entry(
+        content=_status_block("Resolved", "The issue has been resolved."))))
+    assert investigating[0].dedup_key != resolved[0].dedup_key
+
+
+def test_the_statuspage_shape_still_wins_when_both_could_match():
+    """github's markup must keep producing one record per update, not one per entry."""
+    got = parse_atom("github", _feed(_entry(content=TWO)))
+    assert len(got) == 2
+    assert [u.status for u in got] == ["investigating", "resolved"]
