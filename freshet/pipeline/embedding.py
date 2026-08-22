@@ -43,6 +43,15 @@ class Embedder(Protocol):
     # query can tell "no relevant evidence" apart from "this index was built by a
     # different model" — they are indistinguishable from similarity scores alone.
     name: str
+    # The abstention floor, in raw cosine. On the Protocol because the query path
+    # depends on it: an embedder that omits it inherits the MiniLM floor of 0.3,
+    # and unrelated bge pairs average 0.594 — so the omission reads as
+    # "never abstain" and nothing anywhere reports it.
+    min_similarity: float
+    # The same floor in the mean-centered space (freshet/pipeline/index_stats.py).
+    # None means this model has no centered calibration, and abstention stays in
+    # raw cosine rather than being measured against a floor nobody set.
+    min_similarity_centered: float | None
 
     def encode(self, texts: list[str]) -> list[list[float]]: ...
     def encode_query(self, texts: list[str]) -> list[list[float]]: ...
@@ -150,10 +159,10 @@ def make_embedder(kind: str) -> Embedder:
         raise ValueError(f"unknown embedder: {kind!r} (expected 'stub' or 'bge')")
     override = os.environ.get("FRESHET_MIN_SIMILARITY")
     if override:
-        emb.min_similarity = float(override)  # type: ignore[misc]
+        emb.min_similarity = float(override)
     override_c = os.environ.get("FRESHET_MIN_SIMILARITY_CENTERED")
     if override_c:
-        emb.min_similarity_centered = float(override_c)  # type: ignore[misc]
+        emb.min_similarity_centered = float(override_c)
     return emb
 
 

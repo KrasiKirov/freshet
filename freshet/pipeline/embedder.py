@@ -22,7 +22,12 @@ from freshet.common.incidents import ensure_incident
 from freshet.common.schemas import Event, VectorRecord
 from freshet.pipeline.chunking import chunk_text
 from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
-from freshet.pipeline.embedding import Embedder, make_embedder, vec_literal
+from freshet.pipeline.embedding import (
+    EMBEDDING_DIM,
+    Embedder,
+    make_embedder,
+    vec_literal,
+)
 from freshet.pipeline.metrics import (
     DEADLETTER_EVENTS,
     EMBEDDER_MESSAGES,
@@ -239,6 +244,16 @@ def make_handler(conn, emb: Embedder, producer, *,
             # zip would silently truncate; a miscounting embedder is a code
             # bug, not message poison — fail loudly
             raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
+        wrong = next((len(v) for v in vectors if len(v) != EMBEDDING_DIM), None)
+        if wrong is not None:
+            # Same class of problem as the count mismatch, and previously it
+            # surfaced as a psycopg error from inside upsert_record — an
+            # infrastructure failure, which is not what a misconfigured
+            # embedder is. Name it where it happens.
+            raise RuntimeError(
+                f"embedder {getattr(emb, 'name', '?')!r} returned {wrong}-dim vectors, "
+                f"but the schema is vector({EMBEDDING_DIM}) — re-index with a "
+                f"{EMBEDDING_DIM}-dim model or fix FRESHET_EMBEDDER")
         for rec, vector in zip(records, vectors, strict=True):
             upsert_record(conn, rec, vector, getattr(emb, "name", None))
             observe_indexed(rec, ingested_at=ev.ingested_at)
