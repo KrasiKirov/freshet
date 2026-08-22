@@ -48,6 +48,10 @@ _STATUS_LINE = re.compile(r"<b>\s*Status:\s*(?P<status>[^<]+?)\s*</b>(?P<body>.*
 # changes whenever any component flips, so digesting it into the identity minted a
 # new update on every flip: 24.9 records per incident against a 2.8-7.5 baseline.
 _COMPONENTS = re.compile(r"<b>\s*Affected components\s*</b>.*\Z", re.I | re.S)
+# A provider using neither known markup shape gets one record per revision. Cap it:
+# the content is whole-page markup flattened to prose, and an unbounded blob becomes
+# a dozen retrievable chunks that answer nothing.
+FALLBACK_MAX_CHARS = 2000
 _WHEN = re.compile(r"([A-Z][a-z]{2})\s+(\d{1,2})\s*,\s*(\d{1,2}):(\d{2})\s*([A-Z]{2,5})")
 _MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -148,8 +152,11 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
 
         # Provider uses neither shape. Degrade to one record per revision rather
         # than dropping the incident entirely.
-        out.append(_make(provider, incident_id, name, revised, "unknown",
-                         _plain(markup), identity=f"revision:{revised.isoformat()}"))
+        prose = _plain(markup)[:FALLBACK_MAX_CHARS].strip()
+        if not prose:
+            continue        # markup that flattens to nothing is not an update
+        out.append(_make(provider, incident_id, name, revised, "unknown", prose,
+                         identity=f"revision:{revised.isoformat()}"))
 
     out.sort(key=lambda u: u.created_at)
     return out

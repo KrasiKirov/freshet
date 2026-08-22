@@ -168,3 +168,26 @@ def test_the_statuspage_shape_still_wins_when_both_could_match():
     got = parse_atom("github", _feed(_entry(content=TWO)))
     assert len(got) == 2
     assert [u.status for u in got] == ["investigating", "resolved"]
+
+
+def test_the_last_resort_record_is_bounded():
+    """An unknown markup shape must not put an unbounded blob into the index; the
+    chunker would silently split it into dozens of retrievable fragments."""
+    long_prose = "word " * 2000
+    got = parse_atom("x", _feed(_entry(content=f"&lt;p&gt;{long_prose}&lt;/p&gt;")))
+    assert len(got) == 1
+    assert len(got[0].text) <= 2000
+
+
+def test_the_last_resort_identity_is_the_revision_not_the_body():
+    """If the body were in the digest, any churn in an unknown provider's markup
+    would mint a new update on every poll."""
+    a = parse_atom("x", _feed(_entry(content="&lt;p&gt;first wording&lt;/p&gt;")))
+    b = parse_atom("x", _feed(_entry(content="&lt;p&gt;second wording&lt;/p&gt;")))
+    assert a[0].dedup_key == b[0].dedup_key
+
+
+def test_a_last_resort_record_with_no_prose_is_dropped():
+    """Markup that flattens to nothing is not an update; indexing it adds an empty
+    chunk that matches every query weakly."""
+    assert parse_atom("x", _feed(_entry(content="&lt;ul&gt;&lt;/ul&gt;"))) == []
