@@ -50,3 +50,7 @@ tasks/
 .venv-flink/
 .flink/
 logs/
+
+# Poll validators, if FRESHET_POLL_CACHE points inside the repo
+poll-cache.json
+poll-cache.json.tmp

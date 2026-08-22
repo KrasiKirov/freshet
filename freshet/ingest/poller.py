@@ -39,6 +39,15 @@ MAX_WORKERS = 12
 TIMEOUT_S = 15.0
 POLL_INTERVAL_S = 60.0
 
+# Persisted validators are the single biggest politeness lever this poller has, so
+# persistence is opt-OUT (set FRESHET_POLL_CACHE="" to disable), not opt-in. It was
+# opt-in via an env var that nothing in the repo set — not the `poller` make target,
+# not run-forever, not deploy/run-autopilot.sh — which meant every restart
+# re-downloaded all 42 feeds in full and re-emitted months of history.
+DEFAULT_CACHE_PATH = os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+    "freshet", "poll-cache.json")
+
 # (status, response headers, body) — body is None when the feed was unchanged.
 FetchFn = Callable[[str, dict], tuple[int, dict, str | None]]
 
@@ -53,9 +62,15 @@ class ConditionalCache:
         # Persisted so a restart resumes with 304s instead of re-downloading all
         # 42 feeds — the validators are the whole politeness lever, and losing
         # them on every restart threw it away.
-        self._path = path or os.environ.get("FRESHET_POLL_CACHE") or ""
+        env = os.environ.get("FRESHET_POLL_CACHE")
+        self._path = path if path is not None else (
+            DEFAULT_CACHE_PATH if env is None else env)
         self._backoff: dict = {}
         self._load()
+
+    @property
+    def path(self) -> str:
+        return self._path
 
     def _load(self) -> None:
         if not self._path or not os.path.exists(self._path):
@@ -81,6 +96,7 @@ class ConditionalCache:
         if backoff is not None:
             self._backoff = backoff.snapshot()
         try:
+            os.makedirs(os.path.dirname(self._path) or ".", exist_ok=True)
             tmp = f"{self._path}.tmp"
             with open(tmp, "w") as fh:
                 json.dump({"etag": self._etag, "modified": self._modified,
@@ -229,6 +245,7 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
     cache = ConditionalCache()
     backoff = HostBackoff()
     cache.restore_backoff(backoff)   # a host mid-backoff stays skipped across restarts
+    log.info("poll cache: %s", cache.path or "disabled")
     producer = BufferedProducer(brokers)
     log.info("polling %d feeds every %.0fs", len(pages), interval_s)
 

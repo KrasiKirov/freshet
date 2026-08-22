@@ -61,6 +61,10 @@ make autopilot   # posts cited briefs to Slack
 make freshness   # the one measurement
 ```
 
+Conditional-request validators persist to `~/.local/state/freshet/poll-cache.json`,
+so a restart resumes with 304s instead of re-downloading all 42 feeds. Override the
+location with `FRESHET_POLL_CACHE`, or set it to the empty string to disable.
+
 `make test` runs the unit suite; `make test-integration` needs the stack up and
 uses a dedicated `freshet_test` database so it cannot touch a running index.
 

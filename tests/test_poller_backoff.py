@@ -3,6 +3,7 @@
 The README claimed per-host backoff; the code only logged the failure and
 retried the same host on the very next sweep.
 """
+from freshet.ingest import poller
 from freshet.ingest.poller import MAX_BACKOFF_S, ConditionalCache, HostBackoff, poll_once
 from freshet.ingest.registry import Page
 
@@ -93,3 +94,26 @@ def test_backoff_survives_a_restart(tmp_path):
     assert restarted.skip("https://down/history.atom")
     clock.t = 10.0
     assert not restarted.skip("https://down/history.atom")
+
+
+def test_persistence_is_on_by_default(monkeypatch, tmp_path):
+    """Persistence that must be switched on by an env var nothing sets is
+    persistence that never happens."""
+    monkeypatch.delenv("FRESHET_POLL_CACHE", raising=False)
+    monkeypatch.setattr(poller, "DEFAULT_CACHE_PATH", str(tmp_path / "poll-cache.json"))
+    cache = ConditionalCache()
+    cache.remember("https://example.test/f.atom", {"ETag": 'W/"v1"'})
+    cache.save()
+    assert (tmp_path / "poll-cache.json").exists()
+    assert ConditionalCache().headers_for(
+        "https://example.test/f.atom")["If-None-Match"] == 'W/"v1"'
+
+
+def test_an_explicit_empty_env_var_disables_persistence(monkeypatch, tmp_path):
+    """Opt-OUT must still exist for tests and for one-shot runs."""
+    monkeypatch.setenv("FRESHET_POLL_CACHE", "")
+    monkeypatch.setattr(poller, "DEFAULT_CACHE_PATH", str(tmp_path / "poll-cache.json"))
+    cache = ConditionalCache()
+    cache.remember("https://example.test/f.atom", {"ETag": 'W/"v1"'})
+    cache.save()
+    assert not (tmp_path / "poll-cache.json").exists()
