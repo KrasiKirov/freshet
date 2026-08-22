@@ -13,6 +13,7 @@ from freshet.autopilot.brief import (
     findings_from_updates,
 )
 from freshet.autopilot.impact import estimate_impact
+from freshet.rag.budget import BudgetExhausted
 
 log = logging.getLogger(__name__)
 
@@ -93,6 +94,12 @@ def _summarise(updates, service: str, composer, question: str) -> str | None:
     composer = composer or make_composer()
     try:
         return composer.compose(question, updates)
+    except BudgetExhausted:
+        # A pause, not a failure. The caller releases its claim and keeps
+        # brief_due_at, so this posts in the next window rather than being
+        # delivered degraded and marked done. Swallowing it here made
+        # consumer.drain_due_briefs' defer path unreachable.
+        raise
     except Exception as exc:          # never let generation break an alert
         log.warning("summary generation failed (%r); rendering without it", exc)
         return None
