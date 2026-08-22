@@ -182,10 +182,22 @@ def poll_threads(conn, embedder, composer, client, channel: str, *,
                 # is picked up once the budget frees, rather than lost.
                 log.warning("thread question deferred: %s", exc)
                 return posted
-            client.chat_postMessage(channel=thread_channel, thread_ts=thread_ts,
-                                    text=answer)
+            try:
+                client.chat_postMessage(channel=thread_channel, thread_ts=thread_ts,
+                                        text=answer)
+            except Exception as exc:
+                if _is_rate_limit(exc):
+                    raise RateLimited(str(exc)) from exc   # back the whole loop off
+                # Leave this reply unanswered and move on. The marker for the
+                # answers already delivered was persisted below, so they are not
+                # re-posted on the next poll.
+                log.warning("could not answer in thread %s: %r", thread_ts, exc)
+                break
             posted += 1
             newest = message["ts"] if not newest else max(newest, message["ts"])
-        if newest and newest != seen_ts:
+            # Persisted after EVERY delivered answer. Batching it to the end of
+            # the thread meant a later failure discarded the marker for answers
+            # that HAD been posted, and the next poll posted them all again.
             conn.execute(_MARK_SEEN_SQL, (newest, incident_id))
+            seen_ts = newest
     return posted
