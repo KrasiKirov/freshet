@@ -218,6 +218,12 @@ def make_handler(conn, emb: Embedder, producer, *,
                         ev.event_id, ev.v, sorted(KNOWN_WIRE_VERSIONS))
         records = records_for_event(ev)
         if not records:
+            # Nothing to index — but `incidents` is what autopilot claims
+            # against, and returning without a row means this incident can
+            # never be briefed and nothing reports it. The ordering rule below
+            # (a claimable row must not exist before its evidence) has nothing
+            # to order against here: there is no evidence and never will be.
+            ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
             return
         for attempt in range(1, attempts + 1):
             try:

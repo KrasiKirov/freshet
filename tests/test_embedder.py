@@ -304,3 +304,50 @@ def test_a_malformed_message_is_poison_and_never_trips_the_breaker():
     for _ in range(MAX_CONSECUTIVE_DEADLETTERS + 5):
         handle("{not json at all")       # must not raise
     assert len(producer.messages) == MAX_CONSECUTIVE_DEADLETTERS + 5
+
+def test_blank_text_still_registers_the_incident():
+    """No chunks means nothing to index — but the incidents row is what
+    autopilot claims against, and without it the incident is never briefed and
+    nothing anywhere reports an error."""
+    from freshet.common.incidents import ENSURE_INCIDENT_SQL
+    from freshet.pipeline.embedder import make_handler
+    from freshet.pipeline.embedding import StubEmbedder
+
+    ev = Event(event_id="prov:inc1:u1", incident_id="inc1", service="prov",
+               source=EventSource.ALERT, type="status_update", ts=datetime.now(UTC),
+               text="   ", title="Some incident")
+    conn, producer = _FakeConn(), _FakeProducer()
+    make_handler(conn, StubEmbedder(), producer)(ev.model_dump_json())
+
+    ensures = [(s, p) for s, p in conn.executed if s == ENSURE_INCIDENT_SQL]
+    assert len(ensures) == 1, "a blank update must still register its incident"
+    assert ensures[0][1][0] == "inc1"
+    assert not any("vector_records" in s for s, _ in conn.executed), \
+        "blank text must still index no chunks"
+    assert producer.messages == [], "a blank update is not poison — it must not dead-letter"
+
+
+def test_wrong_dimension_vectors_fail_with_a_named_error():
+    """A 384-dim embedder against the vector(768) schema used to fail deep in
+    psycopg as an infrastructure error. It is a configuration error and should
+    say so — and it RAISES rather than dead-lettering, so it never trips the
+    consecutive-dead-letter breaker; it stops the worker with a better message."""
+    import pytest
+
+    from freshet.pipeline.embedder import make_handler
+
+    class _ShortEmb:
+        name = "short"
+        min_similarity = 0.3
+        min_similarity_centered = None
+
+        def encode(self, texts):
+            return [[0.0] * 384 for _ in texts]
+
+    ev = Event(event_id="prov:inc1:u1", incident_id="inc1", service="prov",
+               source=EventSource.ALERT, type="status_update", ts=datetime.now(UTC),
+               text="Some incident: the API returned 500s", title="Some incident")
+    producer = _FakeProducer()
+    with pytest.raises(RuntimeError, match="384.*768"):
+        make_handler(_FakeConn(), _ShortEmb(), producer)(ev.model_dump_json())
+    assert producer.messages == [], "config errors raise, they do not dead-letter"
