@@ -59,8 +59,12 @@ class BudgetedComposer:
                  daily_cap: int | None = None) -> None:
         self._inner = inner
         self._conn = conn
-        self.hourly_cap = hourly_cap or _cap("FRESHET_LLM_HOURLY_CAP", DEFAULT_HOURLY_CAP)
-        self.daily_cap = daily_cap or _cap("FRESHET_LLM_DAILY_CAP", DEFAULT_DAILY_CAP)
+        # `or` would swallow an explicit 0: a caller asking for "spend nothing"
+        # silently got the 60/hour default, so the cap could not be turned off.
+        self.hourly_cap = (_cap("FRESHET_LLM_HOURLY_CAP", DEFAULT_HOURLY_CAP)
+                           if hourly_cap is None else hourly_cap)
+        self.daily_cap = (_cap("FRESHET_LLM_DAILY_CAP", DEFAULT_DAILY_CAP)
+                          if daily_cap is None else daily_cap)
 
     def _spend(self) -> None:
         hour_calls = self._conn.execute(_SPEND_SQL).fetchone()[0]
