@@ -221,9 +221,15 @@ cheaper and fits the current sinks.
   docstring opens with "politeness is a design requirement", this is the gap that
   matters most.
 - **No `Accept-Encoding: gzip`.** urllib does not add it, so all 42 feeds transfer
-  uncompressed on every cache miss. Status feeds are highly compressible (github's
-  current entry is 4.1 KB of markup); this is a ~3–5× bandwidth cut for six lines
-  of code, and a bigger politeness lever than anything except the ETag itself.
+  uncompressed on every cache miss.
+  **Correction, measured while implementing this:** the expected 3–5× win does not
+  exist. Sampling 14 of the 42 feeds, **zero** honour `Accept-Encoding: gzip` —
+  every Atlassian-hosted Statuspage serves uncompressed regardless of what is
+  asked for (647,817 bytes on the wire either way). Only the non-Statuspage
+  providers compress: `status.openai.com` returns ~8 KB gzipped. Sending the header
+  is still correct and costs nothing, but it is close to inert today. Note also
+  that advertising `br` makes those CDNs return brotli, which the stdlib cannot
+  decode — so the request must stay narrowly `gzip`.
 - **No per-sweep jitter.** Only the *first* sweep is staggered
   (`random.uniform(0, 5)`); after that the cadence is a fixed 60 s, so every host
   is hit at the same second of every minute indefinitely.

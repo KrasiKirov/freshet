@@ -16,15 +16,19 @@ poller can be restarted freely without losing or double-counting anything.
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import logging
 import os
 import random
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 from freshet.common.kafka_io import BufferedProducer
 from freshet.ingest.registry import Page, load_pages
@@ -41,6 +45,10 @@ MAX_WORKERS = 12
 # without one and each needed a shim written after the fact.
 WIRE_VERSION = 1
 TIMEOUT_S = 15.0
+# A feed larger than this is pathological — the biggest real one is a few hundred KB.
+# The bodies come from 42 third parties and were previously read unbounded into
+# memory with a bare response.read().
+MAX_BODY_BYTES = 8 * 1024 * 1024
 POLL_INTERVAL_S = 60.0
 
 # Persisted validators are the single biggest politeness lever this poller has, so
@@ -110,7 +118,13 @@ class ConditionalCache:
             log.warning("could not persist poll cache: %s", exc)
 
     def headers_for(self, url: str) -> dict[str, str]:
-        headers = {"User-Agent": USER_AGENT}
+        # urllib adds no Accept-Encoding of its own. Measured across 14 of the 42
+        # feeds, ZERO honour it: every Atlassian-hosted Statuspage serves
+        # uncompressed whatever we ask for. Only the non-Statuspage providers
+        # compress (status.openai.com returns ~8KB gzipped). So this is a correct
+        # request that is mostly inert today, not the bandwidth win it looks like —
+        # it costs nothing and starts paying if Statuspage ever enables compression.
+        headers = {"User-Agent": USER_AGENT, "Accept-Encoding": "gzip"}
         if etag := self._etag.get(url):
             headers["If-None-Match"] = etag
         if since := self._modified.get(url):
@@ -124,20 +138,75 @@ class ConditionalCache:
             self._modified[url] = modified
 
 
+class RetryAfter(Exception):
+    """A provider told us exactly how long to wait. Carries that interval so the
+    caller can back off for it rather than for our exponential guess."""
+
+    def __init__(self, seconds: float, cause: Exception) -> None:
+        super().__init__(f"retry after {seconds:.0f}s: {cause}")
+        self.seconds = seconds
+
+
+def _retry_after_seconds(headers) -> float | None:
+    """Parse Retry-After in either permitted form. Advisory: never raises."""
+    raw = headers.get("Retry-After") if headers else None
+    if not raw:
+        return None
+    try:
+        return float(raw)                          # delta-seconds form
+    except (TypeError, ValueError):
+        pass
+    try:                                           # HTTP-date form
+        return max(0.0, (parsedate_to_datetime(raw)
+                         - datetime.now(UTC)).total_seconds())
+    except Exception:                              # noqa: BLE001 - advisory header
+        return None
+
+
+def _read_body(response) -> str:
+    """Read at most MAX_BODY_BYTES, decompressing if the server honoured gzip.
+
+    We advertise `gzip` and nothing else on purpose: the stdlib has no brotli
+    decoder, and a CDN offered `br` will use it (measured on status.openai.com).
+    An encoding we cannot decode raises rather than returning bytes that decode to
+    mojibake — the parser would just see an unparseable feed and we would lose the
+    real reason.
+    """
+    raw = response.read(MAX_BODY_BYTES + 1)
+    if len(raw) > MAX_BODY_BYTES:
+        raise ValueError(f"feed body exceeds {MAX_BODY_BYTES} bytes")
+    encoding = (response.headers.get("Content-Encoding") or "").lower().strip()
+    if encoding == "gzip":
+        raw = gzip.decompress(raw)
+    elif encoding not in ("", "identity"):
+        raise ValueError(f"unsupported Content-Encoding {encoding!r}")
+    return raw.decode("utf-8", "replace")
+
+
 def http_fetch(url: str, headers: dict) -> tuple[int, dict, str | None]:
     """Real network fetch. Injected into `poll_once` so tests never touch it."""
     request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:
-            body = response.read().decode("utf-8", "replace")
-            return response.status, dict(response.headers), body
+            return response.status, dict(response.headers), _read_body(response)
     except urllib.error.HTTPError as exc:
         if exc.code == 304:
             return 304, dict(exc.headers), None
+        # A 429 or 503 usually states its own interval. Honour it in preference to
+        # our exponential guess, which would retry in two seconds.
+        if (seconds := _retry_after_seconds(exc.headers)) is not None:
+            raise RetryAfter(seconds, exc) from exc
         raise
 
 
 MAX_BACKOFF_S = 300.0
+
+
+def host_of(url: str) -> str:
+    """Backoff key. The module docstring and the README both promise per-HOST
+    backoff; keyed by URL, two feeds on one host each hammered it independently
+    while it was failing."""
+    return urllib.parse.urlsplit(url).netloc.lower()
 
 
 class HostBackoff:
@@ -170,17 +239,32 @@ class HostBackoff:
                 self._until[url] = now_mono + remaining
 
     def skip(self, url: str) -> bool:
-        return self._now() < self._until.get(url, 0.0)
+        return self._now() < self._until.get(host_of(url), 0.0)
 
-    def failed(self, url: str) -> float:
-        n = self._failures[url] = self._failures.get(url, 0) + 1
-        delay = min(MAX_BACKOFF_S, 2.0 ** n)
-        self._until[url] = self._now() + delay
+    def failed(self, url: str, retry_after: float | None = None) -> float:
+        """Back off this host. `retry_after` is the provider's own instruction from
+        a 429/503; honour it in preference to our guess, still bounded so a hostile
+        or mistaken value cannot pin a feed indefinitely."""
+        host = host_of(url)
+        n = self._failures[host] = self._failures.get(host, 0) + 1
+        if retry_after is not None and retry_after > 0:
+            delay = min(MAX_BACKOFF_S, retry_after)
+        else:
+            # Clamp the EXPONENT, not just the result: the failure count persists
+            # across restarts, and 2.0 ** 1024 raises OverflowError.
+            delay = min(MAX_BACKOFF_S, 2.0 ** min(n, 10))
+        self._until[host] = self._now() + delay
         return delay
 
     def succeeded(self, url: str) -> None:
-        self._failures.pop(url, None)
-        self._until.pop(url, None)
+        host = host_of(url)
+        self._failures.pop(host, None)
+        self._until.pop(host, None)
+
+    def active_count(self) -> int:
+        """Hosts currently being skipped — exported as a gauge."""
+        now = self._now()
+        return sum(1 for until in self._until.values() if now < until)
 
 
 def poll_once(pages: list[Page], fetch: FetchFn,
@@ -197,9 +281,11 @@ def poll_once(pages: list[Page], fetch: FetchFn,
         try:
             status, headers, body = fetch(page.url, cache.headers_for(page.url))
         except Exception as exc:                  # noqa: BLE001 - third-party host
-            delay = backoff.failed(page.url) if backoff is not None else 0.0
-            log.warning("poll failed provider=%s err=%s (backing off %.0fs)",
-                        page.provider, exc, delay)
+            after = exc.seconds if isinstance(exc, RetryAfter) else None
+            delay = backoff.failed(page.url, after) if backoff is not None else 0.0
+            log.warning("poll failed provider=%s err=%s (backing off %.0fs%s)",
+                        page.provider, exc, delay,
+                        ", as instructed" if after is not None else "")
             return []
         if backoff is not None:
             backoff.succeeded(page.url)
@@ -274,7 +360,11 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
         elapsed = time.monotonic() - started
         log.info("sweep %d done in %.1fs (%d produced)", sweeps, elapsed, produced)
         if max_sweeps is None or sweeps < max_sweeps:
-            time.sleep(max(0.0, interval_s - elapsed))
+            # Jitter EVERY sweep. Staggering only the first one left the cadence at
+            # a fixed 60s, so each host was hit at the same second of every minute
+            # for as long as the process lived.
+            jitter = random.uniform(0, min(5.0, interval_s * 0.1))
+            time.sleep(max(0.0, interval_s - elapsed) + jitter)
     return produced
 
 

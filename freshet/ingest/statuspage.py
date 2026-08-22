@@ -115,6 +115,12 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
     Malformed entries are skipped rather than raised: one bad record from a third
     party must not stall ingestion of the other providers.
     """
+    # No status feed declares a DTD. Internal entity definitions are what turn a
+    # small body into an unbounded one, and ElementTree's expat parser will expand
+    # them. Refusing the construct is cheaper and more honest than adding a parser
+    # dependency to this deliberately stdlib-only ingest path.
+    if "<!DOCTYPE" in feed[:2048].upper():
+        return []
     try:
         root = ET.fromstring(feed)
     except ET.ParseError:

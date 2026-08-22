@@ -187,6 +187,24 @@ def test_the_last_resort_identity_is_the_revision_not_the_body():
     assert a[0].dedup_key == b[0].dedup_key
 
 
+def test_a_feed_declaring_a_dtd_is_refused():
+    """Internal entity definitions are how a small XML body becomes an unbounded
+    one, and ElementTree's expat parser will expand them. No status feed needs a
+    DTD, so refusing the construct is cheaper — and more honest about this
+    deliberately stdlib-only ingest path — than adding a parser dependency."""
+    hostile = ('<?xml version="1.0"?><!DOCTYPE feed [<!ENTITY a "aaaaaaaaaa">]>'
+               '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
+               "<id>tag:x,2005:Incident/1</id><updated>2026-08-18T11:42:59Z</updated>"
+               "<title>t</title><content type='html'>&a;</content></entry></feed>")
+    assert parse_atom("x", hostile) == []
+
+
+def test_a_normal_feed_is_not_mistaken_for_a_dtd():
+    """The guard must not reject the 41 feeds that merely mention the word."""
+    got = parse_atom("github", _feed(_entry(content=TWO)))
+    assert len(got) == 2
+
+
 def test_a_last_resort_record_with_no_prose_is_dropped():
     """Markup that flattens to nothing is not an update; indexing it adds an empty
     chunk that matches every query weakly."""
