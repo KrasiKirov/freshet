@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from freshet.pipeline.embedding import Embedder, vec_literal
+from freshet.pipeline.metrics import ABSTENTIONS
 
 # Row columns are addressed by POSITION, so the shared prefix and the per-arm
 # score columns that follow it are declared together here. Adding a column
@@ -194,8 +195,12 @@ def hybrid_search(
     # means "the window is empty", not "no strong semantic match". The unfiltered
     # path keeps the calibrated floor exactly as it was.
     if service is not None or since is not None:
+        if not retrieval_topk:
+            ABSTENTIONS.inc()
         return HybridResult(hits=retrieval_topk, abstained=not retrieval_topk)
     abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
+    if abstained:
+        ABSTENTIONS.inc()
     return HybridResult(hits=retrieval_topk, abstained=abstained)
 
 

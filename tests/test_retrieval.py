@@ -165,3 +165,26 @@ def test_abstention_uses_the_similarity_of_a_keyword_only_hit():
     # a strong lexical match whose cosine was measured, not defaulted
     assert should_abstain([0.82], min_similarity=0.70) is False
     assert should_abstain([0.0], min_similarity=0.70) is True
+
+
+def test_an_abstention_is_counted_by_the_search_path():
+    """Abstention rate is the most useful generator health signal there is — an
+    index/embedder mismatch looks exactly like abstention from the outside — and
+    nothing recorded it."""
+    from prometheus_client import REGISTRY
+
+    from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import hybrid_search
+
+    class _EmptyConn:
+        def execute(self, sql, params=None):
+            return self
+
+        def fetchall(self):
+            return []
+
+    before = REGISTRY.get_sample_value("freshet_retrieval_abstentions_total") or 0
+    result = hybrid_search(_EmptyConn(), StubEmbedder(), "anything at all")
+    assert result.abstained is True
+    after = REGISTRY.get_sample_value("freshet_retrieval_abstentions_total")
+    assert after == before + 1, "the abstention must be counted, not just returned"
