@@ -136,7 +136,11 @@ class Event(BaseModel):
 class VectorRecord(BaseModel):
     """A retrievable chunk + its metadata (embedding stored in pgvector column)."""
 
-    chunk_id: str = Field(default_factory=lambda: _new_id("chk"))
+    # No default: the id is always "chk_<event_id>_<chunk_index>", and a factory
+    # producing any other shape is what let the two ordinal-parsing queries drift
+    # from the writer without anything failing.
+    chunk_id: str
+    chunk_index: int = 0
     event_id: str
     incident_id: str | None = None
     service: str

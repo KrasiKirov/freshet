@@ -65,6 +65,7 @@ def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorReco
     return [
         VectorRecord(
             chunk_id=f"chk_{ev.event_id}_{i}",
+            chunk_index=i,
             event_id=ev.event_id,
             incident_id=ev.incident_id,
             service=ev.service,
@@ -80,11 +81,11 @@ def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorReco
     ]
 
 
-# The chunk index is the trailing _N of chunk_id; anything at or beyond the
-# current chunk count is left over from a previous, longer version of this text.
+# Anything at or beyond the current chunk count is left over from a previous,
+# longer version of this text. Reads the stored ordinal rather than regex-parsing
+# it back out of the primary key.
 _DELETE_ORPHAN_CHUNKS_SQL = (
-    "DELETE FROM vector_records WHERE event_id = %s"
-    " AND (regexp_match(chunk_id, '_(\\d+)$'))[1]::int >= %s")
+    "DELETE FROM vector_records WHERE event_id = %s AND chunk_index >= %s")
 # incident_events exists in the schema but nothing wrote to it.
 _INCIDENT_EVENT_SQL = (
     "INSERT INTO incident_events (incident_id, event_id) VALUES (%s, %s)"
@@ -92,10 +93,11 @@ _INCIDENT_EVENT_SQL = (
 
 UPSERT_SQL = """
 INSERT INTO vector_records
-    (chunk_id, event_id, incident_id, service, ts, indexed_at, source, text, title, severity, type, embedding, model)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
+    (chunk_id, chunk_index, event_id, incident_id, service, ts, indexed_at, source, text, title, severity, type, embedding, model)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
 ON CONFLICT (chunk_id) DO UPDATE
     SET indexed_at = EXCLUDED.indexed_at,
+        chunk_index = EXCLUDED.chunk_index,
         text = EXCLUDED.text,
         severity = EXCLUDED.severity,
         type = EXCLUDED.type,
@@ -111,6 +113,7 @@ def upsert_record(conn, rec: VectorRecord, embedding: list[float],
         UPSERT_SQL,
         (
             rec.chunk_id,
+            rec.chunk_index,
             rec.event_id,
             rec.incident_id,
             rec.service,

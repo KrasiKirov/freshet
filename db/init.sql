@@ -26,6 +26,17 @@ ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS model text;
 -- rather than by whichever sentence fragment the chunker produced.
 ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS title text;
 
+-- The chunk ordinal, stored rather than parsed back out of the primary key.
+-- chunk_id is "chk_<event_id>_<n>" and TWO queries regex-extracted the <n>:
+-- orphan cleanup in the embedder, and chunk reassembly for the brief. Neither
+-- could use an index, and nothing enforced the id shape they both assumed.
+ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS chunk_index integer;
+-- One-time backfill. Idempotent: after the first pass no NULLs remain, and rows
+-- whose id carries no ordinal settle at 0, which is what a single-chunk event is.
+UPDATE vector_records
+   SET chunk_index = coalesce((regexp_match(chunk_id, '_(\d+)$'))[1]::int, 0)
+ WHERE chunk_index IS NULL;
+
 
 CREATE INDEX IF NOT EXISTS vector_records_service_ts_idx
     ON vector_records (service, ts DESC);

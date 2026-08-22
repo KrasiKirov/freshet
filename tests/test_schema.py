@@ -44,14 +44,19 @@ def test_freshness_math():
 
 
 def test_vector_record_requires_core_fields():
+    """chunk_id is REQUIRED and carries the ordinal. It used to be minted by a
+    default factory as chk_<hex> — a shape the two queries that regex-parsed the
+    trailing _N could not read, so the invariant they assumed went unenforced."""
     vr = VectorRecord(
+        chunk_id="chk_evt_1_0",
         event_id="evt_1",
         service="s",
         ts=datetime.now(UTC),
         text="chunk",
         source=EventSource.POSTMORTEM,
     )
-    assert vr.chunk_id.startswith("chk_")
+    assert vr.chunk_id == "chk_evt_1_0"
+    assert vr.chunk_index == 0
 
 
 _MINIMAL = ('{"event_id":"github:INC1:u1","ts":"2026-08-18T11:42:00Z","service":"github",'
