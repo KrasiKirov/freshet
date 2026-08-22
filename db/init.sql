@@ -161,3 +161,45 @@ CREATE TABLE IF NOT EXISTS pipeline_heartbeat_log (
     PRIMARY KEY (component, beat_at)
 );
 
+
+-- Namespace incident_id by provider. It is a PRIMARY KEY shared across 42
+-- Statuspage tenants whose ids are only unique per tenant; a collision merges two
+-- providers' incidents into one row and the brief cites the wrong provider.
+-- event_id was already namespaced, incident_id was not. Guarded on the absence of
+-- a colon, which no raw id can contain (the extractor captures \w+ / [\w-]+ only),
+-- so re-running init.sql on a migrated volume is a no-op.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM incidents WHERE incident_id NOT LIKE '%:%') THEN
+        -- Rows carrying neither a provider nor any indexed evidence (225 of 1,422
+        -- when measured) are residue from the historical lifecycle flood. They
+        -- cannot be namespaced and cannot be briefed. Cascades to the join tables.
+        DELETE FROM incidents WHERE primary_service IS NULL;
+
+        ALTER TABLE incident_services DROP CONSTRAINT incident_services_incident_id_fkey;
+        ALTER TABLE incident_events   DROP CONSTRAINT incident_events_incident_id_fkey;
+
+        UPDATE vector_records   SET incident_id = service || ':' || incident_id
+            WHERE incident_id IS NOT NULL AND incident_id NOT LIKE '%:%';
+        UPDATE incidents        SET incident_id = primary_service || ':' || incident_id
+            WHERE incident_id NOT LIKE '%:%';
+        UPDATE incident_services SET incident_id = service || ':' || incident_id
+            WHERE incident_id NOT LIKE '%:%';
+        -- incident_events has no service column; recover the provider from the
+        -- event_id, which was namespaced all along.
+        UPDATE incident_events
+            SET incident_id = split_part(event_id, ':', 1) || ':' || incident_id
+            WHERE incident_id NOT LIKE '%:%';
+
+        -- 900 incident_events rows already dangled before this migration.
+        DELETE FROM incident_events e
+            WHERE NOT EXISTS (SELECT 1 FROM incidents i WHERE i.incident_id = e.incident_id);
+        DELETE FROM incident_services s
+            WHERE NOT EXISTS (SELECT 1 FROM incidents i WHERE i.incident_id = s.incident_id);
+
+        ALTER TABLE incident_services ADD CONSTRAINT incident_services_incident_id_fkey
+            FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE CASCADE;
+        ALTER TABLE incident_events ADD CONSTRAINT incident_events_incident_id_fkey
+            FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE CASCADE;
+    END IF;
+END $$;

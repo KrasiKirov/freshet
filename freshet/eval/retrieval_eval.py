@@ -63,7 +63,9 @@ def events_from_incident(provider: str, incident: dict) -> list[Event]:
             continue
         out.append(Event(
             event_id=event_id_for(provider, incident["id"], u["id"]),
-            incident_id=incident["id"],
+            # Matches what the Flink projection writes; load_labels already splits
+            # entry["incident_id"] on ':' expecting this form.
+            incident_id=f"{provider}:{incident['id']}",
             service=provider,
             source=EventSource.ALERT,
             type="status_update",

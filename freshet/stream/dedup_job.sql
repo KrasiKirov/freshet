@@ -152,7 +152,10 @@ SELECT provider || ':' || incident_id || ':' || update_id AS event_id,
        provider     AS service,
        'alert'      AS source,
        'status_update' AS type,
-       incident_id,
+       -- Namespaced by provider. Statuspage ids are per-tenant and this value is a
+       -- PRIMARY KEY shared by 42 tenants; unqualified, a collision merges two
+       -- providers' incidents into one row and the brief cites the wrong one.
+       provider || ':' || incident_id AS incident_id,
        incident_name || ': ' || text AS text,
        incident_name AS title
 FROM (
@@ -175,7 +178,7 @@ WHERE seq = 1;
 --    resolve per incident, which is what the surface actually means.
 --    'monitoring' counts as open: some providers never post investigating.
 INSERT INTO incident_lifecycle
-SELECT incident_id, provider AS service, 'opened' AS `type`,
+SELECT provider || ':' || incident_id AS incident_id, provider AS service, 'opened' AS `type`,
        created_at AS ts, incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (
@@ -201,7 +204,7 @@ FROM (
 WHERE seq = 1;
 
 INSERT INTO incident_lifecycle
-SELECT incident_id, provider AS service, 'resolved' AS `type`,
+SELECT provider || ':' || incident_id AS incident_id, provider AS service, 'resolved' AS `type`,
        created_at AS ts, incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (

@@ -65,3 +65,17 @@ def test_a_payload_with_neither_field_is_rejected_clearly():
     raw = json.dumps({"incident_id": "INC-3", "service": "zoom", "ts": "2026-08-19T06:30:00Z"})
     with pytest.raises(KeyError, match="neither"):
         LifecycleEvent.from_json(raw)
+
+
+def test_the_sql_projections_namespace_incident_id_by_provider():
+    """incidents.incident_id is a PRIMARY KEY shared across 42 tenants. Statuspage
+    ids are per-tenant, so an unqualified id silently merges two providers'
+    incidents into one row — and the brief then cites the wrong provider."""
+    sql = Path("freshet/stream/dedup_job.sql").read_text()
+    normalized = sql.split("INSERT INTO normalized_updates")[1].split("FROM (")[0]
+    assert "provider || ':' || incident_id AS incident_id" in normalized
+
+    for branch in sql.split("INSERT INTO incident_lifecycle")[1:]:
+        head = branch.split("FROM (")[0]
+        assert "provider || ':' || incident_id AS incident_id" in head, \
+            "the lifecycle key must match what the embedder writes, or no brief can claim"

@@ -55,3 +55,21 @@ def test_schema_applied():
         assert {"incident_id", "event_id"} <= evt_cols
     finally:
         conn.close()
+
+
+def test_every_incident_id_is_namespaced_by_provider(conn):
+    """An un-namespaced id is a collision waiting to merge two providers' incidents."""
+    n = conn.execute(
+        "SELECT count(*) FROM incidents WHERE incident_id NOT LIKE '%:%'").fetchone()[0]
+    assert n == 0
+    n = conn.execute(
+        "SELECT count(*) FROM vector_records"
+        " WHERE incident_id IS NOT NULL AND incident_id NOT LIKE '%:%'").fetchone()[0]
+    assert n == 0
+
+
+def test_no_incident_id_spans_two_providers(conn):
+    rows = conn.execute(
+        "SELECT incident_id FROM vector_records"
+        " GROUP BY 1 HAVING count(DISTINCT service) > 1").fetchall()
+    assert rows == []
