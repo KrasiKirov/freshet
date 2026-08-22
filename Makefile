@@ -52,6 +52,11 @@ down: ##stack
 db-init: ##stack
 	docker exec -i freshet-postgres psql -v ON_ERROR_STOP=1 -U freshet -d freshet < db/init.sql
 
+# Apply a one-off migration from db/migrations/ (db-init only applies the schema).
+db-migrate: ##stack
+	@test -n "$(FILE)" || { echo "usage: make db-migrate FILE=db/migrations/....sql"; exit 1; }
+	docker exec -i freshet-postgres psql -v ON_ERROR_STOP=1 -U freshet -d freshet < $(FILE)
+
 # Run the unit tests (no broker needed; integration tests are excluded by pytest addopts).
 test: ##dev
 	$(PYTHON) -m pytest -q
