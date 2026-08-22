@@ -1,18 +1,38 @@
 {
-  "on_corpus": {
-    "n": 64,
-    "n_with_cause_retrieved": 27,
-    "min": 0.604,
-    "max": 0.848
+  "raw": {
+    "on_corpus": {
+      "n": 55,
+      "n_with_cause_retrieved": 25,
+      "min": 0.562,
+      "max": 0.961
+    },
+    "off_corpus": {
+      "n": 6,
+      "min": 0.485,
+      "max": 0.687
+    },
+    "proposal": null,
+    "current": 0.7,
+    "lowest_on_corpus": 0.632,
+    "highest_off_corpus": 0.687,
+    "reason": "on-corpus and off-corpus similarities OVERLAP: no threshold separates them, so the floor is not what is losing these questions \u2014 retrieval is. Keep the current floor and record that."
   },
-  "off_corpus": {
-    "n": 6,
-    "min": 0.492,
-    "max": 0.687
-  },
-  "proposal": null,
-  "current": 0.7,
-  "lowest_on_corpus": 0.616,
-  "highest_off_corpus": 0.687,
-  "reason": "on-corpus and off-corpus similarities OVERLAP: no threshold separates them, so the floor is not what is losing these questions \u2014 retrieval is. Keep the current floor and record that."
+  "centered": {
+    "on_corpus": {
+      "n": 55,
+      "n_with_cause_retrieved": 25,
+      "min": 0.374,
+      "max": 0.922
+    },
+    "off_corpus": {
+      "n": 6,
+      "min": 0.369,
+      "max": 0.434
+    },
+    "proposal": 0.443,
+    "current": 0.44,
+    "lowest_on_corpus": 0.453,
+    "highest_off_corpus": 0.434,
+    "reason": "a gap exists; the midpoint keeps every off-corpus question abstaining while admitting every on-corpus one"
+  }
 }

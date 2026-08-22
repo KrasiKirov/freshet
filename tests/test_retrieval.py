@@ -57,18 +57,21 @@ def test_should_abstain_on_weak_similarity():
 def test_hybrid_search_fuses_arms_and_flags_abstention():
     from datetime import datetime
 
+    from freshet.pipeline import index_stats
     from freshet.pipeline.embedding import StubEmbedder
     from freshet.rag.retrieval import HybridResult, hybrid_search
 
+    index_stats.clear_cache()
     now = datetime.now(UTC)
-    # column order mirrors retrieval._COLS: (..., type, title) then the
-    # per-arm score columns — vector: similarity; keyword: rank, similarity
+    # column order mirrors retrieval._COLS: (..., type, title) then the per-arm
+    # score columns — vector: similarity, centered_similarity; keyword: rank,
+    # similarity, centered_similarity. centered is NULL with no stored centroid.
     vec_rows = [
-        ("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx error spike", "alert_fired", "Error spike in scheduler", 0.81),
-        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.40),
+        ("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx error spike", "alert_fired", "Error spike in scheduler", 0.81, None),
+        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.40, None),
     ]
     kw_rows = [
-        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.9, 0.55),
+        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.9, 0.55, None),
     ]
 
     class FakeConn:
@@ -82,6 +85,9 @@ def test_hybrid_search_fuses_arms_and_flags_abstention():
             class _Cur:
                 def fetchall(self_inner):
                     return rows
+
+                def fetchone(self_inner):
+                    return None                   # index_stats holds no centroid
 
             return _Cur()
 
@@ -98,21 +104,26 @@ def test_hybrid_search_uses_embedder_min_similarity():
     (bge's compressed cosine range needs a higher floor than MiniLM's)."""
     from datetime import datetime
 
+    from freshet.pipeline import index_stats
     from freshet.pipeline.embedding import StubEmbedder
     from freshet.rag.retrieval import hybrid_search
 
     class HighFloorEmbedder(StubEmbedder):
         min_similarity = 0.9
 
+    index_stats.clear_cache()
     now = datetime.now(UTC)
     rows = [("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx spike",
-             "alert_fired", "Error spike in scheduler", 0.81)]
+             "alert_fired", "Error spike in scheduler", 0.81, None)]
 
     class FakeConn:
         def execute(self, sql, params=None):
             class _Cur:
                 def fetchall(self_inner):
                     return [] if "ts_rank" in sql else rows   # keyword arm finds nothing
+
+                def fetchone(self_inner):
+                    return None                               # no stored centroid
 
             return _Cur()
 
@@ -128,17 +139,22 @@ def test_hybrid_search_uses_embedder_min_similarity():
 def test_hybrid_search_abstains_when_similarity_weak():
     from datetime import datetime
 
+    from freshet.pipeline import index_stats
     from freshet.pipeline.embedding import StubEmbedder
     from freshet.rag.retrieval import hybrid_search
 
+    index_stats.clear_cache()
     now = datetime.now(UTC)
-    weak = [("chk_e9_0", "e9", "auth", now, now, "metric", "cpu 12%", "metric", None, 0.04)]
+    weak = [("chk_e9_0", "e9", "auth", now, now, "metric", "cpu 12%", "metric", None, 0.04, None)]
 
     class FakeConn:
         def execute(self, sql, params=None):
             class _Cur:
                 def fetchall(self_inner):
                     return [] if "ts_rank" in sql else weak   # keyword arm finds nothing
+
+                def fetchone(self_inner):
+                    return None                               # no stored centroid
 
             return _Cur()
 
@@ -208,3 +224,95 @@ def test_hybrid_search_binds_exclude_event_id():
     for sql, params in seen:
         assert "prov:inc:upd" not in sql        # not interpolated
         assert params["exclude_event_id"] == "prov:inc:upd"
+
+
+def test_centered_sql_is_emitted_only_when_a_centroid_exists():
+    """Row width is constant either way — the column is NULL when there is no
+    centroid, so positional indices never shift under the caller."""
+    from freshet.rag.retrieval import keyword_sql, vector_sql
+
+    plain = vector_sql(None, None)
+    assert "NULL::double precision AS centered_similarity" in plain
+    assert "%(centroid)s" not in plain
+
+    centered = vector_sql(None, None, centered=True)
+    assert "(embedding - %(centroid)s::vector)" in centered
+    assert "(%(qvec)s::vector - %(centroid)s::vector)" in centered
+    # ranking still uses RAW cosine; only the abstention signal is centered
+    assert "ORDER BY embedding <=> %(qvec)s::vector, chunk_id" in centered
+
+    kw = keyword_sql(None, None, centered=True)
+    assert "(embedding - %(centroid)s::vector)" in kw
+    assert "ORDER BY rank DESC, chunk_id" in kw
+
+
+def test_abstention_prefers_the_centered_signal():
+    """With a centroid present, the floor is the centered one. The raw
+    similarity here (0.81) clears the raw bge floor while the centered value
+    (0.31) does not — which is the whole point: 12.2% of UNRELATED live chunk
+    pairs clear 0.70 in raw space."""
+    from freshet.pipeline import index_stats
+    from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import hybrid_search
+
+    index_stats.clear_cache()
+    now = datetime.now(UTC)
+    # ..., title, similarity, centered_similarity
+    vec_rows = [("chk_e1_0", "e1", "auth", now, now, "alert", "5xx spike",
+                 "alert_fired", "Error spike", 0.81, 0.31)]
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            rows = [] if "ts_rank" in sql else vec_rows
+
+            class _Cur:
+                def fetchall(self_inner):
+                    return rows
+
+                def fetchone(self_inner):
+                    return ("[0.1,0.2]",)          # a stored centroid
+
+            return _Cur()
+
+    class Bgeish(StubEmbedder):
+        name = "bge-ish"
+        min_similarity = 0.70
+        min_similarity_centered = 0.44
+
+    r = hybrid_search(FakeConn(), Bgeish(), "q", k=5)
+    assert r.abstained is True                     # 0.31 < 0.44
+    assert r.hits[0].centered_similarity == 0.31
+    assert r.hits[0].similarity == 0.81            # raw is still reported
+
+
+def test_abstention_falls_back_to_raw_without_a_centroid():
+    from freshet.pipeline import index_stats
+    from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import hybrid_search
+
+    index_stats.clear_cache()
+    now = datetime.now(UTC)
+    vec_rows = [("chk_e1_0", "e1", "auth", now, now, "alert", "5xx spike",
+                 "alert_fired", "Error spike", 0.81, None)]
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            rows = [] if "ts_rank" in sql else vec_rows
+
+            class _Cur:
+                def fetchall(self_inner):
+                    return rows
+
+                def fetchone(self_inner):
+                    return None                    # index_stats has no row
+
+            return _Cur()
+
+    class Bgeish(StubEmbedder):
+        name = "bge-ish"
+        min_similarity = 0.70
+        min_similarity_centered = 0.44
+
+    r = hybrid_search(FakeConn(), Bgeish(), "q", k=5)
+    assert r.abstained is False                    # 0.81 >= the raw floor 0.70
+    assert r.hits[0].centered_similarity is None

@@ -26,6 +26,17 @@ EMBEDDING_DIM = 768  # BAAI/bge-base-en-v1.5 output size
 MIN_SIMILARITY_MINILM = 0.3
 MIN_SIMILARITY_BGE = 0.7
 
+# The same floor, measured in the MEAN-CENTERED space (see
+# freshet/pipeline/index_stats.py). Raw bge cosine is anisotropic — random
+# unrelated chunk pairs on the live index average 0.594 and 12.2% clear 0.70 —
+# so the raw floor cuts a percentile rather than a meaning. Centering collapses
+# the off-corpus band from 0.485-0.687 to 0.369-0.433; 0.44 sits just above it.
+# Measured on 55 live labels with the query's own document excluded: raw @0.70
+# gives 4/55 false abstentions, centered @0.44 gives 2/55, and both reject all
+# 6 off-corpus questions. Recalibrate with `make calibrate-abstention` whenever
+# the corpus or model changes.
+MIN_SIMILARITY_BGE_CENTERED = 0.44
+
 
 class Embedder(Protocol):
     # Identifies which model produced a vector. Stored beside every embedding so a
@@ -45,6 +56,8 @@ class StubEmbedder:
     # random unit vectors follow no model distribution; keep the MiniLM floor so
     # existing tests and keyless demos behave unchanged
     min_similarity = MIN_SIMILARITY_MINILM
+    # ...and no centered calibration exists for a distribution that is noise
+    min_similarity_centered: float | None = None
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [self._vec(t) for t in texts]
@@ -90,7 +103,8 @@ class SentenceTransformerEmbedder:
 
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
                  query_instruction: str = "",
-                 min_similarity: float = MIN_SIMILARITY_MINILM):
+                 min_similarity: float = MIN_SIMILARITY_MINILM,
+                 min_similarity_centered: float | None = None):
         from sentence_transformers import SentenceTransformer
 
         _cap_torch_threads()
@@ -98,6 +112,10 @@ class SentenceTransformerEmbedder:
         self.name = model_name
         self.query_instruction = query_instruction
         self.min_similarity = min_similarity
+        # None means "this model has no centered calibration" — abstention then
+        # stays in raw space even when a centroid exists, rather than inventing
+        # a floor for a distribution nobody measured.
+        self.min_similarity_centered = min_similarity_centered
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [
@@ -126,12 +144,16 @@ def make_embedder(kind: str) -> Embedder:
             "BAAI/bge-base-en-v1.5",
             query_instruction="Represent this sentence for searching relevant passages:",
             min_similarity=MIN_SIMILARITY_BGE,
+            min_similarity_centered=MIN_SIMILARITY_BGE_CENTERED,
         )
     else:
         raise ValueError(f"unknown embedder: {kind!r} (expected 'stub' or 'bge')")
     override = os.environ.get("FRESHET_MIN_SIMILARITY")
     if override:
         emb.min_similarity = float(override)  # type: ignore[misc]
+    override_c = os.environ.get("FRESHET_MIN_SIMILARITY_CENTERED")
+    if override_c:
+        emb.min_similarity_centered = float(override_c)  # type: ignore[misc]
     return emb
 
 

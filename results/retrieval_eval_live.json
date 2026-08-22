@@ -37,7 +37,7 @@
     "verdict": "meaningful"
   },
   "abstention": {
-    "on_corpus_abstained": 4,
+    "on_corpus_abstained": 2,
     "on_corpus_total": 55,
     "off_corpus_abstained": 6,
     "off_corpus_total": 6

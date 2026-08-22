@@ -111,6 +111,41 @@ No `recall@5` moved. The small MRR shifts are the SQL-level exclusion changing
 which rows fill the per-arm `LIMIT`. The corrected on-corpus figure of 4/55 is
 the honest one, and it is the number F1's floor work is measured against.
 
+### F1 — the abstention floor was calibrated on the wrong distribution
+
+`MIN_SIMILARITY_BGE`'s comment cites a clean gap ("on-corpus >= 0.735 vs hardest
+off-corpus 0.662"). That reproduces on the fixture corpus and inverts on the
+live index, because bge's cosine space is anisotropic: random UNRELATED chunk
+pairs average 0.594 and **12.2% of them clear the 0.70 floor**. The floor was
+cutting a percentile, not a meaning.
+
+Abstention now measures in the mean-centered space — subtract the stored
+per-model centroid (`index_stats`) from both document and query, which `<=>`
+then normalizes. Ranking is untouched and stays in raw cosine.
+
+`make calibrate-abstention`, which refuses to propose a floor unless the
+distributions actually separate, now reports both spaces:
+
+| space | on-corpus min (answerable) | off-corpus max | verdict |
+|---|---|---|---|
+| raw | 0.632 | 0.687 | **OVERLAP** — no threshold separates them |
+| centered | 0.453 | 0.434 | **gap exists**; proposes 0.443 (shipped: 0.44) |
+
+That is the finding stated in its own terms: the tool that previously could not
+justify any floor can justify one once the geometry is corrected.
+
+| abstention (55 live labels) | raw @0.70 | centered @0.44 |
+|---|---|---|
+| false abstentions | 4 | **2** |
+| off-corpus rejected | 6/6 | 6/6 |
+
+Ranking is unchanged — hybrid `recall@5` 0.455, vector_only 0.436, keyword_only
+0.345 across both, and the query-blind guard still reports `meaningful`.
+
+A missing centroid is not an error: the column comes back NULL and abstention
+falls back to the raw floor, so an un-refreshed index degrades to today's
+behaviour rather than failing.
+
 ## Honest limits
 
 - **4% of incidents state a cause.** The brief quotes the provider's sentence when

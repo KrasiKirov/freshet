@@ -10,14 +10,29 @@ from datetime import datetime
 from typing import Any
 
 from freshet.pipeline.embedding import Embedder, vec_literal
+from freshet.pipeline.index_stats import get_centroid
 
 # Row columns are addressed by POSITION, so the shared prefix and the per-arm
 # score columns that follow it are declared together here. Adding a column
 # without moving these indices silently mislabels every field after it.
 _COLS = "chunk_id, event_id, service, ts, indexed_at, source, text, type, title"
 TITLE_IDX = 8
-_VEC_SIM_IDX = 9        # vector arm: ..., title, similarity
-_KW_SIM_IDX = 10        # keyword arm: ..., title, rank, similarity
+_VEC_SIM_IDX = 9         # vector arm:  ..., title, similarity, centered_similarity
+_VEC_CSIM_IDX = 10
+_KW_SIM_IDX = 10         # keyword arm: ..., title, rank, similarity, centered_similarity
+_KW_CSIM_IDX = 11
+
+
+# Cosine in the MEAN-CENTERED space. `<=>` normalizes its operands, so
+# subtracting the centroid from both sides is the whole transform — no
+# client-side maths and no second round trip. Emitted as a constant-width
+# column (NULL when no centroid is stored) so the positional indices above
+# never depend on runtime state.
+def _centered_expr(centered: bool) -> str:
+    if not centered:
+        return " NULL::double precision AS centered_similarity"
+    return (" 1 - ((embedding - %(centroid)s::vector)"
+            " <=> (%(qvec)s::vector - %(centroid)s::vector)) AS centered_similarity")
 
 
 def _where(service: str | None, since: datetime | None,
@@ -37,12 +52,13 @@ def _where(service: str | None, since: datetime | None,
 
 
 def vector_sql(service: str | None, since: datetime | None,
-               exclude_event_id: str | None = None) -> str:
+               exclude_event_id: str | None = None, centered: bool = False) -> str:
     # chunk_id breaks distance ties deterministically: without it, tied rows come
     # back in physical heap order, which shifts run-to-run (the eval DELETEs and
     # re-INSERTs every run) and makes the benchmark non-reproducible.
     return (
-        f"SELECT {_COLS}, 1 - (embedding <=> %(qvec)s::vector) AS similarity"
+        f"SELECT {_COLS}, 1 - (embedding <=> %(qvec)s::vector) AS similarity,"
+        + _centered_expr(centered) +
         " FROM vector_records" + _where(service, since, exclude_event_id) +
         " ORDER BY embedding <=> %(qvec)s::vector, chunk_id LIMIT %(k)s"
     )
@@ -60,7 +76,7 @@ _OR_TSQUERY = "replace(websearch_to_tsquery('english', %(q)s)::text, '&', '|')::
 
 
 def keyword_sql(service: str | None, since: datetime | None,
-                exclude_event_id: str | None = None) -> str:
+                exclude_event_id: str | None = None, centered: bool = False) -> str:
     where = _where(service, since, exclude_event_id)
     match = f"text_tsv @@ {_OR_TSQUERY}"
     where = (where + " AND " + match) if where else (" WHERE " + match)
@@ -74,7 +90,8 @@ def keyword_sql(service: str | None, since: datetime | None,
     return (
         f"SELECT {_COLS},"
         f" ts_rank(text_tsv, {_OR_TSQUERY}) AS rank,"
-        f" 1 - (embedding <=> %(qvec)s::vector) AS similarity"
+        f" 1 - (embedding <=> %(qvec)s::vector) AS similarity,"
+        + _centered_expr(centered) +
         " FROM vector_records" + where +
         " ORDER BY rank DESC, chunk_id LIMIT %(k)s"
     )
@@ -120,6 +137,11 @@ def _default_min_similarity(embedder) -> float:
     return float(getattr(embedder, "min_similarity", DEFAULT_MIN_SIMILARITY))
 
 
+def _default_min_similarity_centered(embedder) -> float | None:
+    value = getattr(embedder, "min_similarity_centered", None)
+    return float(value) if value is not None else None
+
+
 @dataclass
 class RetrievedHit:
     chunk_id: str
@@ -135,6 +157,9 @@ class RetrievedHit:
     # Optional and last: the chunk is always present, the incident's name is not
     # (legacy rows predate the column). Defaulting keeps every existing caller valid.
     title: str | None = None
+    # Cosine measured after subtracting the index centroid. None when no
+    # centroid is stored — abstention then falls back to the raw floor.
+    centered_similarity: float | None = None
 
 
 @dataclass
@@ -162,6 +187,11 @@ def hybrid_search(
     # None -> abstention floor from the embedder's per-model attribute.
     if min_similarity is None:
         min_similarity = _default_min_similarity(embedder)
+    centered_floor = _default_min_similarity_centered(embedder)
+    model = getattr(embedder, "name", "") or ""
+    # Only worth the centered arm if this model HAS a centered calibration;
+    # otherwise the column would be measured against a floor nobody set.
+    centroid = get_centroid(conn, model) if centered_floor is not None else None
     [qvec] = embedder.encode_query([question])
     params: dict[str, Any] = {"qvec": vec_literal(qvec), "q": question, "k": ARM_K}
     if service is not None:
@@ -170,9 +200,14 @@ def hybrid_search(
         params["since"] = since
     if exclude_event_id is not None:
         params["exclude_event_id"] = exclude_event_id
+    if centroid is not None:
+        params["centroid"] = centroid
 
-    vec_rows = conn.execute(vector_sql(service, since, exclude_event_id), params).fetchall()
-    kw_rows = conn.execute(keyword_sql(service, since, exclude_event_id), params).fetchall()
+    centered = centroid is not None
+    vec_rows = conn.execute(
+        vector_sql(service, since, exclude_event_id, centered), params).fetchall()
+    kw_rows = conn.execute(
+        keyword_sql(service, since, exclude_event_id, centered), params).fetchall()
 
     vec_map = _rows_to_map(vec_rows, _VEC_SIM_IDX)
     kw_map = _rows_to_map(kw_rows, _KW_SIM_IDX)
@@ -185,6 +220,8 @@ def hybrid_search(
         # having zero similarity
         similarity = (vec_map[chunk_id][1] if chunk_id in vec_map
                       else kw_map[chunk_id][1])
+        csim_idx = _VEC_CSIM_IDX if chunk_id in vec_map else _KW_CSIM_IDX
+        centered_similarity = row[csim_idx]
         hits.append(
             RetrievedHit(
                 chunk_id=row[0], event_id=row[1], service=row[2], ts=row[3],
@@ -192,6 +229,8 @@ def hybrid_search(
                 title=row[TITLE_IDX],
                 similarity=similarity,
                 score=rrf_score,
+                centered_similarity=(None if centered_similarity is None
+                                     else float(centered_similarity)),
             )
         )
 
@@ -207,7 +246,14 @@ def hybrid_search(
     # path keeps the calibrated floor exactly as it was.
     if service is not None or since is not None:
         return HybridResult(hits=retrieval_topk, abstained=not retrieval_topk)
-    abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
+    # The centered space is the better abstention signal — see
+    # freshet/pipeline/index_stats.py. Ranking stays in raw cosine either way.
+    csims = [h.centered_similarity for h in retrieval_topk
+             if h.centered_similarity is not None]
+    if centered_floor is not None and csims:
+        abstained = should_abstain(csims, centered_floor)
+    else:
+        abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
     return HybridResult(hits=retrieval_topk, abstained=abstained)
 
 
