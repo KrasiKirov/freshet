@@ -301,7 +301,17 @@ def poll_once(pages: list[Page], fetch: FetchFn,
         POLL_FETCH.labels(provider=page.provider, status=str(status)).inc()
         if status == 304 or not body:
             return []
-        found = parse_atom(page.provider, body)
+        try:
+            found = parse_atom(page.provider, body)
+        except Exception as exc:                  # noqa: BLE001 - third-party markup
+            # Deliberately NOT backoff.failed(): the host is fine, our adapter is
+            # not, and backing the host off would hide an adapter bug behind a feed
+            # that merely looks quiet. parse_atom swallows ParseError itself, so
+            # anything reaching here used to propagate out of pool.map and kill the
+            # whole sweep over one provider's markup.
+            POLL_FETCH.labels(provider=page.provider, status="error").inc()
+            log.warning("poll parse failed provider=%s err=%s", page.provider, exc)
+            return []
         if not found:
             # Do NOT store the validator. parse_atom swallows ParseError by design,
             # so a truncated body looks identical to an empty feed here — and a

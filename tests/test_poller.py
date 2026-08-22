@@ -1,3 +1,4 @@
+from freshet.ingest import poller
 from freshet.ingest.poller import ConditionalCache, poll_once
 from freshet.ingest.registry import Page
 
@@ -146,3 +147,39 @@ def test_the_wire_message_carries_a_schema_version():
 
     [update] = poll_once(PAGES[:1], fetch, ConditionalCache())
     assert to_message(update)["v"] == WIRE_VERSION
+
+
+def test_a_provider_whose_parse_explodes_does_not_kill_the_sweep(monkeypatch):
+    """parse_atom swallows ParseError by design, but anything else propagated
+    through pool.map and took the whole poller down over one provider's markup."""
+    def boom(provider, body):
+        if provider == "bad":
+            raise ValueError("unexpected markup")
+        return []
+
+    monkeypatch.setattr(poller, "parse_atom", boom)
+    pages = [Page("bad", "https://a.test/f.atom"), Page("good", "https://b.test/f.atom")]
+    assert poll_once(pages, lambda u, h: (200, {}, "<feed/>"),
+                     ConditionalCache(path="")) == []
+
+
+def test_a_parse_failure_does_not_back_the_host_off(monkeypatch):
+    """The host is fine, our adapter is not. Backing it off would hide an adapter
+    bug behind a feed that merely looks quiet."""
+    monkeypatch.setattr(poller, "parse_atom",
+                        lambda p, b: (_ for _ in ()).throw(ValueError("bad markup")))
+    backoff = poller.HostBackoff()
+    poll_once([Page("bad", "https://a.test/f.atom")],
+              lambda u, h: (200, {}, "<feed/>"), ConditionalCache(path=""), backoff)
+    assert not backoff.skip("https://a.test/f.atom")
+
+
+def test_the_sweep_log_reports_this_sweep_not_the_running_total():
+    """`produced` accumulates across sweeps; logging it as though it were the
+    sweep's own count made a backfill drain unreadable. run() needs a broker, so
+    this asserts on the source rather than running it."""
+    import inspect
+
+    src = inspect.getsource(poller.run)
+    assert "swept = 0" in src, "the per-sweep count must be its own variable"
+    assert "elapsed, swept, produced" in src, "log both, labelled"
