@@ -18,6 +18,21 @@ import time
 BEAT_INTERVAL_S = 30.0
 GAP_TOLERANCE_S = 300.0          # 10x the beat: tolerates a slow batch, not an outage
 
+# One row per minute per component. Nothing removed them, so the table grew
+# without bound — and `continuous_run_start` reads it in full. Retention bounds
+# both: at 30 days the log holds ~43k rows per component, so the gap-walk below
+# stays cheap AND stays unit-testable, which a window function would not.
+HEARTBEAT_RETENTION_DAYS = 30
+
+_PRUNE_LOG = ("DELETE FROM pipeline_heartbeat_log"
+              f" WHERE beat_at < now() - interval '{HEARTBEAT_RETENTION_DAYS} days'")
+
+
+def prune_log(conn) -> None:
+    """Drop heartbeat history past the retention window."""
+    conn.execute(_PRUNE_LOG)
+
+
 _UPSERT = (
     "INSERT INTO pipeline_heartbeat (component, beat_at) VALUES (%s, now())"
     " ON CONFLICT (component) DO UPDATE SET beat_at = now()")
@@ -55,6 +70,7 @@ def continuous_run_start(conn, component: str = "embedder",
     """
     rows = conn.execute(
         "SELECT beat_at FROM pipeline_heartbeat_log WHERE component = %s"
+        f" AND beat_at > now() - interval '{HEARTBEAT_RETENTION_DAYS} days'"
         " ORDER BY beat_at DESC", (component,)).fetchall()
     if not rows:
         return None

@@ -79,3 +79,20 @@ def test_liveness_is_proven_when_no_messages_arrive():
     src = inspect.getsource(embedder.run)
     assert "idle_hook=lambda: _beat(heartbeat, conn)" in src, (
         "an idle embedder must still prove it is alive")
+
+
+def test_the_heartbeat_log_has_a_retention_window():
+    """One row per minute per component, forever. Retention also BOUNDS
+    continuous_run_start, which reads the log in full."""
+    from freshet.common import heartbeat
+
+    conn_sql = []
+
+    class _Conn:
+        def execute(self, sql, params=None):
+            conn_sql.append(sql)
+            return self
+
+    heartbeat.prune_log(_Conn())
+    assert "DELETE FROM pipeline_heartbeat_log" in conn_sql[0]
+    assert f"{heartbeat.HEARTBEAT_RETENTION_DAYS} days" in conn_sql[0]
