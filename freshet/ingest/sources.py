@@ -28,3 +28,13 @@ class IncidentUpdate:
         is what the Flink job keys on to emit each update exactly once."""
         return f"{self.provider}:{self.incident_id}:{self.update_id}"
 
+    @property
+    def partition_key(self) -> str:
+        """Kafka partition key. Ordering holds within a partition only, and the
+        lifecycle projection's keep-first semantics need one incident's updates in
+        arrival order — so the key is the incident, not the update. Keyed by
+        dedup_key instead, a three-partition topic scattered one incident across
+        all three and 'the first open' became a race. Matches the namespaced
+        incident_id the Flink projection emits."""
+        return f"{self.provider}:{self.incident_id}"
+

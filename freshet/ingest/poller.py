@@ -261,7 +261,7 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
         # success while dropping updates.
         for update in poll_once(pages, http_fetch, cache, backoff):
             producer.produce(RAW_TOPIC, json.dumps(to_message(update)),
-                             key=update.dedup_key)
+                             key=update.partition_key)
             produced += 1
         producer.flush_checked()
         cache.save(backoff)

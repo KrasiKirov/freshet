@@ -65,8 +65,13 @@ CREATE TABLE normalized_updates (
   'connector' = 'kafka',
   'topic' = 'normalized.updates',
   'properties.bootstrap.servers' = 'localhost:9092',
-  'format' = 'json',
-  'json.timestamp-format.standard' = 'ISO-8601'
+  -- Keyed by incident for the same reason incident.lifecycle is: ordering holds
+  -- within a partition only. Unkeyed, this topic could never be compacted and a
+  -- second embedder instance would process one incident's updates out of order.
+  'key.format' = 'json',
+  'key.fields' = 'incident_id',
+  'value.format' = 'json',
+  'value.json.timestamp-format.standard' = 'ISO-8601'
 );
 
 CREATE TABLE raw_deadletter (
