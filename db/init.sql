@@ -30,6 +30,13 @@ ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS title text;
 CREATE INDEX IF NOT EXISTS vector_records_service_ts_idx
     ON vector_records (service, ts DESC);
 
+-- Every brief, postmortem and thread reply reassembles ONE incident's updates
+-- with `WHERE incident_id = %s`. Partial: status-feed rows always carry an
+-- incident_id, but correlator-opened events may not, and there is no reason to
+-- index the NULLs.
+CREATE INDEX IF NOT EXISTS vector_records_incident_idx
+    ON vector_records (incident_id) WHERE incident_id IS NOT NULL;
+
 ALTER TABLE vector_records
     ADD COLUMN IF NOT EXISTS text_tsv tsvector
     GENERATED ALWAYS AS (to_tsvector('english', text)) STORED;

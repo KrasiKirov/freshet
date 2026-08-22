@@ -49,3 +49,21 @@ def test_the_schema_is_idempotent():
     finally:
         with psycopg.connect(ADMIN, autocommit=True) as admin:
             admin.execute(f'DROP DATABASE IF EXISTS "{name}"')
+
+
+def test_vector_records_is_indexed_by_incident():
+    """`WHERE incident_id = %s` is the sole filter of the query behind every
+    brief, postmortem and thread reply. Nothing indexed it, so each one scanned
+    the whole table."""
+    name = f"bootstrap_{uuid.uuid4().hex[:8]}"
+    with psycopg.connect(ADMIN, autocommit=True) as admin:
+        admin.execute(f'CREATE DATABASE "{name}"')
+    try:
+        with psycopg.connect(ADMIN.replace("/postgres", f"/{name}"), autocommit=True) as c:
+            c.execute(SCHEMA)
+            names = {r[0] for r in c.execute(
+                "SELECT indexname FROM pg_indexes WHERE tablename = 'vector_records'")}
+            assert "vector_records_incident_idx" in names, names
+    finally:
+        with psycopg.connect(ADMIN, autocommit=True) as admin:
+            admin.execute(f'DROP DATABASE IF EXISTS "{name}"')
