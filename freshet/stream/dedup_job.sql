@@ -28,13 +28,12 @@ CREATE TABLE raw_incidents (
   status        STRING,
   text          STRING,
   incident_name STRING,
-  proc_time     AS PROCTIME(),
-  -- 30s tolerance absorbs pollers whose sweeps are staggered against each other
-  -- A cache-miss sweep re-emits MONTHS of Atom history long after the watermark
-  -- has advanced to 'now'. At 90s those first-seen rows were dropped as late
-  -- data and never indexed. Dedup orders by proc_time, so a wide watermark costs
-  -- nothing here — it only governs how late an event may arrive.
-  WATERMARK FOR created_at AS created_at - INTERVAL '7' DAY
+  proc_time     AS PROCTIME()
+  -- No WATERMARK. Every projection below dedups on proc_time, so no operator here
+  -- consumes event time; a watermark would only govern lateness for operators that
+  -- do not exist. It previously read `created_at - INTERVAL '7' DAY` while three
+  -- separate comments described it as 30s and as 90s — none of them true, and
+  -- none of them load-bearing.
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'raw.incidents',
@@ -118,11 +117,10 @@ CREATE TABLE incident_lifecycle (
 -- checkpoints neither survives a restart, so a restarted job re-reads
 -- raw.incidents from earliest and re-emits everything it already emitted. The
 -- SQL header claimed 'checkpointed dedup' while nothing turned it on.
--- A quiet partition otherwise pins the watermark at its last event and stalls
--- every event-time operator behind it. This is a pipeline option, not a Kafka
--- connector option: Flink rejects the job outright if it appears in a table's
--- WITH clause ("Unsupported options found for 'kafka'").
-SET 'table.exec.source.idle-timeout' = '60s';
+--
+-- `table.exec.source.idle-timeout` used to be set here to stop a quiet partition
+-- pinning the watermark. With the watermark gone (nothing in this job consumes
+-- event time) it advances nothing and is a no-op, so it is gone too.
 
 SET 'execution.checkpointing.interval' = '10s';
 SET 'execution.checkpointing.min-pause' = '5s';
@@ -131,6 +129,32 @@ SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
 SET 'state.checkpoints.dir' = 'file:///tmp/freshet-flink-checkpoints';
 SET 'execution.checkpointing.externalized-checkpoint-retention' =
     'RETAIN_ON_CANCELLATION';
+
+-- One shared source for both lifecycle transitions. The two branches below used to
+-- be byte-identical apart from their status list, including a twelve-line comment
+-- copy-pasted into each -- and the recency guard was pasted into only ONE of them.
+-- A view cannot live inside a STATEMENT SET, so it is declared here.
+CREATE TEMPORARY VIEW recent_transitions AS
+SELECT provider, incident_id, incident_name, created_at, proc_time,
+       CASE WHEN LOWER(status) IN ('resolved', 'completed', 'complete')
+            THEN 'resolved' ELSE 'opened' END AS transition
+FROM raw_incidents
+WHERE created_at IS NOT NULL
+  -- 'monitoring' counts as open: some providers never post investigating.
+  -- 'complete' (no 'd') is what hashicorp posts -- measured on the live feed;
+  -- without it those incidents resolve silently and never get a postmortem.
+  AND LOWER(status) IN ('investigating', 'identified', 'monitoring',
+                        'resolved', 'completed', 'complete')
+  -- Only RECENT transitions, for BOTH directions. The source is a re-emitting
+  -- poller reading from earliest, and a resubmitted job starts with empty dedup
+  -- state, so without this every incident in 3 years of history transitions again:
+  -- a sample of 3,000 lifecycle records held 1,429 opens of which 10 were under a
+  -- day old. The Autopilot would page a human about outages from 2022.
+  -- The guard used to be on the opened branch only, so a cold replay still emitted
+  -- a 'resolved' for every historical incident and the consumer's
+  -- _DEFER_POSTMORTEM_SQL flagged thousands of rows postmortem_needed. A resolving
+  -- update's own created_at is "now", so this is safe for long-running incidents.
+  AND created_at > CURRENT_TIMESTAMP - INTERVAL '24' HOUR;
 
 EXECUTE STATEMENT SET
 BEGIN
@@ -181,10 +205,11 @@ WHERE seq = 1;
 --    each one and only the delivery guard stopped a duplicate brief. Partitioning
 --    by (provider, incident_id) instead of (.., update_id) means one open and one
 --    resolve per incident, which is what the surface actually means.
---    'monitoring' counts as open: some providers never post investigating.
+--    Partitioning by (provider, incident_id, transition) means one open and one
+--    resolve per incident, which is what the surface actually means.
 INSERT INTO incident_lifecycle
-SELECT provider || ':' || incident_id AS incident_id, provider AS service, 'opened' AS `type`,
-       created_at AS ts, incident_name AS title
+SELECT provider || ':' || incident_id AS incident_id, provider AS service,
+       transition AS `type`, created_at AS ts, incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (
              -- ORDER BY a SINGLE time attribute: this is what Flink recognises
@@ -192,39 +217,11 @@ FROM (
              -- feed a Kafka sink. Adding a second sort key makes it a general
              -- Rank, whose changelog contains updates, and the sink rejects the
              -- job outright with "doesn't support consuming update and delete
-             -- changes". proc_time (not created_at) keeps emission immediate
-             -- rather than waiting on the 90s watermark.
-             PARTITION BY provider, incident_id
+             -- changes". proc_time (not created_at) keeps emission immediate and
+             -- independent of how late a re-emitted update's event time is.
+             PARTITION BY provider, incident_id, transition
              ORDER BY proc_time ASC) AS seq
-  FROM raw_incidents
-  WHERE created_at IS NOT NULL
-    AND LOWER(status) IN ('investigating', 'identified', 'monitoring')
-    -- Only RECENT opens. The source is a re-emitting poller reading from
-    -- earliest, and a resubmitted job starts with empty dedup state, so without
-    -- this every incident in 3 years of history is 'opened' again: a sample of
-    -- 3,000 lifecycle records held 1,429 opens of which 10 were under a day old.
-    -- The Autopilot would page a human about outages from 2022.
-    AND created_at > CURRENT_TIMESTAMP - INTERVAL '24' HOUR
-)
-WHERE seq = 1;
-
-INSERT INTO incident_lifecycle
-SELECT provider || ':' || incident_id AS incident_id, provider AS service, 'resolved' AS `type`,
-       created_at AS ts, incident_name AS title
-FROM (
-  SELECT *, ROW_NUMBER() OVER (
-             -- ORDER BY a SINGLE time attribute: this is what Flink recognises
-             -- as deduplication (keep-first), which is append-only and so can
-             -- feed a Kafka sink. Adding a second sort key makes it a general
-             -- Rank, whose changelog contains updates, and the sink rejects the
-             -- job outright with "doesn't support consuming update and delete
-             -- changes". proc_time (not created_at) keeps emission immediate
-             -- rather than waiting on the 90s watermark.
-             PARTITION BY provider, incident_id
-             ORDER BY proc_time ASC) AS seq
-  FROM raw_incidents
-  WHERE created_at IS NOT NULL
-    AND LOWER(status) IN ('resolved', 'completed')
+  FROM recent_transitions
 )
 WHERE seq = 1;
 

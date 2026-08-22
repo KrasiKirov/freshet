@@ -79,3 +79,32 @@ def test_the_sql_projections_namespace_incident_id_by_provider():
         head = branch.split("FROM (")[0]
         assert "provider || ':' || incident_id AS incident_id" in head, \
             "the lifecycle key must match what the embedder writes, or no brief can claim"
+
+
+def test_both_lifecycle_transitions_are_guarded_by_the_same_recency_window():
+    """The opened branch had a 24h guard; the resolved branch did not, so a cold
+    replay flagged every historical incident postmortem_needed. The resolving
+    update's own created_at is 'now', so the guard is safe for long incidents."""
+    sql = Path("freshet/stream/dedup_job.sql").read_text()
+    lifecycle = sql.split("CREATE TEMPORARY VIEW recent_transitions")[1]
+    assert lifecycle.count("CURRENT_TIMESTAMP - INTERVAL '24' HOUR") == 1, \
+        "one shared guard covering both transitions"
+
+
+def test_no_watermark_is_declared_because_nothing_orders_by_event_time():
+    """A watermark no operator consumes is dead weight that invited three mutually
+    contradictory comments about its value (30s, 90s, and the actual 7 days)."""
+    sql = Path("freshet/stream/dedup_job.sql").read_text()
+    assert "WATERMARK FOR" not in sql.upper(), "no watermark may be declared"
+    assert "90s watermark" not in sql, "and no comment may claim one exists"
+    assert "SET 'table.exec.source.idle-timeout'" not in sql, \
+        "idle-timeout only advances watermarks; without one it is a no-op"
+
+
+def test_the_resolved_predicate_covers_the_wording_providers_actually_use():
+    """hashicorp posts status 'complete', not 'completed'. Measured on the live
+    feed: without it those incidents never emit a resolved lifecycle event and
+    never get a postmortem."""
+    sql = Path("freshet/stream/dedup_job.sql").read_text()
+    for word in ("'resolved'", "'completed'", "'complete'"):
+        assert word in sql, f"resolved predicate is missing {word}"
