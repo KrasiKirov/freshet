@@ -185,8 +185,17 @@ def poll_once(pages: list[Page], fetch: FetchFn,
             backoff.succeeded(page.url)
         if status == 304 or not body:
             return []
+        found = parse_atom(page.provider, body)
+        if not found:
+            # Do NOT store the validator. parse_atom swallows ParseError by design,
+            # so a truncated body looks identical to an empty feed here — and a
+            # stored ETag would answer the next sweep with a 304, losing those
+            # updates permanently.
+            log.warning("poll parsed 0 updates provider=%s bytes=%d "
+                        "(validator not stored; will refetch)", page.provider, len(body))
+            return []
         cache.remember(page.url, headers)
-        return parse_atom(page.provider, body)
+        return found
 
     updates: list[IncidentUpdate] = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:

@@ -101,3 +101,35 @@ def test_wire_timestamp_is_rfc3339_with_a_literal_z():
     stamp = to_message(update)["created_at"]
     assert stamp.endswith("Z"), stamp
     assert "+00:00" not in stamp
+
+
+ONE = [Page("a", "https://a.example/history.atom")]
+
+
+def test_a_body_that_parses_to_nothing_does_not_store_a_validator():
+    """Storing the ETag before the parse is known to have worked means a truncated
+    body is answered with a 304 next sweep and its updates are lost for good."""
+    cache = ConditionalCache(path="")
+    seen: list[dict] = []
+
+    def fetch(url, headers):
+        seen.append(headers)
+        return 200, {"ETag": 'W/"abc"'}, "<truncated"
+
+    poll_once(ONE, fetch, cache)
+    poll_once(ONE, fetch, cache)
+    assert "If-None-Match" not in seen[1], \
+        "a feed we failed to parse must be re-fetched in full, not 304'd"
+
+
+def test_a_body_that_parses_stores_its_validator():
+    cache = ConditionalCache(path="")
+    seen: list[dict] = []
+
+    def fetch(url, headers):
+        seen.append(headers)
+        return 200, {"ETag": 'W/"abc"'}, _feed("1", "2026-08-18T11:42:59Z")
+
+    poll_once(ONE, fetch, cache)
+    poll_once(ONE, fetch, cache)
+    assert seen[1]["If-None-Match"] == 'W/"abc"'
