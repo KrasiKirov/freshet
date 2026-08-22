@@ -113,7 +113,8 @@ class SentenceTransformerEmbedder:
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
                  query_instruction: str = "",
                  min_similarity: float = MIN_SIMILARITY_MINILM,
-                 min_similarity_centered: float | None = None):
+                 min_similarity_centered: float | None = None,
+                 batch_size: int = 32):
         from sentence_transformers import SentenceTransformer
 
         _cap_torch_threads()
@@ -125,11 +126,17 @@ class SentenceTransformerEmbedder:
         # stays in raw space even when a centroid exists, rather than inventing
         # a floor for a distribution nobody measured.
         self.min_similarity_centered = min_similarity_centered
+        # The handler calls encode() once per Kafka message — 1-3 chunks — so
+        # the default of 32 does nothing in steady state. It is there for replay
+        # and re-index, where the caller passes the whole batch: measured on 2
+        # torch threads, 107 chunks/s at batch=1 against 507 at batch=32.
+        self.batch_size = batch_size
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [
             [float(x) for x in row]
-            for row in self.model.encode(texts, normalize_embeddings=True)
+            for row in self.model.encode(texts, normalize_embeddings=True,
+                                         batch_size=self.batch_size)
         ]
 
     def encode_query(self, texts: list[str]) -> list[list[float]]:
@@ -167,5 +174,16 @@ def make_embedder(kind: str) -> Embedder:
 
 
 def vec_literal(v: list[float]) -> str:
-    """Format a vector as a pgvector text literal for use with %s::vector."""
-    return "[" + ",".join(str(x) for x in v) + "]"
+    """Format a vector as a pgvector text literal for use with %s::vector.
+
+    9 significant digits is FLT_DECIMAL_DIG: the smallest precision that
+    round-trips float32 EXACTLY, which is what these values are on both sides
+    of the wire (sentence-transformers emits float32, pgvector stores it).
+    7 digits looks sufficient and is not — it perturbs the low bits, verified
+    by test_vec_literal_is_lossless_for_float32_and_compact. `str(float)`
+    went the other way, emitting up to 17 digits for values that never had
+    that much information: 16,285 bytes per 768-dim vector against 10,437,
+    or ~194 MB of decimal text across a full re-index, and the query path
+    pays it twice (the keyword arm interpolates qvec again).
+    """
+    return "[" + ",".join(f"{x:.9g}" for x in v) + "]"
