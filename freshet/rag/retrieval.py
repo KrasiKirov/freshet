@@ -5,6 +5,7 @@ user value travels as a bound parameter.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -151,7 +152,22 @@ def should_abstain(similarities: list[float], min_similarity: float) -> bool:
 # per-model `min_similarity` attribute (see pipeline.embedding), that wins —
 # bge's compressed cosine distribution makes 0.3 effectively "never abstain".
 DEFAULT_MIN_SIMILARITY = 0.3
-ARM_K = 20                   # per-arm candidate depth before fusion
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+# Per-arm candidate depth before fusion. Measured on the live index, the vector
+# arm's recall@5 is 0.436 while its recall@20 is 0.655 and recall@50 0.764 — so
+# a third of the answers the system finds are sitting below this cut, where
+# fusion cannot see them. Raising it costs one larger LIMIT per arm and no LLM
+# tokens; the delivered k is a separate, cost-bearing decision. Sweep with
+# FRESHET_ARM_K.
+ARM_K = _int_env("FRESHET_ARM_K", 20)
 
 
 

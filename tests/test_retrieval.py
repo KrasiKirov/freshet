@@ -342,3 +342,28 @@ def test_or_swap_is_skipped_when_the_query_negates():
     # both branches present: plain OR-swap, and the untouched AND form
     assert "replace(" in sql and "'&', '|'" in sql
     assert "CASE WHEN" in sql and "ELSE" in sql
+
+
+def test_arm_k_is_env_overridable():
+    """The candidate depth is the parameter with the most measured headroom
+    (vector-arm recall@5 0.436 vs recall@50 0.764), so sweeping it must not
+    require a code edit."""
+    import importlib
+    import os
+
+    import freshet.rag.retrieval as retrieval
+
+    saved = os.environ.get("FRESHET_ARM_K")
+    try:
+        os.environ["FRESHET_ARM_K"] = "50"
+        importlib.reload(retrieval)
+        assert retrieval.ARM_K == 50
+        os.environ["FRESHET_ARM_K"] = "not-a-number"
+        importlib.reload(retrieval)
+        assert retrieval.ARM_K == 20          # bad values fall back, never crash
+    finally:
+        if saved is None:
+            os.environ.pop("FRESHET_ARM_K", None)
+        else:
+            os.environ["FRESHET_ARM_K"] = saved
+        importlib.reload(retrieval)

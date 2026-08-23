@@ -207,6 +207,40 @@ errors for customers in europe"): sequential scan matching 6,668 rows, top-N
 heapsort, 52 ms. The arm reads the whole table on every query. That is affordable
 at this corpus size and is the thing to revisit before an ANN index, not after.
 
+### F3 — candidate depth was NOT the bottleneck
+
+The vector arm's recall curve says the evidence is there and the k=5 cut is
+losing it: recall@1 0.218, @5 0.436, @10 0.527, @20 0.655, @50 0.764, @100 0.782.
+About a third of the answers sit between rank 6 and 50, and `ARM_K = 20` caps
+each arm below them. Raising it costs one larger `LIMIT` and no LLM tokens, so it
+looked like the cheapest large lever available. It is not a lever at all:
+
+| ARM_K | hybrid recall@5 | mrr | top1 | false abstentions |
+|---|---|---|---|---|
+| **20** | **0.473** | 0.313 | 0.236 | 2/55 |
+| 30 | 0.455 | 0.319 | 0.236 | 2/55 |
+| 50 | 0.436 | 0.309 | 0.236 | 3/55 |
+| 80 | 0.455 | 0.312 | 0.236 | 3/55 |
+| 120 | 0.455 | 0.312 | 0.236 | 3/55 |
+
+Kept at 20; deeper is flat-to-worse and costs a false abstention.
+
+The reason is RRF's own arithmetic. Fusion scores a document `1/(60 + rank)`, so
+a hit at vector-rank 50 contributes 0.0092 against 0.0167 for rank 0 — it cannot
+overtake five shallower documents on rank alone, no matter how strong its cosine.
+Depth makes those documents *visible* to fusion without making them *winnable*.
+
+So the finding is sharper than the audit stated: the evidence is retrievable, and
+the thing discarding it is that RRF throws away magnitude. Recall@50 = 0.764 is
+the ceiling a *score-aware* fusion could reach; it is not a ceiling depth alone
+can move. `FRESHET_ARM_K` is left in place so the next person can re-sweep
+against a different fusion without editing code.
+
+Raising the *delivered* k (currently 6 in `freshet/autopilot/thread_agent.py`) is
+the other half and is not free — it sends more chunks to the model, and the git
+history already contains one fix for a 179-update incident sending 58k tokens
+twice. It belongs against `freshet/rag/budget.py`'s caps, not in this change.
+
 ## Honest limits
 
 - **4% of incidents state a cause.** The brief quotes the provider's sentence when
