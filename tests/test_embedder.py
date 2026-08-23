@@ -214,3 +214,54 @@ def test_handler_counts_the_kafka_message_once():
     make_handler(_FakeConn(), _FlakyEmbedder(failures=0), _FakeProducer(),
                  attempts=1, sleep=lambda s: None)(ev.model_dump_json())
     assert REGISTRY.get_sample_value("freshet_embedder_messages_total") == msg_before + 1
+
+
+def test_a_systemic_embed_failure_stops_instead_of_emptying_the_topic():
+    """An OOM, missing weights or a bad torch thread setting dead-letters EVERY
+    message as fast as the consumer can poll. The upsert path already refuses to
+    dead-letter infrastructure failures for exactly this reason; the embed path
+    needs the same guard. Crash-looping under supervision is recoverable, a
+    drained topic is not."""
+    import pytest
+
+    from freshet.pipeline.embedder import (
+        MAX_CONSECUTIVE_DEADLETTERS,
+        EmbedderUnhealthy,
+        make_handler,
+    )
+
+    producer, conn = _FakeProducer(), _FakeConn()
+    handle = make_handler(conn, _FlakyEmbedder(failures=999), producer,
+                          attempts=1, sleep=lambda s: None)
+    with pytest.raises(EmbedderUnhealthy):
+        for _ in range(MAX_CONSECUTIVE_DEADLETTERS + 5):
+            handle(_event_json())
+    assert len(producer.messages) == MAX_CONSECUTIVE_DEADLETTERS, \
+        "the breaker trips ON the threshold, not after another lap of the topic"
+
+
+def test_one_success_resets_the_streak():
+    """Nine failures, one success, then more failures must not trip the breaker:
+    it fires on a RUN of failures, not a lifetime total."""
+    from freshet.pipeline.embedder import MAX_CONSECUTIVE_DEADLETTERS, make_handler
+
+    producer, conn = _FakeProducer(), _FakeConn()
+    handle = make_handler(conn, _FlakyEmbedder(failures=MAX_CONSECUTIVE_DEADLETTERS - 1),
+                          producer, attempts=1, sleep=lambda s: None)
+    for _ in range(MAX_CONSECUTIVE_DEADLETTERS - 1):
+        handle(_event_json())            # dead-letters; streak climbs to N-1
+    handle(_event_json())                # succeeds; streak resets
+    assert len(producer.messages) == MAX_CONSECUTIVE_DEADLETTERS - 1
+
+
+def test_a_malformed_message_is_poison_and_never_trips_the_breaker():
+    """A parse failure really is one bad message. Counting it toward the systemic
+    streak would let a run of junk records take down a healthy worker."""
+    from freshet.pipeline.embedder import MAX_CONSECUTIVE_DEADLETTERS, make_handler
+
+    producer, conn = _FakeProducer(), _FakeConn()
+    handle = make_handler(conn, _FlakyEmbedder(failures=0), producer,
+                          attempts=1, sleep=lambda s: None)
+    for _ in range(MAX_CONSECUTIVE_DEADLETTERS + 5):
+        handle("{not json at all")       # must not raise
+    assert len(producer.messages) == MAX_CONSECUTIVE_DEADLETTERS + 5

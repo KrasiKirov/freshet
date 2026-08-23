@@ -149,6 +149,20 @@ EMBED_ATTEMPTS = 3
 # indistinguishable from a healthy pipeline.
 KNOWN_WIRE_VERSIONS = frozenset({1})
 
+# A run of dead-letters this long is not message poison — it is the embedder itself
+# (OOM, missing weights, a bad torch thread setting). The upsert path already
+# refuses to dead-letter infrastructure failures because "dead-lettering them during
+# a DB outage would drain the stream into the DLQ"; without the same guard here, a
+# broken model empties the topic into the DLQ as fast as the consumer can poll it.
+MAX_CONSECUTIVE_DEADLETTERS = 10
+
+
+class EmbedderUnhealthy(RuntimeError):
+    """Raised out of the handler so consume_loop leaves the offsets uncommitted and
+    the process exits. Crash-looping under supervision is recoverable; a drained
+    topic is not — the messages are gone from the stream and only replayable by
+    hand out of the DLQ."""
+
 
 def make_handler(conn, emb: Embedder, producer, *,
                  heartbeat: Heartbeat | None = None,
@@ -162,20 +176,35 @@ def make_handler(conn, emb: Embedder, producer, *,
     Upsert failures propagate: they are infrastructure problems, not message
     poison (the resilient connection has already retried reconnects), and
     dead-lettering them during a DB outage would drain the stream into the DLQ.
+
+    Embed failures get the same reasoning one level up: any single one may be
+    poison, but MAX_CONSECUTIVE_DEADLETTERS of them in a row is the worker, so the
+    handler raises EmbedderUnhealthy rather than continuing to drain the topic.
     """
     from freshet.common.kafka_io import produce_sync
 
     heartbeat = heartbeat or Heartbeat("embedder")
+    # Consecutive SYSTEMIC dead-letters. A dict because `handle` closes over it.
+    streak = {"deadletters": 0}
 
-    def _dead_letter(error: str, value: str) -> None:
+    def _dead_letter(error: str, value: str, *, systemic: bool) -> None:
+        """`systemic` marks a failure that says something about this WORKER rather
+        than about this message. A parse failure is real poison and never counts;
+        an embed failure might be either, and a long run of them is the signal."""
         produce_sync(producer, deadletter_topic, build_deadletter(error, value, topic))
         DEADLETTER_EVENTS.inc()
+        streak["deadletters"] = streak["deadletters"] + 1 if systemic else 0
+        if streak["deadletters"] >= MAX_CONSECUTIVE_DEADLETTERS:
+            raise EmbedderUnhealthy(
+                f"{streak['deadletters']} consecutive embed failures; last: {error}")
 
     def handle(value: str) -> None:
         try:
             ev = Event.model_validate_json(value)
         except Exception as e:
-            _dead_letter(str(e), value)
+            # Genuinely one bad message: a malformed record says nothing about the
+            # health of this worker, so it must not count toward the streak.
+            _dead_letter(str(e), value, systemic=False)
             return
         if ev.v not in KNOWN_WIRE_VERSIONS:
             UNKNOWN_WIRE_VERSION.inc()
@@ -190,7 +219,8 @@ def make_handler(conn, emb: Embedder, producer, *,
                 break
             except Exception as e:
                 if attempt == attempts:
-                    _dead_letter(f"embed failed after {attempts} attempts: {e}", value)
+                    _dead_letter(f"embed failed after {attempts} attempts: {e}",
+                                 value, systemic=True)
                     return
                 sleep(0.2 * attempt)
         if len(vectors) != len(records):
@@ -210,6 +240,7 @@ def make_handler(conn, emb: Embedder, producer, *,
         ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
         if ev.incident_id:
             conn.execute(_INCIDENT_EVENT_SQL, (ev.incident_id, ev.event_id))
+        streak["deadletters"] = 0    # a success proves the worker is healthy
         EMBEDDER_MESSAGES.inc()      # one per Kafka message, not per chunk
         # Proof of uptime for the freshness eval: without it a catch-up burst
         # after an outage is indistinguishable from a slow pipeline.
