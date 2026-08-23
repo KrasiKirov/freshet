@@ -156,6 +156,12 @@ KNOWN_WIRE_VERSIONS = frozenset({1})
 # broken model empties the topic into the DLQ as fast as the consumer can poll it.
 MAX_CONSECUTIVE_DEADLETTERS = 10
 
+# consume_loop defaults to a synchronous offset commit per message, and this worker
+# never overrode it — that round trip, not the embedding, was the measured
+# throughput ceiling. Every write here is idempotent (chunk_id derives from
+# event_id), so a crash mid-batch redelivers work that overwrites its own rows.
+DEFAULT_COMMIT_EVERY = 50
+
 
 class EmbedderUnhealthy(RuntimeError):
     """Raised out of the handler so consume_loop leaves the offsets uncommitted and
@@ -265,6 +271,7 @@ def run(
     metrics_port: int = 0,
     stop: threading.Event | None = None,
     idle_timeout_s: float | None = None,
+    commit_every: int = DEFAULT_COMMIT_EVERY,
 ) -> int:
     start_metrics_server(metrics_port)
     from freshet.common.db import connect
@@ -285,6 +292,11 @@ def run(
         n = consume_loop(brokers, group, [topic], handle, max_messages,
                          auto_commit=False, stop=stop,
                          idle_timeout_s=idle_timeout_s,
+                         commit_every=commit_every,
+                         # Matters only once commit_every > 1: without it an offset
+                         # batch could commit past a dead-letter produce that has
+                         # not been acknowledged, losing the evidence silently.
+                         pre_commit=producer.flush,
                          idle_hook=lambda: _beat(heartbeat, conn))
     finally:
         producer.flush()

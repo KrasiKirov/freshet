@@ -216,6 +216,45 @@ def test_handler_counts_the_kafka_message_once():
     assert REGISTRY.get_sample_value("freshet_embedder_messages_total") == msg_before + 1
 
 
+def test_offsets_commit_in_batches_because_every_write_is_idempotent():
+    """consume_loop defaults to a synchronous offset commit per message, and the
+    embedder never overrode it — that round trip was the throughput ceiling.
+    chunk_id derives from event_id, so redelivering a batch overwrites its own
+    rows: at-least-once plus idempotent is still effectively once in the index."""
+    import inspect
+
+    from freshet.pipeline import embedder
+
+    src = inspect.getsource(embedder.run)
+    assert "commit_every=" in src, "run() must set it; the consume_loop default is 1"
+    assert embedder.DEFAULT_COMMIT_EVERY >= 10
+    assert "pre_commit=" in src, \
+        "a batched commit must flush the dead-letter producer first, or an offset " \
+        "can commit past an unacknowledged dead-letter"
+
+
+def test_all_of_one_events_chunks_are_encoded_in_a_single_call():
+    """One encode call per MESSAGE meant a batch size of 1-3 — the 'batches -> bge'
+    the module promises never happened at the chunk level either."""
+    from freshet.pipeline.embedder import make_handler
+    from freshet.pipeline.embedding import StubEmbedder
+
+    calls: list[int] = []
+
+    class _Counting(StubEmbedder):
+        name = "counting"
+
+        def encode(self, texts):
+            calls.append(len(texts))
+            return super().encode(texts)
+
+    long_text = ". ".join(f"Sentence number {i} about the outage" for i in range(60))
+    ev = Event(service="s", source=EventSource.ALERT, type="status_update",
+               text=long_text + ".")
+    make_handler(_FakeConn(), _Counting(), _FakeProducer())(ev.model_dump_json())
+    assert len(calls) == 1 and calls[0] > 1, "all of one event's chunks in one call"
+
+
 def test_a_systemic_embed_failure_stops_instead_of_emptying_the_topic():
     """An OOM, missing weights or a bad torch thread setting dead-letters EVERY
     message as fast as the consumer can poll. The upsert path already refuses to
