@@ -276,6 +276,37 @@ Two things this does not settle: chunk *overlap* is still untested (the sweep
 varies size, not overlap), and the reconstructed corpus joins chunks with a
 single space, so it approximates the original text rather than reproducing it.
 
+### Measured and rejected
+
+Recorded because the next person will otherwise spend a day rediscovering them.
+
+**Incident title on every chunk.** Flink prepends `"<name>: "` to the update text
+and only chunk `_0` keeps it, leaving 4,842 of 11,907 live chunks (40.6%) with no
+incident context. Re-embedding exactly those with the title restored: recall@5
+0.436 -> 0.400, mrr 0.303 -> 0.284. The repeated title dominates short chunks and
+crowds out the body. **Rejected.**
+
+**`bge-reranker-base` over the vector arm's top-50.** recall@5 0.436 -> 0.382,
+mrr 0.303 -> 0.240. **Rejected**, and the reason generalizes: every update inside
+one incident is topically near-identical — "We are investigating elevated error
+rates" and "caused by an expired certificate on the edge tier" are the same
+subject in the same vocabulary. A relevance reranker ranks topical fit, and
+topical fit does not discriminate here. The task is not similarity; it is "which
+of these near-identical updates STATES a cause", a property of the sentence
+rather than of its distance to the query.
+
+**Deeper candidate pools.** See F3 — RRF's `1/(60+rank)` cannot promote a deep
+hit past five shallow ones, so depth makes evidence visible to fusion without
+making it winnable.
+
+**Larger chunks.** See F7 — flat recall, 5x the false abstentions on live data.
+
+**Corpus shape mismatch, which is why three of the four above needed live data
+to reject.** Fixture corpus: 159 mean chars, 7.3% multi-chunk events, 13.7%
+non-first chunks. Live index: 235, 40.7%, 40.6%. The title experiment looked free
+on the fixture and cost 3.6 points of recall live. `retrieval_eval` now publishes
+`corpus_shape` on every run so the drift is visible rather than assumed.
+
 ## Honest limits
 
 - **4% of incidents state a cause.** The brief quotes the provider's sentence when

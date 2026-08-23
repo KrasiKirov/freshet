@@ -60,6 +60,13 @@ def title_of(text: str) -> str | None:
     return head if 0 < len(head) <= MAX_TITLE_LEN else None
 
 
+# The incident title reaches the index only on chunk _0 — Flink prepends
+# "<name>: " to the text and the chunker splits it away for everything after.
+# That is 40.6% of live chunks with no incident context, and restoring it was
+# MEASURED and made retrieval worse (recall@5 0.436 -> 0.400): the repeated
+# title dominates short chunks and crowds out the body. The `title` column
+# carries the incident name for citation labelling instead. See RESULTS.md,
+# "Measured and rejected".
 def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorRecord]:
     """One record per text chunk. chunk_id derives from event_id + index, so
     redelivery and replay overwrite the same rows (idempotent). Blank text
