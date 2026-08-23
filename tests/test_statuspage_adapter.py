@@ -187,6 +187,45 @@ def test_the_last_resort_identity_is_the_revision_not_the_body():
     assert a[0].dedup_key == b[0].dedup_key
 
 
+def test_asia_pacific_abbreviations_resolve_instead_of_falling_back():
+    """A fallback stamps every update in the entry with the revision time, which
+    collapses their order — the same quality loss the openai path had, just
+    quieter. The table was US/EU-only."""
+    jst = _block("Aug", 6, "15:37", "JST", "Resolved", "done")     # UTC+9
+    got = parse_atom("x", _feed(_entry(updated="2026-08-06T07:00:00Z", content=jst)))
+    assert got[0].created_at == datetime(2026, 8, 6, 6, 37, tzinfo=UTC)
+
+
+def test_an_ambiguous_abbreviation_falls_back_rather_than_guessing():
+    """CST is US-6 and China+8; IST is India+5:30 and Ireland+1; BST is Britain+1
+    and Brazil-3. Picking one silently puts an update up to 14 hours from where it
+    belongs, and freshness is the one number this project reports. The module's
+    contract is that a timestamp is never guessed."""
+    for abbrev in ("CST", "BST", "IST"):
+        block = _block("Aug", 6, "15:37", abbrev, "Resolved", "done")
+        got = parse_atom("x", _feed(_entry(updated="2026-08-06T19:37:00Z", content=block)))
+        assert got[0].created_at == datetime(2026, 8, 6, 19, 37, tzinfo=UTC), abbrev
+
+
+def test_a_timestamp_fallback_is_counted():
+    """Counted so a provider whose format we cannot resolve is visible, rather
+    than quietly degraded."""
+    from freshet.pipeline.metrics import TIMESTAMP_FALLBACK
+
+    before = TIMESTAMP_FALLBACK._value.get()
+    weird = _block("Aug", 18, "11:42", "XYZ", "Resolved", "done")
+    parse_atom("x", _feed(_entry(updated="2026-08-18T11:42:59Z", content=weird)))
+    assert TIMESTAMP_FALLBACK._value.get() == before + 1
+
+
+def test_a_resolved_timestamp_is_not_counted_as_a_fallback():
+    from freshet.pipeline.metrics import TIMESTAMP_FALLBACK
+
+    before = TIMESTAMP_FALLBACK._value.get()
+    parse_atom("github", _feed(_entry(content=TWO)))
+    assert TIMESTAMP_FALLBACK._value.get() == before
+
+
 def test_a_feed_declaring_a_dtd_is_refused():
     """Internal entity definitions are how a small XML body becomes an unbounded
     one, and ElementTree's expat parser will expand them. No status feed needs a

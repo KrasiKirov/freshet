@@ -78,6 +78,11 @@ POLL_SWEEP_SECONDS = Histogram(
     buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0),
 )
 
+TIMESTAMP_FALLBACK = Counter(
+    "freshet_timestamp_fallback_total",
+    "Updates whose HTML timestamp could not be resolved and used the entry's revision time",
+)
+
 UNKNOWN_WIRE_VERSION = Counter(
     "freshet_unknown_wire_version_total",
     "Events carrying a wire version this worker does not know",

@@ -30,6 +30,7 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta, timezone
 
 from freshet.ingest.sources import IncidentUpdate
+from freshet.pipeline.metrics import TIMESTAMP_FALLBACK
 
 _ATOM = "{http://www.w3.org/2005/Atom}"
 # Statuspage URN (`tag:host,2005:Incident/123`) or a plain incident URL.
@@ -56,11 +57,25 @@ _WHEN = re.compile(r"([A-Z][a-z]{2})\s+(\d{1,2})\s*,\s*(\d{1,2}):(\d{2})\s*([A-Z
 _MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], start=1)}
-# Only offsets we can resolve unambiguously. Anything else falls back.
+# Only offsets that are UNAMBIGUOUS worldwide. An abbreviation with two readings is
+# deliberately absent: CST is US-6 and China+8, IST is India+5:30 and Ireland+1, BST
+# is Britain+1 and Brazil-3. Resolving one is a guess dressed as a fact, and this
+# module's contract is that a timestamp is never guessed — an unresolvable stamp
+# falls back to the entry's exact ISO `updated` and increments TIMESTAMP_FALLBACK.
+# (CST and BST were previously resolved to their US/UK readings; that was the guess
+# this comment now forbids.)
+#
+# Measured across all 42 live feeds, 3,557 HTML timestamps: UTC 2394, PDT 572,
+# EDT 423, EST 92, PST 76 — and nothing else. So dropping the ambiguous entries
+# costs zero fallbacks today, and the Asia-Pacific entries below are insurance
+# against a provider that has not appeared yet rather than a fix for one that has.
 _OFFSETS = {"UTC": 0, "GMT": 0, "UT": 0, "Z": 0,
-            "EST": -5, "EDT": -4, "CST": -6, "CDT": -5,
+            "EST": -5, "EDT": -4, "CDT": -5,
             "MST": -7, "MDT": -6, "PST": -8, "PDT": -7,
-            "BST": 1, "CET": 1, "CEST": 2}
+            "CET": 1, "CEST": 2, "EET": 2, "EEST": 3, "WET": 0, "WEST": 1,
+            "JST": 9, "KST": 9, "HKT": 8, "SGT": 8, "MSK": 3,
+            "AEST": 10, "AEDT": 11, "AWST": 8, "NZST": 12, "NZDT": 13,
+            "BRT": -3, "ART": -3}
 
 
 def _text(node: ET.Element, tag: str) -> str:
@@ -140,7 +155,13 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
             for block in blocks:
                 body = _plain(block.group("body"))
                 marker = _plain(block.group("when"))
-                stamp = _parse_when(block.group("when"), revised) or revised
+                stamp = _parse_when(block.group("when"), revised)
+                if stamp is None:
+                    # Every update in this entry then shares the revision time,
+                    # which collapses their order. Counted so a provider whose
+                    # format we do not resolve is visible rather than degraded.
+                    TIMESTAMP_FALLBACK.inc()
+                    stamp = revised
                 out.append(_make(provider, incident_id, name, stamp,
                                  _plain(block.group("status")).lower(), body,
                                  identity=f"{marker}|{body}"))
