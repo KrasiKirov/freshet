@@ -1,0 +1,82 @@
+{
+  "400": {
+    "shape": {
+      "n_events": 841,
+      "n_chunks": 975,
+      "mean_chars": 158.6,
+      "median_chars": 121,
+      "p95_chars": 371,
+      "max_chars_seen": 400,
+      "multi_chunk_events": 61,
+      "multi_chunk_frac": 0.073,
+      "non_first_frac": 0.137
+    },
+    "hybrid": {
+      "recall@5": 0.917,
+      "mrr": 0.701,
+      "top1_cite": 0.583,
+      "n": 12
+    },
+    "on_corpus_abstained": 0
+  },
+  "600": {
+    "shape": {
+      "n_events": 841,
+      "n_chunks": 903,
+      "mean_chars": 171.3,
+      "median_chars": 118,
+      "p95_chars": 472,
+      "max_chars_seen": 600,
+      "multi_chunk_events": 42,
+      "multi_chunk_frac": 0.05,
+      "non_first_frac": 0.069
+    },
+    "hybrid": {
+      "recall@5": 0.917,
+      "mrr": 0.715,
+      "top1_cite": 0.583,
+      "n": 12
+    },
+    "on_corpus_abstained": 0
+  },
+  "800": {
+    "shape": {
+      "n_events": 841,
+      "n_chunks": 877,
+      "mean_chars": 176.4,
+      "median_chars": 117,
+      "p95_chars": 587,
+      "max_chars_seen": 797,
+      "multi_chunk_events": 31,
+      "multi_chunk_frac": 0.037,
+      "non_first_frac": 0.041
+    },
+    "hybrid": {
+      "recall@5": 0.917,
+      "mrr": 0.771,
+      "top1_cite": 0.667,
+      "n": 12
+    },
+    "on_corpus_abstained": 0
+  },
+  "1200": {
+    "shape": {
+      "n_events": 841,
+      "n_chunks": 852,
+      "mean_chars": 181.6,
+      "median_chars": 116,
+      "p95_chars": 566,
+      "max_chars_seen": 1196,
+      "multi_chunk_events": 11,
+      "multi_chunk_frac": 0.013,
+      "non_first_frac": 0.013
+    },
+    "hybrid": {
+      "recall@5": 0.917,
+      "mrr": 0.715,
+      "top1_cite": 0.583,
+      "n": 12
+    },
+    "on_corpus_abstained": 0
+  }
+}

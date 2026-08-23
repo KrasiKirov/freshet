@@ -163,6 +163,11 @@ calibrate-abstention: ##eval
 	@# Proposes an abstention floor from paraphrased live labels. Never writes it.
 	$(PYTHON) -m freshet.eval.calibrate_abstention
 
+chunk-sweep: ##eval
+	@# Sweeps DEFAULT_MAX_CHARS against the labeled fixture corpus. Re-indexes the
+	@# dedicated eval database once per size; never touches the live index.
+	$(PYTHON) -m freshet.eval.chunk_sweep
+
 index-stats: ##eval
 	@# Recompute the index centroid that the abstention floor is measured against.
 	@# Re-run after a bulk re-index; a few minutes of drift is immaterial.

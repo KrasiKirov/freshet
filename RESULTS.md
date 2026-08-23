@@ -241,6 +241,41 @@ the other half and is not free — it sends more chunks to the model, and the gi
 history already contains one fix for a 179-update incident sending 58k tokens
 twice. It belongs against `freshet/rag/budget.py`'s caps, not in this change.
 
+### F7 — chunk size: measured, and left at 400
+
+`DEFAULT_MAX_CHARS = 400` sits against bge's 512-token window while chunks
+average 34 tokens (p95 80, max 115) — about 7% of it. The cap buys no truncation
+safety and fragments 40% of live events, so raising it looked free. It is not.
+
+Fixture corpus (12 labels), `make chunk-sweep`:
+
+| max_chars | chunks | multi-chunk events | recall@5 | mrr | top1 |
+|---|---|---|---|---|---|
+| **400** | 975 | 7.3% | 0.917 | 0.701 | 0.583 |
+| 600 | 903 | 5.0% | 0.917 | 0.715 | 0.583 |
+| 800 | 877 | 3.7% | 0.917 | **0.771** | **0.667** |
+| 1200 | 852 | 1.3% | 0.917 | 0.715 | 0.583 |
+
+`recall@5` is flat at every size, because at 7.3% multi-chunk the fixture corpus
+can barely see this parameter. That is the finding: **the CI benchmark cannot
+validate a chunking change.** So 800 was re-validated on live-shaped data —
+each event's text reconstructed from its ordered chunks in the frozen snapshot,
+re-chunked, re-embedded into a throwaway database, scored on the 55 live labels:
+
+| max_chars | chunks | recall@5 | mrr | false abstentions |
+|---|---|---|---|---|
+| **400** | 12,166 | 0.473 | 0.312 | **1/55** |
+| 800 | 8,484 | 0.473 | 0.322 | **5/55** |
+
+Recall is identical and MRR moves by a single query, but false abstentions go up
+5x. Larger chunks dilute the vector: more text per embedding means a weaker match
+on the one sentence that states the cause, which drags the top similarity below
+the floor. **Kept at 400**, on the live evidence rather than the fixture's.
+
+Two things this does not settle: chunk *overlap* is still untested (the sweep
+varies size, not overlap), and the reconstructed corpus joins chunks with a
+single space, so it approximates the original text rather than reproducing it.
+
 ## Honest limits
 
 - **4% of incidents state a cause.** The brief quotes the provider's sentence when

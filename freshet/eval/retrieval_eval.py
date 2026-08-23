@@ -255,10 +255,17 @@ def main() -> None:
 
     scored = {name: aggregate(recs) for name, recs in arms.items()}
     gap = round(scored["hybrid"]["recall@5"] - scored["blind_recent"]["recall@5"], 3)
+    from freshet.eval.chunk_sweep import corpus_shape
+    from freshet.pipeline.chunking import chunk_text
+
     out = {
         "corpus": {"updates": len(events),
                    "incidents": len({e.incident_id for e in events}),
                    "labeled": len(labels["labeled"]), "curated": labels.get("curated")},
+        # The shape the numbers below were measured on. The live index is
+        # 235 mean chars / 40.7% multi-chunk against this corpus's 159 / 7.3%,
+        # so a chunking or context change that looks free here may not be.
+        "corpus_shape": corpus_shape([chunk_text(e.text) for e in events]),
         "arms": scored,
         "gameability_guard": {
             "blind_recall@5": scored["blind_recent"]["recall@5"],
