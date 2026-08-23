@@ -95,16 +95,23 @@ def keyword_sql(service: str | None, since: datetime | None,
     where = _where(service, since, exclude_event_id)
     match = f"text_tsv @@ {_OR_TSQUERY}"
     where = (where + " AND " + match) if where else (" WHERE " + match)
-    # ts_rank produces many ties across terse operational events, so rank alone
-    # leaves the order to physical heap position (non-reproducible run-to-run).
-    # chunk_id is the deterministic tiebreak that makes the benchmark byte-stable.
+    # ts_rank counts term frequency, which ties heavily across terse operational
+    # events — and with OR semantics the candidate set is large, so which 20 rows
+    # survived the LIMIT was effectively decided by the chunk_id tiebreak
+    # (deterministic, but an id hash). ts_rank_cd scores COVER DENSITY: how close
+    # the matched terms sit, which is the signal that survives in one- and
+    # two-sentence updates. Normalization flag 32 divides by rank+1 so a long
+    # chunk cannot win on term count alone. Measured on 55 live labels:
+    # keyword_only recall@5 0.309 -> 0.364, mrr 0.232 -> 0.251; hybrid recall@5
+    # 0.455 -> 0.473 with mrr 0.328 -> 0.313. chunk_id remains the tiebreak that
+    # keeps the benchmark byte-stable.
     # Cosine is computed here too, so a hit found ONLY by the lexical arm still
     # carries a real similarity. It used to default to 0.0 — a missing value, not
     # a measured one — and since abstention keys off cosine, an exact lexical
     # match with no vector match was discarded as "no evidence".
     return (
         f"SELECT {_COLS},"
-        f" ts_rank(text_tsv, {_OR_TSQUERY}) AS rank,"
+        f" ts_rank_cd(text_tsv, {_OR_TSQUERY}, 32) AS rank,"
         f" 1 - (embedding <=> %(qvec)s::vector) AS similarity,"
         + _centered_expr(centered) +
         " FROM vector_records" + where +

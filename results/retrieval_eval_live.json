@@ -7,9 +7,9 @@
   },
   "arms": {
     "hybrid": {
-      "recall@5": 0.455,
-      "mrr": 0.328,
-      "top1_cite": 0.273,
+      "recall@5": 0.473,
+      "mrr": 0.313,
+      "top1_cite": 0.236,
       "n": 55
     },
     "vector_only": {
@@ -19,8 +19,8 @@
       "n": 55
     },
     "keyword_only": {
-      "recall@5": 0.309,
-      "mrr": 0.232,
+      "recall@5": 0.364,
+      "mrr": 0.251,
       "top1_cite": 0.182,
       "n": 55
     },
@@ -33,7 +33,7 @@
   },
   "gameability_guard": {
     "blind_recall@5": 0.0,
-    "hybrid_minus_blind": 0.455,
+    "hybrid_minus_blind": 0.473,
     "verdict": "meaningful"
   },
   "abstention": {

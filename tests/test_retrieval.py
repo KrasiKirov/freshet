@@ -10,15 +10,20 @@ def test_vector_sql_has_similarity_and_order():
     assert "WHERE" not in sql
 
 
-def test_keyword_sql_uses_or_tsquery_and_rank():
+def test_keyword_sql_uses_or_tsquery_and_cover_density_rank():
     sql = keyword_sql(None, None)
     # user input is still parsed by websearch_to_tsquery (sanitized), then the
     # &-operators are swapped for | to make the candidate arm high-recall
     assert "websearch_to_tsquery('english', %(q)s)" in sql
     assert "replace(" in sql and "'&', '|'" in sql and "::tsquery" in sql
-    assert "ts_rank(text_tsv," in sql and "AS rank" in sql
     assert "text_tsv @@" in sql
     assert "ORDER BY rank DESC" in sql
+    # ts_rank ties heavily across one-sentence operational updates, which left
+    # the LIMIT to a chunk_id hash. Cover density discriminates on how close the
+    # matched terms sit; flag 32 divides by rank+1 so long chunks do not win on
+    # term count alone.
+    assert "ts_rank_cd(text_tsv," in sql and ", 32) AS rank" in sql
+    assert "ts_rank(text_tsv," not in sql
 
 
 def test_filters_apply_to_both_arms():

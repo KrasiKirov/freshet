@@ -8,8 +8,8 @@
   "arms": {
     "hybrid": {
       "recall@5": 0.917,
-      "mrr": 0.583,
-      "top1_cite": 0.417,
+      "mrr": 0.701,
+      "top1_cite": 0.583,
       "n": 12
     },
     "vector_only": {
@@ -20,8 +20,8 @@
     },
     "keyword_only": {
       "recall@5": 0.917,
-      "mrr": 0.632,
-      "top1_cite": 0.417,
+      "mrr": 0.711,
+      "top1_cite": 0.583,
       "n": 12
     },
     "blind_recent": {

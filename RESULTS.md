@@ -180,6 +180,33 @@ as negated — the entire delta is those two losing accidental recall from match
 noise. A lexical arm that answers the opposite of what was asked is a bug whether
 or not the benchmark rewards it.
 
+### F8b — ranking the keyword arm on cover density
+
+`ts_rank` counts term frequency, which ties heavily across terse operational
+updates. With OR semantics the candidate set is large, so which 20 rows survived
+the `LIMIT` was effectively decided by the `chunk_id` tiebreak — deterministic,
+as the old comment claimed, but an id hash rather than a relevance signal.
+`ts_rank_cd` scores cover density (how close the matched terms sit), with
+normalization flag 32 dividing by rank+1 so long chunks cannot win on term count.
+
+| arm | recall@5 before | after | mrr before | after |
+|---|---|---|---|---|
+| hybrid | 0.455 | **0.473** | 0.328 | 0.313 |
+| keyword_only | 0.309 | **0.364** | 0.232 | **0.251** |
+| vector_only | 0.436 | 0.436 | 0.306 | 0.306 |
+
+Kept: hybrid `recall@5` improves and the keyword arm improves on both metrics.
+Read it with the sample size in mind — at n=55 a move of 0.018 is one query, so
+the honest claim is "the arm ranks on something meaningful now and nothing got
+worse at k=5", not a 4% improvement. Hybrid MRR slips by a similar single-query
+margin. Abstention is unchanged at 2/55 and 6/6, and the query-blind guard still
+reports `meaningful`.
+
+**Query plan** (live snapshot, 12,155 chunks, query "why did the api return
+errors for customers in europe"): sequential scan matching 6,668 rows, top-N
+heapsort, 52 ms. The arm reads the whole table on every query. That is affordable
+at this corpus size and is the thing to revisit before an ANN index, not after.
+
 ## Honest limits
 
 - **4% of incidents state a cause.** The brief quotes the provider's sentence when
