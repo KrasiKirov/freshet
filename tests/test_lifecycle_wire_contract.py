@@ -81,6 +81,26 @@ def test_the_sql_projections_namespace_incident_id_by_provider():
             "the lifecycle key must match what the embedder writes, or no brief can claim"
 
 
+def test_dedup_partitions_on_content_but_keys_output_on_identity():
+    """Content in the dedup tuple lets an EDIT through exactly once; identity in the
+    event_id lets the embedder overwrite the same rows instead of adding new ones.
+
+    The tempting alternative — keep-LAST dedup — is wrong here and must not come
+    back: the poller is stateless and re-emits every update every 60s, so keep-last
+    would re-emit and re-embed the entire corpus every minute, which is precisely
+    what deduping upstream of the embedder exists to prevent."""
+    sql = Path("freshet/stream/dedup_job.sql").read_text()
+    dedup = sql.split("INSERT INTO normalized_updates")[1]
+    assert re.search(r"PARTITION BY provider, incident_id, update_id,\s*"
+                     r"(coalesce\()?body_digest", dedup), \
+        "the content digest must be part of the dedup tuple"
+    assert "ORDER BY proc_time ASC" in dedup, "keep-FIRST on the content tuple"
+    head = dedup.split("FROM (")[0]
+    assert "provider || ':' || incident_id || ':' || update_id AS event_id" in head
+    assert "body_digest" not in head, \
+        "the digest must not leak into event_id, or the upsert stops overwriting"
+
+
 def test_both_lifecycle_transitions_are_guarded_by_the_same_recency_window():
     """The opened branch had a 24h guard; the resolved branch did not, so a cold
     replay flagged every historical incident postmortem_needed. The resolving

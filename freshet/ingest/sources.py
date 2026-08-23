@@ -21,6 +21,10 @@ class IncidentUpdate:
     status: str
     text: str
     incident_name: str
+    # What the update SAYS, held apart from what it IS. The Flink dedup tuple
+    # includes this so an edited body is emitted once more; `event_id` does not, so
+    # that re-emission overwrites the same chunk rows instead of adding a copy.
+    body_digest: str = ""
 
     @property
     def dedup_key(self) -> str:

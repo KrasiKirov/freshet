@@ -40,10 +40,12 @@ def test_html_timestamps_are_used_for_created_at():
     assert got[1].created_at == datetime(2026, 8, 18, 11, 42, tzinfo=UTC)
 
 
-def test_identity_is_body_derived_so_it_survives_a_newer_update_arriving():
+def test_identity_survives_a_newer_update_arriving():
     """If identity depended on position or on the entry's `updated`, an existing
     update would get a NEW dedup key the moment a newer update pushed it down the
-    list — re-emitting it as if it were new."""
+    list — re-emitting it as if it were new. (Identity used to include the body as
+    well; it is now the timestamp text plus a within-marker ordinal, so that an
+    edited update corrects itself rather than arriving as a second record.)"""
     before = parse_atom("github", _feed(_entry(content=TWO)))
     newer = _block("Aug", 18, "12:05", "UTC", "Monitoring", "Watching it.") + TWO
     after = parse_atom("github", _feed(_entry(updated="2026-08-18T12:05:00Z", content=newer)))
@@ -185,6 +187,46 @@ def test_the_last_resort_identity_is_the_revision_not_the_body():
     a = parse_atom("x", _feed(_entry(content="&lt;p&gt;first wording&lt;/p&gt;")))
     b = parse_atom("x", _feed(_entry(content="&lt;p&gt;second wording&lt;/p&gt;")))
     assert a[0].dedup_key == b[0].dedup_key
+
+
+def test_an_edited_update_keeps_its_identity():
+    """A provider fixing a typo must CORRECT the indexed row, not add a second one.
+    With the body in the digest the edit arrived as a brand-new update and the
+    stale original stayed retrievable forever."""
+    before = parse_atom("github", _feed(_entry(
+        content=_block("Aug", 18, "11:24", "UTC", "Investigating", "Loking into it."))))
+    after = parse_atom("github", _feed(_entry(
+        content=_block("Aug", 18, "11:24", "UTC", "Investigating", "Looking into it."))))
+    assert before[0].dedup_key == after[0].dedup_key, "identity survives an edit"
+    assert before[0].body_digest != after[0].body_digest, "but the content differs"
+
+
+def test_an_unchanged_update_has_an_unchanged_body_digest():
+    """The poller re-emits every update every 60s. If the digest moved, the dedup
+    tuple would move with it and the whole corpus would re-embed every sweep."""
+    a = parse_atom("github", _feed(_entry(content=TWO)))
+    b = parse_atom("github", _feed(_entry(content=TWO)))
+    assert [u.body_digest for u in a] == [u.body_digest for u in b]
+
+
+def test_two_updates_at_the_same_displayed_minute_stay_distinct():
+    """The <small> stamp has minute resolution, so two updates can share it. A
+    marker-only identity would collide and one would be lost."""
+    same_minute = (_block("Aug", 18, "12:00", "UTC", "Monitoring", "First note.")
+                   + _block("Aug", 18, "12:00", "UTC", "Identified", "Second note."))
+    got = parse_atom("github", _feed(_entry(content=same_minute)))
+    assert len({u.dedup_key for u in got}) == 2
+
+
+def test_identity_still_survives_a_newer_update_arriving():
+    """The ordinal disambiguates WITHIN one marker only, so it must not shift when
+    a newer update is prepended — that was the original reason identity is not
+    positional."""
+    before = parse_atom("github", _feed(_entry(content=TWO)))
+    newer = _block("Aug", 18, "12:05", "UTC", "Monitoring", "Watching it.") + TWO
+    after = parse_atom("github", _feed(_entry(updated="2026-08-18T12:05:00Z",
+                                              content=newer)))
+    assert {u.dedup_key for u in before} <= {u.dedup_key for u in after}
 
 
 def test_asia_pacific_abbreviations_resolve_instead_of_falling_back():

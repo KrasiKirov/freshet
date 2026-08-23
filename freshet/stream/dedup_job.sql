@@ -27,6 +27,9 @@ CREATE TABLE raw_incidents (
   provider      STRING,
   incident_id   STRING,
   update_id     STRING,
+  -- Digest of the update's TEXT, distinct from update_id which is its identity.
+  -- Part of the dedup tuple only. NULL on records produced before this field.
+  body_digest   STRING,
   created_at    TIMESTAMP_LTZ(3),
   status        STRING,
   text          STRING,
@@ -194,7 +197,24 @@ SELECT coalesce(v, 1) AS v,
        incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (
-             PARTITION BY provider, incident_id, update_id
+             -- body_digest is in the TUPLE, not in event_id. An identical
+             -- re-emission (the poller re-sends everything every 60s) is the same
+             -- tuple and is suppressed; an EDITED body is a new tuple and is
+             -- emitted once more under the SAME event_id, so the embedder's
+             -- idempotent upsert corrects the row in place and the orphan-chunk
+             -- delete handles an edit that shortened the text.
+             --
+             -- Do NOT "fix" this by switching to keep-last (ORDER BY proc_time
+             -- DESC): the poller is stateless and re-emits every update every
+             -- sweep, so keep-last would re-emit — and re-embed — the entire
+             -- corpus every 60 seconds, which is exactly what deduping upstream
+             -- of the embedder exists to prevent.
+             --
+             -- coalesce is for legibility, not correctness: records produced before
+             -- body_digest existed carry NULL, and SQL window partitioning already
+             -- groups NULLs together. Spelling it '' says so out loud, and matches
+             -- what the poller now always sends.
+             PARTITION BY provider, incident_id, update_id, coalesce(body_digest, '')
              ORDER BY proc_time ASC) AS seq
   FROM raw_incidents
   WHERE created_at IS NOT NULL   -- a single unparseable record must not kill the job

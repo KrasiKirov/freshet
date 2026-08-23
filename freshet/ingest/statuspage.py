@@ -152,9 +152,18 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
         markup = html.unescape(_text(entry, "content"))
         blocks = list(_UPDATE.finditer(markup))
         if blocks:
+            seen_markers: dict[str, int] = {}
             for block in blocks:
                 body = _plain(block.group("body"))
                 marker = _plain(block.group("when"))
+                # The <small> stamp has minute resolution, so two updates can share
+                # it. The ordinal disambiguates WITHIN one marker only — it counts
+                # repeats of that exact timestamp text, not the update's position in
+                # the entry — so an update keeps its key when newer ones are
+                # prepended. Identity deliberately excludes the body: a provider
+                # editing a typo must correct the indexed row, not mint a new update
+                # and leave the stale one retrievable forever.
+                ordinal = seen_markers[marker] = seen_markers.get(marker, -1) + 1
                 stamp = _parse_when(block.group("when"), revised)
                 if stamp is None:
                     # Every update in this entry then shares the revision time,
@@ -164,7 +173,7 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
                     stamp = revised
                 out.append(_make(provider, incident_id, name, stamp,
                                  _plain(block.group("status")).lower(), body,
-                                 identity=f"{marker}|{body}"))
+                                 identity=f"{marker}#{ordinal}"))
             continue
 
         single = _STATUS_LINE.search(markup)
@@ -199,4 +208,5 @@ def _make(provider: str, incident_id: str, name: str, stamp: datetime,
     return IncidentUpdate(
         provider=provider, incident_id=incident_id, update_id=digest,
         created_at=stamp, status=status, text=body, incident_name=name,
+        body_digest=hashlib.blake2s(body.encode(), digest_size=6).hexdigest(),
     )

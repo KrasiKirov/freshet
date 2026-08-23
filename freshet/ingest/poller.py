@@ -341,6 +341,9 @@ def to_message(update: IncidentUpdate) -> dict:
         "provider": update.provider,
         "incident_id": update.incident_id,
         "update_id": update.update_id,
+        # Not part of event_id: it exists so the dedup tuple can notice an edit
+        # while the emitted identity stays stable enough to overwrite in place.
+        "body_digest": update.body_digest,
         # RFC3339 with a literal Z, not "+00:00": Flink's ISO-8601 JSON parser
         # yields NULL for the offset form, and a NULL rowtime kills the job.
         "created_at": update.created_at.isoformat().replace("+00:00", "Z"),
