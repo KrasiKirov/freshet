@@ -19,9 +19,9 @@
       "n": 55
     },
     "keyword_only": {
-      "recall@5": 0.345,
-      "mrr": 0.26,
-      "top1_cite": 0.2,
+      "recall@5": 0.309,
+      "mrr": 0.232,
+      "top1_cite": 0.182,
       "n": 55
     },
     "blind_recent": {

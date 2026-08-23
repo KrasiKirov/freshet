@@ -316,3 +316,24 @@ def test_abstention_falls_back_to_raw_without_a_centroid():
     r = hybrid_search(FakeConn(), Bgeish(), "q", k=5)
     assert r.abstained is False                    # 0.81 >= the raw floor 0.70
     assert r.hits[0].centered_similarity is None
+
+
+def test_or_swap_is_skipped_when_the_query_negates():
+    """The &->| swap inverts negation. websearch_to_tsquery renders
+    `outage -maintenance` as `'outag' & !'mainten'`; swapping the operator makes
+    it `'outag' | !'mainten'`, which matches every row that simply lacks
+    "maintenance" — measured on the live index, 10,708 of 12,155 rows (88%).
+    `database errors -scheduled` reached 97%. The arm degenerates to
+    near-everything, ts_rank ties out, and 20 effectively arbitrary candidates
+    enter RRF at full weight.
+
+    High recall is the point of the swap, so keep it — but only where it cannot
+    invert meaning, i.e. when the parsed tsquery contains no `!`.
+    """
+    from freshet.rag.retrieval import keyword_sql
+
+    sql = keyword_sql(None, None)
+    assert "position('!' in" in sql, "negated queries must skip the &->| swap"
+    # both branches present: plain OR-swap, and the untouched AND form
+    assert "replace(" in sql and "'&', '|'" in sql
+    assert "CASE WHEN" in sql and "ELSE" in sql

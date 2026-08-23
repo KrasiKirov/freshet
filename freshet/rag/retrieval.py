@@ -69,10 +69,25 @@ def vector_sql(service: str | None, since: datetime | None,
 # operational events (no single event contains every query word). As a
 # candidate-generation arm feeding fusion, keyword search should be high-recall:
 # swap the &-operators in the (already-sanitized) tsquery for |, so any matching
-# term retrieves and ts_rank + RRF + recency do the ranking. Safe against
-# injection — websearch_to_tsquery has already parsed user input into a valid
-# tsquery before the textual operator swap.
-_OR_TSQUERY = "replace(websearch_to_tsquery('english', %(q)s)::text, '&', '|')::tsquery"
+# term retrieves and ts_rank + RRF do the ranking. Safe against injection —
+# websearch_to_tsquery has already parsed user input into a valid tsquery before
+# the textual operator swap.
+#
+# EXCEPT when the query negates. websearch renders `outage -maintenance` as
+# `'outag' & !'mainten'`; swapping the operator yields `'outag' | !'mainten'`,
+# which matches every row that merely LACKS "maintenance" — measured on the live
+# index, 10,708 of 12,155 rows (88%), and `database errors -scheduled` reached
+# 97%. The arm degenerates to near-everything, ts_rank ties out, and 20
+# effectively arbitrary candidates enter RRF at full weight. A `-term` is the one
+# case where the swap changes meaning rather than just breadth, so those queries
+# keep websearch's AND form. `position('!' in ...)` rather than a LIKE pattern
+# because a literal % would have to be escaped in this %(name)s format string.
+_WS_TSQUERY = "websearch_to_tsquery('english', %(q)s)"
+_OR_TSQUERY = (
+    f"CASE WHEN position('!' in {_WS_TSQUERY}::text) > 0"
+    f" THEN {_WS_TSQUERY}"
+    f" ELSE replace({_WS_TSQUERY}::text, '&', '|')::tsquery END"
+)
 
 
 def keyword_sql(service: str | None, since: datetime | None,

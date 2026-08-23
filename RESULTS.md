@@ -146,6 +146,40 @@ A missing centroid is not an error: the column comes back NULL and abstention
 falls back to the raw floor, so an un-refreshed index degrades to today's
 behaviour rather than failing.
 
+### F8a — the OR-swap inverted negation
+
+The keyword arm swaps `&` for `|` in the parsed tsquery to buy recall. On a
+negated query that changes meaning rather than breadth: `outage -maintenance`
+parses as `'outag' & !'mainten'`, and the swap makes it `'outag' | !'mainten'` —
+every row that merely LACKS "maintenance".
+
+| query | correct (AND) | naive OR-swap |
+|---|---|---|
+| `outage -maintenance` | 163 rows (1%) | 10,708 rows (**88%**) |
+| `database errors -scheduled` | 14 rows (0%) | 11,808 rows (**97%**) |
+
+The arm degenerated to near-everything, `ts_rank` tied out across it, and 20
+effectively arbitrary candidates entered RRF at full weight. Negated queries now
+keep websearch's AND form; everything else keeps the swap.
+
+Found by a parallel review session and reproduced here before acting on it.
+Every existing keyword-arm test asserts on SQL *strings* against a fake
+connection, which is why it survived — the bug is in what the tsquery means, not
+in how the SQL reads. `tests/integration/test_keyword_negation.py` seeds a known
+corpus and counts rows instead.
+
+| arm | recall@5 before | after |
+|---|---|---|
+| hybrid | 0.455 | 0.455 |
+| vector_only | 0.436 | 0.436 |
+| keyword_only | 0.345 | 0.309 |
+
+`keyword_only` drops by exactly 2/55 = 0.036, and 2 of the 55 label queries parse
+as negated — the entire delta is those two losing accidental recall from matching
+~90% of the index. Hybrid is unchanged, so fusion was already discarding the
+noise. A lexical arm that answers the opposite of what was asked is a bug whether
+or not the benchmark rewards it.
+
 ## Honest limits
 
 - **4% of incidents state a cause.** The brief quotes the provider's sentence when
