@@ -70,3 +70,24 @@ def test_a_future_wire_version_survives_parsing_so_it_can_be_reported():
     embedder can count it and say so."""
     ev = Event.model_validate_json('{"v":99,' + _MINIMAL[1:])
     assert ev.v == 99
+
+
+def test_the_contract_does_not_document_a_vocabulary_no_producer_writes():
+    """CHANGE_TYPES, REMEDIATION_TYPES and the synthetic EventType members were v1's
+    generator vocabulary. Nothing in this pipeline emits them — the Flink projection
+    hardcodes source='alert' and type='status_update' — and nothing outside
+    schemas.py referenced them. A contract that documents fields nobody writes
+    misleads whoever reads it next."""
+    import freshet.common.schemas as schemas
+
+    assert not hasattr(schemas, "CHANGE_TYPES")
+    assert not hasattr(schemas, "REMEDIATION_TYPES")
+    assert {m.value for m in schemas.EventType} == {"status_update", "rca"}
+
+
+def test_type_stays_an_open_vocabulary_string():
+    """Trimming the enum must not start rejecting a type it no longer names: the
+    field is deliberately `str`, and messages carrying older types are still on
+    the topic."""
+    ev = Event(service="s", source=EventSource.ALERT, type="deploy_started")
+    assert ev.type == "deploy_started"

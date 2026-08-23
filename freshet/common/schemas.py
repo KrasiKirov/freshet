@@ -40,43 +40,16 @@ class Severity(str, Enum):
     SEV4 = "SEV4"
 
 
-# Open vocabulary. Live status feeds only ever emit 'status_update'; the rest
-# are retained because the schema is shared with the incident/brief path.
+# Open vocabulary — `Event.type` is a plain `str`, so this enum names what THIS
+# pipeline emits rather than constraining what it accepts. The two dozen other
+# members (error_spike, deploy_started, rollback, cert_expired, ...) were v1's
+# synthetic-generator vocabulary: no producer in this codebase ever wrote one, and
+# nothing outside this module referenced the enum at all. CHANGE_TYPES and
+# REMEDIATION_TYPES went with them — they classified those same synthetic types as
+# causes and fixes, for a correlator that no longer exists.
 class EventType(str, Enum):
-    ERROR_SPIKE = "error_spike"
-    LATENCY_SPIKE = "latency_spike"
-    DEPLOY_STARTED = "deploy_started"
-    DEPLOY_FINISHED = "deploy_finished"
-    ROLLBACK = "rollback"
-    SCALE = "scale"
-    METRIC_SAMPLE = "metric_sample"
-    MESSAGE = "message"
-    RCA = "rca"  # root-cause analysis / postmortem
-    HEALTHY = "healthy"
-    CONFIG_CHANGED = "config_changed"
-    CONFIG_REVERTED = "config_reverted"
-    DEPENDENCY_DOWN = "dependency_down"
-    DEPENDENCY_FAILOVER = "dependency_failover"
-    MEMORY_LEAK_SHIPPED = "memory_leak_shipped"
-    SCALED_UP = "scaled_up"
-    CERT_EXPIRED = "cert_expired"
-    CERT_RENEWED = "cert_renewed"
-    MIGRATION_APPLIED = "migration_applied"
-    MIGRATION_REVERTED = "migration_reverted"
-    COMMIT = "commit"
-
-
-# The cause ("change") and fix ("remediation") event types across all incident
-# archetypes. Single source of truth for "what is a cause/fix event" — imported by
-# the incident schema. Status feeds emit `status_update`, which is in neither set.
-CHANGE_TYPES = frozenset({
-    "deploy_started", "config_changed", "dependency_down",
-    "memory_leak_shipped", "cert_expired", "migration_applied",
-})
-REMEDIATION_TYPES = frozenset({
-    "rollback", "config_reverted", "dependency_failover",
-    "scaled_up", "cert_renewed", "migration_reverted",
-})
+    STATUS_UPDATE = "status_update"   # every live status-feed update
+    RCA = "rca"                       # root-cause analysis / postmortem
 
 
 class Event(BaseModel):
