@@ -16,16 +16,20 @@ class _Conn:
         self.day = 0
 
     def execute(self, sql, params=None):
+        row = (0,)
         if "ON CONFLICT" in sql:
-            self.hour += 1
-            self.day += 1
-            row = (self.hour,)
+            cap = params["hourly_cap"]
+            fresh = self.hour == 0
+            if fresh or self.hour < cap:
+                self.hour += 1
+                self.day += 1
+                row = (self.hour,)
+            else:
+                row = None                  # DO UPDATE ... WHERE matched nothing
         elif "sum(calls)" in sql and "SELECT calls FROM llm_budget" in sql:
             row = (self.hour, self.day)
         elif "sum(calls)" in sql:
             row = (self.day,)
-        else:
-            row = (0,)
 
         class _R:
             def fetchone(self_inner):
@@ -92,3 +96,35 @@ def test_caps_come_from_the_environment(monkeypatch):
 def test_a_nonsense_cap_falls_back_to_the_default(monkeypatch):
     monkeypatch.setenv("FRESHET_LLM_HOURLY_CAP", "not-a-number")
     assert BudgetedComposer(_Inner(), _Conn()).hourly_cap == 60
+
+
+def test_a_refused_call_does_not_consume_budget():
+    """The runaway this module exists to stop is a crash loop. If a refusal
+    still increments, the loop exhausts the DAILY cap without ever reaching the
+    API, and every legitimate brief defers for 24 hours."""
+    inner, conn = _Inner(), _Conn()
+    c = BudgetedComposer(inner, conn, hourly_cap=2, daily_cap=500)
+    c.compose("q", [])
+    c.compose("q", [])
+    for _ in range(20):
+        with pytest.raises(BudgetExhausted):
+            c.compose("q", [])
+    assert inner.calls == 2, "only admitted calls reach the inner composer"
+    assert c.spent() == (2, 2), "refusals must leave the counters untouched"
+
+
+def test_a_daily_refusal_does_not_consume_the_hourly_counter():
+    inner, conn = _Inner(), _Conn()
+    conn.day = 500
+    c = BudgetedComposer(inner, conn, hourly_cap=60, daily_cap=500)
+    with pytest.raises(BudgetExhausted, match="daily"):
+        c.compose("q", [])
+    assert conn.hour == 0
+
+
+def test_a_zero_cap_refuses_without_writing():
+    inner, conn = _Inner(), _Conn()
+    c = BudgetedComposer(inner, conn, hourly_cap=0, daily_cap=0)
+    with pytest.raises(BudgetExhausted):
+        c.compose("q", [])
+    assert conn.hour == 0 and inner.calls == 0

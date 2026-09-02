@@ -25,10 +25,17 @@ log = logging.getLogger(__name__)
 DEFAULT_HOURLY_CAP = 60          # ~10x normal load
 DEFAULT_DAILY_CAP = 500
 
+# The WHERE lives on the DO UPDATE branch, so the increment and the cap check
+# are ONE atomic statement (the counter is in Postgres precisely because the
+# fault case is a restart loop, and two workers must not race it). When the
+# guard fails, no row comes back AND the counter is untouched: a refusal is
+# free. It used to cost a call, so a crash loop that never reached the API
+# still exhausted the daily cap — the exact runaway this module exists to stop.
 _SPEND_SQL = (
     "INSERT INTO llm_budget (window_start, calls)"
     " VALUES (date_trunc('hour', now()), 1)"
     " ON CONFLICT (window_start) DO UPDATE SET calls = llm_budget.calls + 1"
+    "   WHERE llm_budget.calls < %(hourly_cap)s"
     " RETURNING calls")
 _DAY_SQL = ("SELECT coalesce(sum(calls), 0) FROM llm_budget"
             " WHERE window_start > now() - interval '24 hours'")
@@ -52,7 +59,8 @@ class BudgetedComposer:
     The spend is recorded BEFORE the call, so a request that fails or times out
     still counts — otherwise a persistently failing call would retry without
     limit and the cap would never bind, which is the exact runaway it exists to
-    stop.
+    stop. A call REFUSED by the cap is a different thing: it was never
+    attempted, so it costs nothing and leaves the counter where it was.
     """
 
     def __init__(self, inner, conn, hourly_cap: int | None = None,
@@ -67,15 +75,22 @@ class BudgetedComposer:
                           if daily_cap is None else daily_cap)
 
     def _spend(self) -> None:
-        hour_calls = self._conn.execute(_SPEND_SQL).fetchone()[0]
-        if hour_calls > self.hourly_cap:
-            raise BudgetExhausted(
-                f"LLM hourly cap reached ({hour_calls}/{self.hourly_cap}); "
-                f"deferring until the next hour")
+        # A zero or negative cap means "disabled". The INSERT branch of the
+        # upsert is not gated by the WHERE, so the first call of an hour would
+        # otherwise slip through a cap of 0.
+        if self.hourly_cap <= 0 or self.daily_cap <= 0:
+            raise BudgetExhausted("LLM budget is disabled (cap is zero); deferring")
+        # Read the day BEFORE touching the hour, so a daily refusal is free too.
         day_calls = self._conn.execute(_DAY_SQL).fetchone()[0]
-        if day_calls > self.daily_cap:
+        if day_calls >= self.daily_cap:
             raise BudgetExhausted(
                 f"LLM daily cap reached ({day_calls}/{self.daily_cap}); deferring")
+        row = self._conn.execute(
+            _SPEND_SQL, {"hourly_cap": self.hourly_cap}).fetchone()
+        if row is None:
+            raise BudgetExhausted(
+                f"LLM hourly cap reached ({self.hourly_cap}/{self.hourly_cap}); "
+                f"deferring until the next hour")
 
     def compose(self, question: str, hits) -> str:
         self._spend()
