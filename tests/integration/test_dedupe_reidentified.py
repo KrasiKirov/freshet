@@ -13,11 +13,20 @@ MIGRATION = Path("db/migrations/2026-08-22-dedupe-reidentified-updates.sql")
 _VEC = "(SELECT array_fill(0.1::real, ARRAY[768])::vector)"
 
 
+# A fixture in a shared database must be invisible to every test but its own: its
+# own service name, and a ts far outside any recency window a retrieval test can
+# ask for. Seeding at now() under a real provider name once cost another session a
+# debugging session, its rows having taken every slot in a filtered top-k.
+# `indexed_at` still varies — that is what this migration keys on.
+_SERVICE = "dedupe-fixture"
+_TS = "now() - interval '1460 days'"
+
+
 def _insert(conn, chunk_id, event_id, incident_id, text, age_hours):
     conn.execute(
         "INSERT INTO vector_records"
         " (chunk_id, event_id, incident_id, service, ts, indexed_at, source, text, embedding)"
-        f" VALUES (%s, %s, %s, 'github', now(), now() - (%s || ' hours')::interval,"
+        f" VALUES (%s, %s, %s, '{_SERVICE}', {_TS}, now() - (%s || ' hours')::interval,"
         f"         'alert', %s, {_VEC})",
         (chunk_id, event_id, incident_id, str(age_hours), text))
 
