@@ -5,11 +5,20 @@ which is exactly why this survived: the bug is in what the tsquery MEANS, not in
 how the SQL reads. So this test seeds a known corpus and counts rows.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 pytestmark = pytest.mark.integration
+
+# Seeded rows must be INVISIBLE to every other test in this shared database.
+# They carry their own service name and a timestamp four years old, so no
+# recency window ("what happened today?") and no service filter can ever pull
+# them into another test's result set. Seeding 40 rows as service="acme" at
+# ts=now() — which this fixture originally did — puts 40 competitors inside
+# test_filtered_retrieval's 24-hour window for its 6 result slots, and its
+# teardown only runs if the run is not interrupted.
+_SERVICE = "kwneg-fixture"
 
 # Three groups. The distinguishing rows are UNRELATED: they mention neither
 # word, so `'outag' & !'mainten'` correctly excludes them while the naive
@@ -27,7 +36,8 @@ def seeded(conn):
     from freshet.pipeline.embedding import StubEmbedder
 
     conn.execute("DELETE FROM vector_records WHERE chunk_id LIKE 'neg_%'")
-    emb, now = StubEmbedder(), datetime.now(UTC)
+    emb = StubEmbedder()
+    now = datetime.now(UTC) - timedelta(days=1460)      # far outside any window
     texts = (
         [f"scheduled maintenance window number {i} completed" for i in range(_MAINTENANCE)]
         + [f"outage affecting api requests in region {i}" for i in range(_OUTAGE)]
@@ -36,7 +46,7 @@ def seeded(conn):
     for i, text in enumerate(texts):
         rec = VectorRecord(
             chunk_id=f"neg_{i}_0", event_id=f"neg_{i}", incident_id=None,
-            service="acme", ts=now, indexed_at=now, text=text, title="t",
+            service=_SERVICE, ts=now, indexed_at=now, text=text, title="t",
             source=EventSource.ALERT, severity=None, type="status_update",
         )
         upsert_record(conn, rec, emb.encode([text])[0], emb.name)
