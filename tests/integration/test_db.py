@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 pytestmark = pytest.mark.integration
@@ -57,19 +59,68 @@ def test_schema_applied():
         conn.close()
 
 
-def test_every_incident_id_is_namespaced_by_provider(conn):
-    """An un-namespaced id is a collision waiting to merge two providers' incidents."""
-    n = conn.execute(
-        "SELECT count(*) FROM incidents WHERE incident_id NOT LIKE '%:%'").fetchone()[0]
-    assert n == 0
-    n = conn.execute(
-        "SELECT count(*) FROM vector_records"
-        " WHERE incident_id IS NOT NULL AND incident_id NOT LIKE '%:%'").fetchone()[0]
-    assert n == 0
+# These exercise the namespacing migration on rows the test itself owns.
+#
+# They used to assert a GLOBAL invariant — "no bare incident_id exists anywhere" —
+# over a database every other integration test writes to. test_purge_amplified.py
+# seeds 'INC1'/'INC2' by design, so the assertion failed or passed on execution
+# order and measured nothing about the migration.
+_SCHEMA = Path("db/init.sql").read_text()
+_VEC = "(SELECT array_fill(0.1::real, ARRAY[768])::vector)"
 
 
-def test_no_incident_id_spans_two_providers(conn):
-    rows = conn.execute(
-        "SELECT incident_id FROM vector_records"
-        " GROUP BY 1 HAVING count(DISTINCT service) > 1").fetchall()
-    assert rows == []
+def _seed_chunk(conn, chunk_id, event_id, incident_id, service):
+    conn.execute(
+        "INSERT INTO vector_records"
+        " (chunk_id, event_id, incident_id, service, ts, indexed_at, source, text, embedding)"
+        f" VALUES (%s, %s, %s, %s, now(), now(), 'alert', 'seeded', {_VEC})",
+        (chunk_id, event_id, incident_id, service))
+
+
+def test_the_migration_namespaces_rows_that_predate_it(conn):
+    conn.execute("DELETE FROM vector_records WHERE chunk_id = 'chk_ns_0'")
+    conn.execute("DELETE FROM incidents WHERE incident_id IN ('NS1', 'github:NS1')")
+    conn.execute(
+        "INSERT INTO incidents (incident_id, title, opened_at, primary_service)"
+        " VALUES ('NS1', 't', now(), 'github')")
+    _seed_chunk(conn, "chk_ns_0", "github:NS1:aaaaaaaaaaaa", "NS1", "github")
+
+    conn.execute(_SCHEMA)
+
+    assert conn.execute(
+        "SELECT incident_id FROM incidents WHERE incident_id = 'github:NS1'"
+    ).fetchone() is not None
+    assert conn.execute(
+        "SELECT incident_id FROM vector_records WHERE chunk_id = 'chk_ns_0'"
+    ).fetchone()[0] == "github:NS1"
+
+
+def test_vector_records_are_converted_even_when_incidents_is_already_clean(conn):
+    """Regression: the guard named only `incidents`, so a database holding bare-id
+    chunks but no bare-id incidents rows skipped the entire migration and kept
+    serving un-namespaced chunks. Found on a test database in exactly this state."""
+    conn.execute("DELETE FROM vector_records WHERE chunk_id = 'chk_only_0'")
+    conn.execute("DELETE FROM incidents WHERE incident_id NOT LIKE '%:%'")
+    _seed_chunk(conn, "chk_only_0", "cloudflare:ONLY1:bbbbbbbbbbbb", "ONLY1", "cloudflare")
+
+    conn.execute(_SCHEMA)
+
+    assert conn.execute(
+        "SELECT incident_id FROM vector_records WHERE chunk_id = 'chk_only_0'"
+    ).fetchone()[0] == "cloudflare:ONLY1"
+
+
+def test_two_providers_sharing_a_raw_id_do_not_collide_after_migration(conn):
+    """The whole point of the change: Statuspage ids are unique per tenant, so the
+    same raw id from two providers must land on two distinct rows."""
+    for cid in ("chk_dup_a", "chk_dup_b"):
+        conn.execute("DELETE FROM vector_records WHERE chunk_id = %s", (cid,))
+    _seed_chunk(conn, "chk_dup_a", "github:SHARED:aaaaaaaaaaaa", "SHARED", "github")
+    _seed_chunk(conn, "chk_dup_b", "openai:SHARED:bbbbbbbbbbbb", "SHARED", "openai")
+
+    conn.execute(_SCHEMA)
+
+    ids = {r[0] for r in conn.execute(
+        "SELECT incident_id FROM vector_records WHERE chunk_id IN ('chk_dup_a','chk_dup_b')"
+    ).fetchall()}
+    assert ids == {"github:SHARED", "openai:SHARED"}

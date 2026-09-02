@@ -170,11 +170,23 @@ CREATE TABLE IF NOT EXISTS pipeline_heartbeat_log (
 -- so re-running init.sql on a migrated volume is a no-op.
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM incidents WHERE incident_id NOT LIKE '%:%') THEN
+    -- The guard must name EVERY table the block converts, not just the first one.
+    -- Keyed on `incidents` alone, a database holding bare-id vector_records rows
+    -- but no bare-id incidents rows skipped the whole migration and kept serving
+    -- un-namespaced chunks. incident_services and incident_events need no clause of
+    -- their own: both carry a FK to incidents, so they cannot hold a bare id once
+    -- incidents is clean.
+    IF EXISTS (SELECT 1 FROM incidents WHERE incident_id NOT LIKE '%:%')
+       OR EXISTS (SELECT 1 FROM vector_records
+                  WHERE incident_id IS NOT NULL AND incident_id NOT LIKE '%:%') THEN
         -- Rows carrying neither a provider nor any indexed evidence (225 of 1,422
         -- when measured) are residue from the historical lifecycle flood. They
         -- cannot be namespaced and cannot be briefed. Cascades to the join tables.
-        DELETE FROM incidents WHERE primary_service IS NULL;
+        -- Scoped to un-namespaced rows: now that the guard can also trip on
+        -- vector_records, an unqualified DELETE would reap provider-less rows in an
+        -- already-migrated incidents table, which is not this migration's business.
+        DELETE FROM incidents WHERE primary_service IS NULL
+                                AND incident_id NOT LIKE '%:%';
 
         ALTER TABLE incident_services DROP CONSTRAINT incident_services_incident_id_fkey;
         ALTER TABLE incident_events   DROP CONSTRAINT incident_events_incident_id_fkey;
