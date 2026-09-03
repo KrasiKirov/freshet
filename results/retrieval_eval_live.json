@@ -5,23 +5,32 @@
     "providers": 22,
     "curated": "assistant-reviewed"
   },
+  "index": {
+    "n_chunks": 8966,
+    "n_events": 7700,
+    "n_providers": 42,
+    "non_first_frac": 0.141,
+    "mean_chars": 193,
+    "median_chars": 171,
+    "measured_at": "2026-09-03T16:33:34+00:00"
+  },
   "arms": {
     "hybrid": {
-      "recall@5": 0.455,
-      "mrr": 0.321,
-      "top1_cite": 0.255,
+      "recall@5": 0.345,
+      "mrr": 0.162,
+      "top1_cite": 0.055,
       "n": 55
     },
     "vector_only": {
-      "recall@5": 0.418,
-      "mrr": 0.313,
-      "top1_cite": 0.236,
+      "recall@5": 0.345,
+      "mrr": 0.135,
+      "top1_cite": 0.036,
       "n": 55
     },
     "keyword_only": {
-      "recall@5": 0.364,
-      "mrr": 0.253,
-      "top1_cite": 0.182,
+      "recall@5": 0.255,
+      "mrr": 0.143,
+      "top1_cite": 0.073,
       "n": 55
     },
     "blind_recent": {
@@ -33,7 +42,7 @@
   },
   "gameability_guard": {
     "blind_recall@5": 0.0,
-    "hybrid_minus_blind": 0.455,
+    "hybrid_minus_blind": 0.345,
     "verdict": "meaningful"
   },
   "abstention": {

@@ -10,15 +10,20 @@ def test_vector_sql_has_similarity_and_order():
     assert "WHERE" not in sql
 
 
-def test_keyword_sql_uses_or_tsquery_and_rank():
+def test_keyword_sql_uses_or_tsquery_and_cover_density_rank():
     sql = keyword_sql(None, None)
     # user input is still parsed by websearch_to_tsquery (sanitized), then the
     # &-operators are swapped for | to make the candidate arm high-recall
     assert "websearch_to_tsquery('english', %(q)s)" in sql
     assert "replace(" in sql and "'&', '|'" in sql and "::tsquery" in sql
-    assert "ts_rank(text_tsv," in sql and "AS rank" in sql
     assert "text_tsv @@" in sql
     assert "ORDER BY rank DESC" in sql
+    # ts_rank ties heavily across one-sentence operational updates, which left
+    # the LIMIT to a chunk_id hash. Cover density discriminates on how close the
+    # matched terms sit; flag 32 divides by rank+1 so long chunks do not win on
+    # term count alone.
+    assert "ts_rank_cd(text_tsv," in sql and ", 32) AS rank" in sql
+    assert "ts_rank(text_tsv," not in sql
 
 
 def test_filters_apply_to_both_arms():
@@ -57,18 +62,21 @@ def test_should_abstain_on_weak_similarity():
 def test_hybrid_search_fuses_arms_and_flags_abstention():
     from datetime import datetime
 
+    from freshet.pipeline import index_stats
     from freshet.pipeline.embedding import StubEmbedder
     from freshet.rag.retrieval import HybridResult, hybrid_search
 
+    index_stats.clear_cache()
     now = datetime.now(UTC)
-    # column order mirrors retrieval._COLS: (..., type, title) then the
-    # per-arm score columns — vector: similarity; keyword: rank, similarity
+    # column order mirrors retrieval._COLS: (..., type, title) then the per-arm
+    # score columns — vector: similarity, centered_similarity; keyword: rank,
+    # similarity, centered_similarity. centered is NULL with no stored centroid.
     vec_rows = [
-        ("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx error spike", "alert_fired", "Error spike in scheduler", 0.81),
-        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.40),
+        ("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx error spike", "alert_fired", "Error spike in scheduler", 0.81, None),
+        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.40, None),
     ]
     kw_rows = [
-        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.9, 0.55),
+        ("chk_e2_0", "e2", "scheduler-api", now, now, "deploy", "deploy finished", "deploy_finished", "Deploy of scheduler-api", 0.9, 0.55, None),
     ]
 
     class FakeConn:
@@ -82,6 +90,9 @@ def test_hybrid_search_fuses_arms_and_flags_abstention():
             class _Cur:
                 def fetchall(self_inner):
                     return rows
+
+                def fetchone(self_inner):
+                    return None                   # index_stats holds no centroid
 
             return _Cur()
 
@@ -98,21 +109,26 @@ def test_hybrid_search_uses_embedder_min_similarity():
     (bge's compressed cosine range needs a higher floor than MiniLM's)."""
     from datetime import datetime
 
+    from freshet.pipeline import index_stats
     from freshet.pipeline.embedding import StubEmbedder
     from freshet.rag.retrieval import hybrid_search
 
     class HighFloorEmbedder(StubEmbedder):
         min_similarity = 0.9
 
+    index_stats.clear_cache()
     now = datetime.now(UTC)
     rows = [("chk_e1_0", "e1", "scheduler-api", now, now, "alert", "5xx spike",
-             "alert_fired", "Error spike in scheduler", 0.81)]
+             "alert_fired", "Error spike in scheduler", 0.81, None)]
 
     class FakeConn:
         def execute(self, sql, params=None):
             class _Cur:
                 def fetchall(self_inner):
                     return [] if "ts_rank" in sql else rows   # keyword arm finds nothing
+
+                def fetchone(self_inner):
+                    return None                               # no stored centroid
 
             return _Cur()
 
@@ -128,17 +144,22 @@ def test_hybrid_search_uses_embedder_min_similarity():
 def test_hybrid_search_abstains_when_similarity_weak():
     from datetime import datetime
 
+    from freshet.pipeline import index_stats
     from freshet.pipeline.embedding import StubEmbedder
     from freshet.rag.retrieval import hybrid_search
 
+    index_stats.clear_cache()
     now = datetime.now(UTC)
-    weak = [("chk_e9_0", "e9", "auth", now, now, "metric", "cpu 12%", "metric", None, 0.04)]
+    weak = [("chk_e9_0", "e9", "auth", now, now, "metric", "cpu 12%", "metric", None, 0.04, None)]
 
     class FakeConn:
         def execute(self, sql, params=None):
             class _Cur:
                 def fetchall(self_inner):
                     return [] if "ts_rank" in sql else weak   # keyword arm finds nothing
+
+                def fetchone(self_inner):
+                    return None                               # no stored centroid
 
             return _Cur()
 
@@ -165,3 +186,184 @@ def test_abstention_uses_the_similarity_of_a_keyword_only_hit():
     # a strong lexical match whose cosine was measured, not defaulted
     assert should_abstain([0.82], min_similarity=0.70) is False
     assert should_abstain([0.0], min_similarity=0.70) is True
+
+
+def test_exclude_event_id_filters_both_arms():
+    """The query's own document must leave the candidate set BEFORE ranking and
+    abstention, not just before the eval's dedupe — otherwise a query lifted
+    from an indexed update abstains on nothing, trivially."""
+    from freshet.rag.retrieval import keyword_sql, vector_sql
+
+    vec = vector_sql(None, None, exclude_event_id="prov:inc:upd")
+    kw = keyword_sql(None, None, exclude_event_id="prov:inc:upd")
+    assert "event_id <> %(exclude_event_id)s" in vec
+    assert "event_id <> %(exclude_event_id)s" in kw
+    # and it composes with the existing filters rather than replacing them
+    both = vector_sql("acme", None, exclude_event_id="prov:inc:upd")
+    assert "service = %(service)s" in both
+    assert "event_id <> %(exclude_event_id)s" in both
+    # absent by default, so every existing caller is unchanged
+    assert "exclude_event_id" not in vector_sql(None, None)
+    assert "exclude_event_id" not in keyword_sql(None, None)
+
+
+def test_hybrid_search_binds_exclude_event_id():
+    """The value must travel as a bound parameter, never interpolated."""
+    from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import hybrid_search
+
+    seen = []
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            seen.append((sql, params))
+
+            class _Cur:
+                def fetchall(self_inner):
+                    return []
+
+            return _Cur()
+
+    hybrid_search(FakeConn(), StubEmbedder(), "q", k=5, exclude_event_id="prov:inc:upd")
+    assert len(seen) == 2                       # both arms
+    for sql, params in seen:
+        assert "prov:inc:upd" not in sql        # not interpolated
+        assert params["exclude_event_id"] == "prov:inc:upd"
+
+
+def test_centered_sql_is_emitted_only_when_a_centroid_exists():
+    """Row width is constant either way — the column is NULL when there is no
+    centroid, so positional indices never shift under the caller."""
+    from freshet.rag.retrieval import keyword_sql, vector_sql
+
+    plain = vector_sql(None, None)
+    assert "NULL::double precision AS centered_similarity" in plain
+    assert "%(centroid)s" not in plain
+
+    centered = vector_sql(None, None, centered=True)
+    assert "(embedding - %(centroid)s::vector)" in centered
+    assert "(%(qvec)s::vector - %(centroid)s::vector)" in centered
+    # ranking still uses RAW cosine; only the abstention signal is centered
+    assert "ORDER BY embedding <=> %(qvec)s::vector, chunk_id" in centered
+
+    kw = keyword_sql(None, None, centered=True)
+    assert "(embedding - %(centroid)s::vector)" in kw
+    assert "ORDER BY rank DESC, chunk_id" in kw
+
+
+def test_abstention_prefers_the_centered_signal():
+    """With a centroid present, the floor is the centered one. The raw
+    similarity here (0.81) clears the raw bge floor while the centered value
+    (0.31) does not — which is the whole point: 12.2% of UNRELATED live chunk
+    pairs clear 0.70 in raw space."""
+    from freshet.pipeline import index_stats
+    from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import hybrid_search
+
+    index_stats.clear_cache()
+    now = datetime.now(UTC)
+    # ..., title, similarity, centered_similarity
+    vec_rows = [("chk_e1_0", "e1", "auth", now, now, "alert", "5xx spike",
+                 "alert_fired", "Error spike", 0.81, 0.31)]
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            rows = [] if "ts_rank" in sql else vec_rows
+
+            class _Cur:
+                def fetchall(self_inner):
+                    return rows
+
+                def fetchone(self_inner):
+                    return ("[0.1,0.2]",)          # a stored centroid
+
+            return _Cur()
+
+    class Bgeish(StubEmbedder):
+        name = "bge-ish"
+        min_similarity = 0.70
+        min_similarity_centered = 0.44
+
+    r = hybrid_search(FakeConn(), Bgeish(), "q", k=5)
+    assert r.abstained is True                     # 0.31 < 0.44
+    assert r.hits[0].centered_similarity == 0.31
+    assert r.hits[0].similarity == 0.81            # raw is still reported
+
+
+def test_abstention_falls_back_to_raw_without_a_centroid():
+    from freshet.pipeline import index_stats
+    from freshet.pipeline.embedding import StubEmbedder
+    from freshet.rag.retrieval import hybrid_search
+
+    index_stats.clear_cache()
+    now = datetime.now(UTC)
+    vec_rows = [("chk_e1_0", "e1", "auth", now, now, "alert", "5xx spike",
+                 "alert_fired", "Error spike", 0.81, None)]
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            rows = [] if "ts_rank" in sql else vec_rows
+
+            class _Cur:
+                def fetchall(self_inner):
+                    return rows
+
+                def fetchone(self_inner):
+                    return None                    # index_stats has no row
+
+            return _Cur()
+
+    class Bgeish(StubEmbedder):
+        name = "bge-ish"
+        min_similarity = 0.70
+        min_similarity_centered = 0.44
+
+    r = hybrid_search(FakeConn(), Bgeish(), "q", k=5)
+    assert r.abstained is False                    # 0.81 >= the raw floor 0.70
+    assert r.hits[0].centered_similarity is None
+
+
+def test_or_swap_is_skipped_when_the_query_negates():
+    """The &->| swap inverts negation. websearch_to_tsquery renders
+    `outage -maintenance` as `'outag' & !'mainten'`; swapping the operator makes
+    it `'outag' | !'mainten'`, which matches every row that simply lacks
+    "maintenance" — measured on the live index, 10,708 of 12,155 rows (88%).
+    `database errors -scheduled` reached 97%. The arm degenerates to
+    near-everything, ts_rank ties out, and 20 effectively arbitrary candidates
+    enter RRF at full weight.
+
+    High recall is the point of the swap, so keep it — but only where it cannot
+    invert meaning, i.e. when the parsed tsquery contains no `!`.
+    """
+    from freshet.rag.retrieval import keyword_sql
+
+    sql = keyword_sql(None, None)
+    assert "position('!' in" in sql, "negated queries must skip the &->| swap"
+    # both branches present: plain OR-swap, and the untouched AND form
+    assert "replace(" in sql and "'&', '|'" in sql
+    assert "CASE WHEN" in sql and "ELSE" in sql
+
+
+def test_arm_k_is_env_overridable():
+    """The candidate depth is the parameter with the most measured headroom
+    (vector-arm recall@5 0.436 vs recall@50 0.764), so sweeping it must not
+    require a code edit."""
+    import importlib
+    import os
+
+    import freshet.rag.retrieval as retrieval
+
+    saved = os.environ.get("FRESHET_ARM_K")
+    try:
+        os.environ["FRESHET_ARM_K"] = "50"
+        importlib.reload(retrieval)
+        assert retrieval.ARM_K == 50
+        os.environ["FRESHET_ARM_K"] = "not-a-number"
+        importlib.reload(retrieval)
+        assert retrieval.ARM_K == 20          # bad values fall back, never crash
+    finally:
+        if saved is None:
+            os.environ.pop("FRESHET_ARM_K", None)
+        else:
+            os.environ["FRESHET_ARM_K"] = saved
+        importlib.reload(retrieval)

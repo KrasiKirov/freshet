@@ -32,7 +32,9 @@ def test_st_encode_query_applies_instruction(monkeypatch):
         def __init__(self, name):
             pass
 
-        def encode(self, texts, normalize_embeddings=True):
+        # **kw so the fake keeps matching the real call site: encode() now also
+        # passes batch_size (see SentenceTransformerEmbedder).
+        def encode(self, texts, normalize_embeddings=True, **kw):
             captured["texts"] = list(texts)
             return [[0.0] * EMBEDDING_DIM for _ in texts]
 

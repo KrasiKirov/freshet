@@ -115,3 +115,24 @@ def test_excluding_nothing_keeps_every_hit():
         def __init__(self, e):
             self.event_id = e
     assert dedupe_events([_H("a"), _H("b")]) == ["a", "b"]
+
+
+def test_index_provenance_records_what_the_numbers_describe():
+    """results/retrieval_eval_live.json was measured against an index that was
+    61% amplified duplicates from a parser bug, and nothing in the file said so.
+    A committed results file without provenance is unfalsifiable."""
+    from freshet.eval.retrieval_eval import index_provenance
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            class _Cur:
+                def fetchone(self_inner):
+                    return (8966, 7700, 42, 3640, 235, 231)
+
+            return _Cur()
+
+    p = index_provenance(FakeConn())
+    assert p["n_chunks"] == 8966 and p["n_events"] == 7700 and p["n_providers"] == 42
+    assert abs(p["non_first_frac"] - round(3640 / 8966, 3)) < 1e-9
+    assert p["mean_chars"] == 235 and p["median_chars"] == 231
+    assert p["measured_at"].endswith("+00:00")

@@ -22,7 +22,12 @@ from freshet.common.incidents import ensure_incident
 from freshet.common.schemas import Event, VectorRecord
 from freshet.pipeline.chunking import chunk_text
 from freshet.pipeline.deadletter import DEADLETTER_TOPIC, build_deadletter
-from freshet.pipeline.embedding import Embedder, make_embedder, vec_literal
+from freshet.pipeline.embedding import (
+    EMBEDDING_DIM,
+    Embedder,
+    make_embedder,
+    vec_literal,
+)
 from freshet.pipeline.metrics import (
     DEADLETTER_EVENTS,
     EMBEDDER_MESSAGES,
@@ -55,6 +60,13 @@ def title_of(text: str) -> str | None:
     return head if 0 < len(head) <= MAX_TITLE_LEN else None
 
 
+# The incident title reaches the index only on chunk _0 — Flink prepends
+# "<name>: " to the text and the chunker splits it away for everything after.
+# That is 40.6% of live chunks with no incident context, and restoring it was
+# MEASURED and made retrieval worse (recall@5 0.436 -> 0.400): the repeated
+# title dominates short chunks and crowds out the body. The `title` column
+# carries the incident name for citation labelling instead. See RESULTS.md,
+# "Measured and rejected".
 def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorRecord]:
     """One record per text chunk. chunk_id derives from event_id + index, so
     redelivery and replay overwrite the same rows (idempotent). Blank text
@@ -218,6 +230,12 @@ def make_handler(conn, emb: Embedder, producer, *,
                         ev.event_id, ev.v, sorted(KNOWN_WIRE_VERSIONS))
         records = records_for_event(ev)
         if not records:
+            # Nothing to index — but `incidents` is what autopilot claims
+            # against, and returning without a row means this incident can
+            # never be briefed and nothing reports it. The ordering rule below
+            # (a claimable row must not exist before its evidence) has nothing
+            # to order against here: there is no evidence and never will be.
+            ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
             return
         for attempt in range(1, attempts + 1):
             try:
@@ -233,6 +251,16 @@ def make_handler(conn, emb: Embedder, producer, *,
             # zip would silently truncate; a miscounting embedder is a code
             # bug, not message poison — fail loudly
             raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
+        wrong = next((len(v) for v in vectors if len(v) != EMBEDDING_DIM), None)
+        if wrong is not None:
+            # Same class of problem as the count mismatch, and previously it
+            # surfaced as a psycopg error from inside upsert_record — an
+            # infrastructure failure, which is not what a misconfigured
+            # embedder is. Name it where it happens.
+            raise RuntimeError(
+                f"embedder {getattr(emb, 'name', '?')!r} returned {wrong}-dim vectors, "
+                f"but the schema is vector({EMBEDDING_DIM}) — re-index with a "
+                f"{EMBEDDING_DIM}-dim model or fix FRESHET_EMBEDDER")
         for rec, vector in zip(records, vectors, strict=True):
             upsert_record(conn, rec, vector, getattr(emb, "name", None))
             observe_indexed(rec, ingested_at=ev.ingested_at)

@@ -33,6 +33,13 @@ def max_similarity(hits) -> float:
     return max((h.similarity for h in hits), default=0.0)
 
 
+def max_centered_similarity(hits) -> float | None:
+    """None when no centroid is stored, so the caller can say so rather than
+    reporting a floor for a space that was never computed."""
+    values = [h.centered_similarity for h in hits if h.centered_similarity is not None]
+    return max(values) if values else None
+
+
 def propose_floor(on_corpus: list[float], off_corpus: list[float],
                   current: float) -> dict:
     """Midpoint between the arms, only when they actually separate."""
@@ -74,21 +81,49 @@ def main() -> None:
     # min_similarity=0 so nothing abstains: this measures the distribution the
     # floor is supposed to cut, not what survives the current cut.
     on_all, on_with_cause = [], []
+    on_all_c, on_with_cause_c = [], []
     for entry in labels["labeled"]:
-        r = hybrid_search(conn, embedder, entry["query"], k=K, min_similarity=0.0)
-        sim = max_similarity(r.hits)
+        # The query's own document is excluded: these labels are verbatim indexed
+        # update text, so leaving it in measures a self-match, not retrieval.
+        r = hybrid_search(conn, embedder, entry["query"], k=K, min_similarity=0.0,
+                          exclude_event_id=entry.get("query_event_id"))
+        sim, csim = max_similarity(r.hits), max_centered_similarity(r.hits)
         on_all.append(sim)
+        if csim is not None:
+            on_all_c.append(csim)
         if {h.event_id for h in r.hits} & set(entry["cause_event_ids"]):
             on_with_cause.append(sim)          # only answerable questions bound the floor
-    off = [max_similarity(hybrid_search(conn, embedder, q, k=K, min_similarity=0.0).hits)
-           for q in OFF_CORPUS]
+            if csim is not None:
+                on_with_cause_c.append(csim)
+    off, off_c = [], []
+    for q in OFF_CORPUS:
+        r = hybrid_search(conn, embedder, q, k=K, min_similarity=0.0)
+        off.append(max_similarity(r.hits))
+        csim = max_centered_similarity(r.hits)
+        if csim is not None:
+            off_c.append(csim)
+
+    current_c = getattr(embedder, "min_similarity_centered", None)
+
+    def _block(on, on_cause, offs, floor):
+        return {
+            "on_corpus": {"n": len(on), "n_with_cause_retrieved": len(on_cause),
+                          "min": round(min(on), 3), "max": round(max(on), 3)},
+            "off_corpus": {"n": len(offs), "min": round(min(offs), 3),
+                           "max": round(max(offs), 3)},
+            **propose_floor(on_cause, offs, floor),
+        }
 
     report = {
-        "on_corpus": {"n": len(on_all), "n_with_cause_retrieved": len(on_with_cause),
-                      "min": round(min(on_all), 3), "max": round(max(on_all), 3)},
-        "off_corpus": {"n": len(off), "min": round(min(off), 3),
-                       "max": round(max(off), 3)},
-        **propose_floor(on_with_cause, off, current),
+        "raw": _block(on_all, on_with_cause, off, current),
+        # The space the floor actually uses when a centroid is stored. Raw bge
+        # cosine is anisotropic enough that 12.2% of UNRELATED chunk pairs clear
+        # 0.70, which is why the raw block below reports an overlap no threshold
+        # can fix — see freshet/pipeline/index_stats.py.
+        "centered": (_block(on_all_c, on_with_cause_c, off_c, float(current_c or 0.0))
+                     if on_all_c and off_c else
+                     {"proposal": None,
+                      "reason": "no centroid stored — run `make index-stats` first"}),
     }
     out = pathlib.Path("results/abstention_calibration.json")
     out.parent.mkdir(parents=True, exist_ok=True)

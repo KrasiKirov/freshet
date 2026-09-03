@@ -26,12 +26,32 @@ EMBEDDING_DIM = 768  # BAAI/bge-base-en-v1.5 output size
 MIN_SIMILARITY_MINILM = 0.3
 MIN_SIMILARITY_BGE = 0.7
 
+# The same floor, measured in the MEAN-CENTERED space (see
+# freshet/pipeline/index_stats.py). Raw bge cosine is anisotropic — random
+# unrelated chunk pairs on the live index average 0.594 and 12.2% clear 0.70 —
+# so the raw floor cuts a percentile rather than a meaning. Centering collapses
+# the off-corpus band from 0.485-0.687 to 0.369-0.433; 0.44 sits just above it.
+# Measured on 55 live labels with the query's own document excluded: raw @0.70
+# gives 4/55 false abstentions, centered @0.44 gives 2/55, and both reject all
+# 6 off-corpus questions. Recalibrate with `make calibrate-abstention` whenever
+# the corpus or model changes.
+MIN_SIMILARITY_BGE_CENTERED = 0.44
+
 
 class Embedder(Protocol):
     # Identifies which model produced a vector. Stored beside every embedding so a
     # query can tell "no relevant evidence" apart from "this index was built by a
     # different model" — they are indistinguishable from similarity scores alone.
     name: str
+    # The abstention floor, in raw cosine. On the Protocol because the query path
+    # depends on it: an embedder that omits it inherits the MiniLM floor of 0.3,
+    # and unrelated bge pairs average 0.594 — so the omission reads as
+    # "never abstain" and nothing anywhere reports it.
+    min_similarity: float
+    # The same floor in the mean-centered space (freshet/pipeline/index_stats.py).
+    # None means this model has no centered calibration, and abstention stays in
+    # raw cosine rather than being measured against a floor nobody set.
+    min_similarity_centered: float | None
 
     def encode(self, texts: list[str]) -> list[list[float]]: ...
     def encode_query(self, texts: list[str]) -> list[list[float]]: ...
@@ -45,6 +65,8 @@ class StubEmbedder:
     # random unit vectors follow no model distribution; keep the MiniLM floor so
     # existing tests and keyless demos behave unchanged
     min_similarity = MIN_SIMILARITY_MINILM
+    # ...and no centered calibration exists for a distribution that is noise
+    min_similarity_centered: float | None = None
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [self._vec(t) for t in texts]
@@ -90,7 +112,9 @@ class SentenceTransformerEmbedder:
 
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
                  query_instruction: str = "",
-                 min_similarity: float = MIN_SIMILARITY_MINILM):
+                 min_similarity: float = MIN_SIMILARITY_MINILM,
+                 min_similarity_centered: float | None = None,
+                 batch_size: int = 32):
         from sentence_transformers import SentenceTransformer
 
         _cap_torch_threads()
@@ -98,11 +122,21 @@ class SentenceTransformerEmbedder:
         self.name = model_name
         self.query_instruction = query_instruction
         self.min_similarity = min_similarity
+        # None means "this model has no centered calibration" — abstention then
+        # stays in raw space even when a centroid exists, rather than inventing
+        # a floor for a distribution nobody measured.
+        self.min_similarity_centered = min_similarity_centered
+        # The handler calls encode() once per Kafka message — 1-3 chunks — so
+        # the default of 32 does nothing in steady state. It is there for replay
+        # and re-index, where the caller passes the whole batch: measured on 2
+        # torch threads, 107 chunks/s at batch=1 against 507 at batch=32.
+        self.batch_size = batch_size
 
     def encode(self, texts: list[str]) -> list[list[float]]:
         return [
             [float(x) for x in row]
-            for row in self.model.encode(texts, normalize_embeddings=True)
+            for row in self.model.encode(texts, normalize_embeddings=True,
+                                         batch_size=self.batch_size)
         ]
 
     def encode_query(self, texts: list[str]) -> list[list[float]]:
@@ -126,15 +160,30 @@ def make_embedder(kind: str) -> Embedder:
             "BAAI/bge-base-en-v1.5",
             query_instruction="Represent this sentence for searching relevant passages:",
             min_similarity=MIN_SIMILARITY_BGE,
+            min_similarity_centered=MIN_SIMILARITY_BGE_CENTERED,
         )
     else:
         raise ValueError(f"unknown embedder: {kind!r} (expected 'stub' or 'bge')")
     override = os.environ.get("FRESHET_MIN_SIMILARITY")
     if override:
-        emb.min_similarity = float(override)  # type: ignore[misc]
+        emb.min_similarity = float(override)
+    override_c = os.environ.get("FRESHET_MIN_SIMILARITY_CENTERED")
+    if override_c:
+        emb.min_similarity_centered = float(override_c)
     return emb
 
 
 def vec_literal(v: list[float]) -> str:
-    """Format a vector as a pgvector text literal for use with %s::vector."""
-    return "[" + ",".join(str(x) for x in v) + "]"
+    """Format a vector as a pgvector text literal for use with %s::vector.
+
+    9 significant digits is FLT_DECIMAL_DIG: the smallest precision that
+    round-trips float32 EXACTLY, which is what these values are on both sides
+    of the wire (sentence-transformers emits float32, pgvector stores it).
+    7 digits looks sufficient and is not — it perturbs the low bits, verified
+    by test_vec_literal_is_lossless_for_float32_and_compact. `str(float)`
+    went the other way, emitting up to 17 digits for values that never had
+    that much information: 16,285 bytes per 768-dim vector against 10,437,
+    or ~194 MB of decimal text across a full re-index, and the query path
+    pays it twice (the keyword arm interpolates qvec again).
+    """
+    return "[" + ",".join(f"{x:.9g}" for x in v) + "]"

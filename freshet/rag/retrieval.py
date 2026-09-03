@@ -5,37 +5,62 @@ user value travels as a bound parameter.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from freshet.pipeline.embedding import Embedder, vec_literal
+from freshet.pipeline.index_stats import get_centroid
 
 # Row columns are addressed by POSITION, so the shared prefix and the per-arm
 # score columns that follow it are declared together here. Adding a column
 # without moving these indices silently mislabels every field after it.
 _COLS = "chunk_id, event_id, service, ts, indexed_at, source, text, type, title"
 TITLE_IDX = 8
-_VEC_SIM_IDX = 9        # vector arm: ..., title, similarity
-_KW_SIM_IDX = 10        # keyword arm: ..., title, rank, similarity
+_VEC_SIM_IDX = 9         # vector arm:  ..., title, similarity, centered_similarity
+_VEC_CSIM_IDX = 10
+_KW_SIM_IDX = 10         # keyword arm: ..., title, rank, similarity, centered_similarity
+_KW_CSIM_IDX = 11
 
 
-def _where(service: str | None, since: datetime | None) -> str:
+# Cosine in the MEAN-CENTERED space. `<=>` normalizes its operands, so
+# subtracting the centroid from both sides is the whole transform — no
+# client-side maths and no second round trip. Emitted as a constant-width
+# column (NULL when no centroid is stored) so the positional indices above
+# never depend on runtime state.
+def _centered_expr(centered: bool) -> str:
+    if not centered:
+        return " NULL::double precision AS centered_similarity"
+    return (" 1 - ((embedding - %(centroid)s::vector)"
+            " <=> (%(qvec)s::vector - %(centroid)s::vector)) AS centered_similarity")
+
+
+def _where(service: str | None, since: datetime | None,
+           exclude_event_id: str | None = None) -> str:
     clauses = []
     if service is not None:
         clauses.append("service = %(service)s")
     if since is not None:
         clauses.append("ts >= %(since)s")
+    # Drops the query's OWN document. When the query is text lifted from an
+    # indexed update, that update is trivially its own top hit — and because
+    # abstention keys off the top similarity, leaving it in makes the
+    # abstention metric structurally incapable of firing.
+    if exclude_event_id is not None:
+        clauses.append("event_id <> %(exclude_event_id)s")
     return (" WHERE " + " AND ".join(clauses)) if clauses else ""
 
 
-def vector_sql(service: str | None, since: datetime | None) -> str:
+def vector_sql(service: str | None, since: datetime | None,
+               exclude_event_id: str | None = None, centered: bool = False) -> str:
     # chunk_id breaks distance ties deterministically: without it, tied rows come
     # back in physical heap order, which shifts run-to-run (the eval DELETEs and
     # re-INSERTs every run) and makes the benchmark non-reproducible.
     return (
-        f"SELECT {_COLS}, 1 - (embedding <=> %(qvec)s::vector) AS similarity"
-        " FROM vector_records" + _where(service, since) +
+        f"SELECT {_COLS}, 1 - (embedding <=> %(qvec)s::vector) AS similarity,"
+        + _centered_expr(centered) +
+        " FROM vector_records" + _where(service, since, exclude_event_id) +
         " ORDER BY embedding <=> %(qvec)s::vector, chunk_id LIMIT %(k)s"
     )
 
@@ -45,27 +70,51 @@ def vector_sql(service: str | None, since: datetime | None) -> str:
 # operational events (no single event contains every query word). As a
 # candidate-generation arm feeding fusion, keyword search should be high-recall:
 # swap the &-operators in the (already-sanitized) tsquery for |, so any matching
-# term retrieves and ts_rank + RRF + recency do the ranking. Safe against
-# injection — websearch_to_tsquery has already parsed user input into a valid
-# tsquery before the textual operator swap.
-_OR_TSQUERY = "replace(websearch_to_tsquery('english', %(q)s)::text, '&', '|')::tsquery"
+# term retrieves and ts_rank + RRF do the ranking. Safe against injection —
+# websearch_to_tsquery has already parsed user input into a valid tsquery before
+# the textual operator swap.
+#
+# EXCEPT when the query negates. websearch renders `outage -maintenance` as
+# `'outag' & !'mainten'`; swapping the operator yields `'outag' | !'mainten'`,
+# which matches every row that merely LACKS "maintenance" — measured on the live
+# index, 10,708 of 12,155 rows (88%), and `database errors -scheduled` reached
+# 97%. The arm degenerates to near-everything, ts_rank ties out, and 20
+# effectively arbitrary candidates enter RRF at full weight. A `-term` is the one
+# case where the swap changes meaning rather than just breadth, so those queries
+# keep websearch's AND form. `position('!' in ...)` rather than a LIKE pattern
+# because a literal % would have to be escaped in this %(name)s format string.
+_WS_TSQUERY = "websearch_to_tsquery('english', %(q)s)"
+_OR_TSQUERY = (
+    f"CASE WHEN position('!' in {_WS_TSQUERY}::text) > 0"
+    f" THEN {_WS_TSQUERY}"
+    f" ELSE replace({_WS_TSQUERY}::text, '&', '|')::tsquery END"
+)
 
 
-def keyword_sql(service: str | None, since: datetime | None) -> str:
-    where = _where(service, since)
+def keyword_sql(service: str | None, since: datetime | None,
+                exclude_event_id: str | None = None, centered: bool = False) -> str:
+    where = _where(service, since, exclude_event_id)
     match = f"text_tsv @@ {_OR_TSQUERY}"
     where = (where + " AND " + match) if where else (" WHERE " + match)
-    # ts_rank produces many ties across terse operational events, so rank alone
-    # leaves the order to physical heap position (non-reproducible run-to-run).
-    # chunk_id is the deterministic tiebreak that makes the benchmark byte-stable.
+    # ts_rank counts term frequency, which ties heavily across terse operational
+    # events — and with OR semantics the candidate set is large, so which 20 rows
+    # survived the LIMIT was effectively decided by the chunk_id tiebreak
+    # (deterministic, but an id hash). ts_rank_cd scores COVER DENSITY: how close
+    # the matched terms sit, which is the signal that survives in one- and
+    # two-sentence updates. Normalization flag 32 divides by rank+1 so a long
+    # chunk cannot win on term count alone. Measured on 55 live labels:
+    # keyword_only recall@5 0.309 -> 0.364, mrr 0.232 -> 0.251; hybrid recall@5
+    # 0.455 -> 0.473 with mrr 0.328 -> 0.313. chunk_id remains the tiebreak that
+    # keeps the benchmark byte-stable.
     # Cosine is computed here too, so a hit found ONLY by the lexical arm still
     # carries a real similarity. It used to default to 0.0 — a missing value, not
     # a measured one — and since abstention keys off cosine, an exact lexical
     # match with no vector match was discarded as "no evidence".
     return (
         f"SELECT {_COLS},"
-        f" ts_rank(text_tsv, {_OR_TSQUERY}) AS rank,"
-        f" 1 - (embedding <=> %(qvec)s::vector) AS similarity"
+        f" ts_rank_cd(text_tsv, {_OR_TSQUERY}, 32) AS rank,"
+        f" 1 - (embedding <=> %(qvec)s::vector) AS similarity,"
+        + _centered_expr(centered) +
         " FROM vector_records" + where +
         " ORDER BY rank DESC, chunk_id LIMIT %(k)s"
     )
@@ -103,12 +152,32 @@ def should_abstain(similarities: list[float], min_similarity: float) -> bool:
 # per-model `min_similarity` attribute (see pipeline.embedding), that wins —
 # bge's compressed cosine distribution makes 0.3 effectively "never abstain".
 DEFAULT_MIN_SIMILARITY = 0.3
-ARM_K = 20                   # per-arm candidate depth before fusion
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+# Per-arm candidate depth before fusion. Measured on the live index, the vector
+# arm's recall@5 is 0.436 while its recall@20 is 0.655 and recall@50 0.764 — so
+# a third of the answers the system finds are sitting below this cut, where
+# fusion cannot see them. Raising it costs one larger LIMIT per arm and no LLM
+# tokens; the delivered k is a separate, cost-bearing decision. Sweep with
+# FRESHET_ARM_K.
+ARM_K = _int_env("FRESHET_ARM_K", 20)
 
 
 
 def _default_min_similarity(embedder) -> float:
     return float(getattr(embedder, "min_similarity", DEFAULT_MIN_SIMILARITY))
+
+
+def _default_min_similarity_centered(embedder) -> float | None:
+    value = getattr(embedder, "min_similarity_centered", None)
+    return float(value) if value is not None else None
 
 
 @dataclass
@@ -126,6 +195,9 @@ class RetrievedHit:
     # Optional and last: the chunk is always present, the incident's name is not
     # (legacy rows predate the column). Defaulting keeps every existing caller valid.
     title: str | None = None
+    # Cosine measured after subtracting the index centroid. None when no
+    # centroid is stored — abstention then falls back to the raw floor.
+    centered_similarity: float | None = None
 
 
 @dataclass
@@ -148,19 +220,32 @@ def hybrid_search(
     service: str | None = None,
     since: datetime | None = None,
     min_similarity: float | None = None,
+    exclude_event_id: str | None = None,
 ) -> HybridResult:
     # None -> abstention floor from the embedder's per-model attribute.
     if min_similarity is None:
         min_similarity = _default_min_similarity(embedder)
+    centered_floor = _default_min_similarity_centered(embedder)
+    model = getattr(embedder, "name", "") or ""
+    # Only worth the centered arm if this model HAS a centered calibration;
+    # otherwise the column would be measured against a floor nobody set.
+    centroid = get_centroid(conn, model) if centered_floor is not None else None
     [qvec] = embedder.encode_query([question])
     params: dict[str, Any] = {"qvec": vec_literal(qvec), "q": question, "k": ARM_K}
     if service is not None:
         params["service"] = service
     if since is not None:
         params["since"] = since
+    if exclude_event_id is not None:
+        params["exclude_event_id"] = exclude_event_id
+    if centroid is not None:
+        params["centroid"] = centroid
 
-    vec_rows = conn.execute(vector_sql(service, since), params).fetchall()
-    kw_rows = conn.execute(keyword_sql(service, since), params).fetchall()
+    centered = centroid is not None
+    vec_rows = conn.execute(
+        vector_sql(service, since, exclude_event_id, centered), params).fetchall()
+    kw_rows = conn.execute(
+        keyword_sql(service, since, exclude_event_id, centered), params).fetchall()
 
     vec_map = _rows_to_map(vec_rows, _VEC_SIM_IDX)
     kw_map = _rows_to_map(kw_rows, _KW_SIM_IDX)
@@ -173,6 +258,8 @@ def hybrid_search(
         # having zero similarity
         similarity = (vec_map[chunk_id][1] if chunk_id in vec_map
                       else kw_map[chunk_id][1])
+        csim_idx = _VEC_CSIM_IDX if chunk_id in vec_map else _KW_CSIM_IDX
+        centered_similarity = row[csim_idx]
         hits.append(
             RetrievedHit(
                 chunk_id=row[0], event_id=row[1], service=row[2], ts=row[3],
@@ -180,6 +267,8 @@ def hybrid_search(
                 title=row[TITLE_IDX],
                 similarity=similarity,
                 score=rrf_score,
+                centered_similarity=(None if centered_similarity is None
+                                     else float(centered_similarity)),
             )
         )
 
@@ -195,7 +284,14 @@ def hybrid_search(
     # path keeps the calibrated floor exactly as it was.
     if service is not None or since is not None:
         return HybridResult(hits=retrieval_topk, abstained=not retrieval_topk)
-    abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
+    # The centered space is the better abstention signal — see
+    # freshet/pipeline/index_stats.py. Ranking stays in raw cosine either way.
+    csims = [h.centered_similarity for h in retrieval_topk
+             if h.centered_similarity is not None]
+    if centered_floor is not None and csims:
+        abstained = should_abstain(csims, centered_floor)
+    else:
+        abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
     return HybridResult(hits=retrieval_topk, abstained=abstained)
 
 

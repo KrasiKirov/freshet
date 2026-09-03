@@ -26,14 +26,17 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from freshet.common.schemas import Event, EventSource
 
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures/real"
 RESULTS = pathlib.Path("results/retrieval_eval.json")
-EVAL_DB = "freshet_eval"
+# Overridable so two agents working the same checkout in parallel do not
+# TRUNCATE each other's eval database mid-run. Mirrors FRESHET_TEST_DB, which
+# tests/integration/conftest.py already reads for the same reason.
+EVAL_DB = os.environ.get("FRESHET_EVAL_DB", "freshet_eval")
 K = 5
 
 # Hard negatives: on-call vocabulary for systems these five feeds never cover,
@@ -178,11 +181,13 @@ def _single_arm(conn, embedder, question: str, sql_fn, k: int,
     from freshet.rag.retrieval import vec_literal
 
     [qvec] = embedder.encode_query([question])
-    rows = conn.execute(sql_fn(None, None),
-                        {"qvec": vec_literal(qvec), "q": question, "k": k}).fetchall()
+    params: dict[str, Any] = {"qvec": vec_literal(qvec), "q": question, "k": k}
+    if exclude is not None:
+        params["exclude_event_id"] = exclude
+    rows = conn.execute(sql_fn(None, None, exclude), params).fetchall()
     seen: list[str] = []
     for r in rows:
-        if r[1] != exclude and r[1] not in seen:
+        if r[1] not in seen:
             seen.append(r[1])
     return seen
 
@@ -250,10 +255,17 @@ def main() -> None:
 
     scored = {name: aggregate(recs) for name, recs in arms.items()}
     gap = round(scored["hybrid"]["recall@5"] - scored["blind_recent"]["recall@5"], 3)
+    from freshet.eval.chunk_sweep import corpus_shape
+    from freshet.pipeline.chunking import chunk_text
+
     out = {
         "corpus": {"updates": len(events),
                    "incidents": len({e.incident_id for e in events}),
                    "labeled": len(labels["labeled"]), "curated": labels.get("curated")},
+        # The shape the numbers below were measured on. The live index is
+        # 235 mean chars / 40.7% multi-chunk against this corpus's 159 / 7.3%,
+        # so a chunking or context change that looks free here may not be.
+        "corpus_shape": corpus_shape([chunk_text(e.text) for e in events]),
         "arms": scored,
         "gameability_guard": {
             "blind_recall@5": scored["blind_recent"]["recall@5"],
@@ -272,6 +284,32 @@ def main() -> None:
     RESULTS.write_text(json.dumps(out, indent=2) + "\n")
     print(json.dumps(out, indent=2))
 
+
+
+# What the live index looked like when the numbers below were taken. Without it a
+# committed results file is unfalsifiable: results/retrieval_eval_live.json was
+# measured against a 12,155-row index of which 7,435 rows (61%) were amplified
+# duplicates from a source-adapter bug, and nothing in the file said so. Row
+# count and provider mix are the cheapest signal that a corpus changed underneath
+# a comparison.
+_INDEX_PROVENANCE_SQL = (
+    "WITH n AS (SELECT (regexp_match(chunk_id, '_(\\d+)$'))[1]::int AS idx,"
+    "                  length(text) AS len, service, event_id FROM vector_records)"
+    " SELECT count(*), count(DISTINCT event_id), count(DISTINCT service),"
+    "        count(*) FILTER (WHERE idx > 0), avg(len)::int,"
+    "        percentile_cont(0.5) WITHIN GROUP (ORDER BY len)::int FROM n")
+
+
+def index_provenance(conn) -> dict:
+    """Size and shape of the index a live eval ran against."""
+    chunks, events, providers, non_first, mean_chars, median_chars = conn.execute(
+        _INDEX_PROVENANCE_SQL).fetchone()
+    return {
+        "n_chunks": chunks, "n_events": events, "n_providers": providers,
+        "non_first_frac": round(non_first / chunks, 3) if chunks else 0.0,
+        "mean_chars": mean_chars, "median_chars": median_chars,
+        "measured_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
 
 
 def _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder) -> None:
@@ -299,7 +337,7 @@ def _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder) -> None:
     for entry in labels["labeled"]:
         causes, q = set(entry["cause_event_ids"]), entry["query"]
         self_doc = entry.get("query_event_id")     # the update the query came from
-        r = hybrid_search(conn, embedder, q, k=K + 1)
+        r = hybrid_search(conn, embedder, q, k=K + 1, exclude_event_id=self_doc)
         abstained += bool(r.abstained)
         arms["hybrid"].append(score_one(dedupe_events(r.hits, self_doc), causes))
         arms["vector_only"].append(
@@ -316,6 +354,9 @@ def _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder) -> None:
         "corpus": {"labeled": len(labels["labeled"]),
                    "providers": len({e["service"] for e in labels["labeled"]}),
                    "curated": labels.get("curated")},
+        # The index these numbers describe. A results file without this cannot be
+        # told apart from one measured on a different corpus.
+        "index": index_provenance(conn),
         "arms": scored,
         "gameability_guard": {"blind_recall@5": scored["blind_recent"]["recall@5"],
                               "hybrid_minus_blind": gap,

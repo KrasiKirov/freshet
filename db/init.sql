@@ -224,3 +224,17 @@ BEGIN
             FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE CASCADE;
     END IF;
 END $$;
+
+-- The mean embedding of the index, per model. bge's cosine space is
+-- anisotropic: measured on this index, RANDOM unrelated chunk pairs average
+-- 0.594 cosine and 12.2% of them clear the 0.70 abstention floor. An absolute
+-- floor in that space is a percentile, not a semantic boundary. Subtracting the
+-- centroid removes the shared component, which is what makes "is this related
+-- at all?" answerable by score. Stored per model because vectors from two
+-- models share no geometry — the same reason vector_records.model exists.
+CREATE TABLE IF NOT EXISTS index_stats (
+    model       text PRIMARY KEY,
+    centroid    vector(768) NOT NULL,
+    n_chunks    bigint NOT NULL,
+    computed_at timestamptz NOT NULL DEFAULT now()
+);
