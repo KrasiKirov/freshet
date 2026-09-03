@@ -110,6 +110,59 @@ per Kafka message (1-3 chunks), so the model runs at a fifth of its throughput
 during a catch-up burst.
 File: `freshet/pipeline/embedding.py`.
 
+## CORRECTION — the corpus these numbers were measured on was 61% duplicates
+
+Measured 2026-09-02 16:25Z, after the ingestion workstream purged 7,435 amplified
+rows and pushed master at c402103.
+
+Every figure above was taken on a 12,155-chunk index of which **7,435 chunks
+(61%) were amplified duplicates** — openai 5,582 and hashicorp 1,853 — minted by
+a source-adapter bug that digested a live component list into the update
+identity, creating a new record on every component flip. The clean index holds 83
+and 26 for those providers.
+
+**What that inflated.** Near-duplicates raise pairwise cosine specifically in the
+high tail, which is exactly the statistic F1's headline rested on:
+
+| unrelated chunk pairs scoring | amplified index | clean index |
+|---|---|---|
+| mean cosine | 0.594 | 0.574 |
+| >= 0.60 | 34.3% | 33.7% |
+| >= 0.65 | 19.6% | 12.2% |
+| **>= 0.70 (the floor)** | **12.2%** | **3.3%** |
+| >= 0.80 | 6.9% | 0.3% |
+
+So "one in eight unrelated pairs clears the abstention floor" was really one in
+thirty. The anisotropy is still real — a mean of 0.574 between texts with nothing
+in common is the whole problem, and bge's space is still not one an absolute
+threshold reads cleanly — but the magnitude was driven by the duplicates, and the
+corrected figure is the one to quote.
+
+**What survived unchanged, and it is the load-bearing claim.** The centered floor
+still separates on clean data, and `calibrate_abstention` still proposes
+essentially the shipped value:
+
+| | amplified index | clean index |
+|---|---|---|
+| centered: on-corpus min / off-corpus max | 0.453 / 0.434 | 0.452 / 0.435 |
+| centered: proposal vs shipped 0.44 | 0.443 | **0.443** |
+| raw: on-corpus min / off-corpus max | 0.632 / 0.687 (OVERLAP) | 0.687 / 0.687 |
+
+The raw floor is now *demonstrably* too high rather than merely uncalibrated: the
+lowest answerable on-corpus query scores 0.687, below the shipped 0.70, so raw
+abstention would veto it. F1's argument holds; only its headline number changed.
+
+**What is NOT valid any more.** Every recall and MRR figure above. They were
+measured on a corpus that no longer exists — different size *and* composition
+(4,246 clean chunks have since been re-indexed). On the current 8,966-chunk index
+the same eval gives hybrid recall@5 0.345 / mrr 0.162, vector_only 0.345 / 0.135,
+keyword_only 0.255 / 0.143, abstention 0/55 on-corpus and 6/6 off-corpus, guard
+`meaningful`. Those are **not** evidence that anything regressed: the corpus
+changed underneath, all 55 labels still resolve, and the arm ordering and the
+query-blind guard both still hold. The before/after comparisons that justified
+`ts_rank_cd` and the ARM_K and chunk-size decisions need re-running on a settled
+clean index before they can be quoted again.
+
 ## Measured and rejected
 
 **Incident title on every chunk.** Flink prepends `"<name>: "` to the update

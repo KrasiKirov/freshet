@@ -7,21 +7,21 @@
   },
   "arms": {
     "hybrid": {
-      "recall@5": 0.473,
-      "mrr": 0.313,
-      "top1_cite": 0.236,
+      "recall@5": 0.345,
+      "mrr": 0.162,
+      "top1_cite": 0.055,
       "n": 55
     },
     "vector_only": {
-      "recall@5": 0.436,
-      "mrr": 0.306,
-      "top1_cite": 0.218,
+      "recall@5": 0.345,
+      "mrr": 0.135,
+      "top1_cite": 0.036,
       "n": 55
     },
     "keyword_only": {
-      "recall@5": 0.364,
-      "mrr": 0.251,
-      "top1_cite": 0.182,
+      "recall@5": 0.255,
+      "mrr": 0.143,
+      "top1_cite": 0.073,
       "n": 55
     },
     "blind_recent": {
@@ -33,11 +33,11 @@
   },
   "gameability_guard": {
     "blind_recall@5": 0.0,
-    "hybrid_minus_blind": 0.473,
+    "hybrid_minus_blind": 0.345,
     "verdict": "meaningful"
   },
   "abstention": {
-    "on_corpus_abstained": 2,
+    "on_corpus_abstained": 0,
     "on_corpus_total": 55,
     "off_corpus_abstained": 6,
     "off_corpus_total": 6

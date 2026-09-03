@@ -307,6 +307,27 @@ non-first chunks. Live index: 235, 40.7%, 40.6%. The title experiment looked fre
 on the fixture and cost 3.6 points of recall live. `retrieval_eval` now publishes
 `corpus_shape` on every run so the drift is visible rather than assumed.
 
+### CORRECTION — the audit corpus was 61% parser-bug duplicates
+
+Measured 2026-09-02 16:25Z. The 12,155-chunk index every figure in this section
+was taken on contained 7,435 amplified duplicates (openai 5,582, hashicorp 1,853)
+from a source-adapter bug, since purged. Full accounting in
+`docs/embedding-audit.md`. Two consequences:
+
+- **F1's headline was inflated.** Unrelated pairs clearing the 0.70 floor: 12.2%
+  on the amplified index, **3.3%** on the clean one. Near-duplicates raise the
+  high tail, which is precisely what that statistic measures. The mean barely
+  moved (0.594 -> 0.574), so the anisotropy is real; the magnitude was not.
+- **The centered floor is confirmed, unchanged.** On clean data on-corpus min
+  0.452 vs off-corpus max 0.435, and `calibrate_abstention` proposes 0.443
+  against the shipped 0.44. The raw floor is now provably too high: the lowest
+  answerable query scores 0.687, under the shipped 0.70.
+
+Every recall/MRR number in this section is superseded and needs re-running on a
+settled clean index. On the current 8,966-chunk index: hybrid recall@5 0.345,
+vector_only 0.345, keyword_only 0.255, abstention 0/55 and 6/6, guard
+`meaningful`. That is a different corpus, not a regression.
+
 ## Honest limits
 
 - **4% of incidents state a cause.** The brief quotes the provider's sentence when
