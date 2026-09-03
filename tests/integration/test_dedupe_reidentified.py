@@ -19,7 +19,11 @@ _VEC = "(SELECT array_fill(0.1::real, ARRAY[768])::vector)"
 # debugging session, its rows having taken every slot in a filtered top-k.
 # `indexed_at` still varies — that is what this migration keys on.
 _SERVICE = "dedupe-fixture"
-_TS = "now() - interval '1460 days'"
+# A LITERAL, not `now() - interval`. Each conn.execute is its own transaction, so
+# now() differs between inserts by microseconds — which silently split rows that
+# are supposed to represent the same update once the migration started keying on
+# ts. Still four years back, so no recency window in another test can reach it.
+_TS = "timestamptz '2022-09-03 00:00:00+00'"
 
 
 def _insert(conn, chunk_id, event_id, incident_id, text, age_hours):
@@ -56,6 +60,36 @@ def test_two_genuinely_different_updates_are_both_kept(conn):
     assert conn.execute(
         "SELECT count(*) FROM vector_records WHERE incident_id = 'github:REID2'"
     ).fetchone()[0] == 2
+
+
+def test_repeated_boilerplate_at_different_times_is_not_collapsed(conn):
+    """Regression, caught on the live index before this migration ran.
+
+    Providers repeat holding messages verbatim within one incident —
+    box:29247755 posted the identical "We are continuing to monitor" line eleven
+    times over three hours. Keyed on (incident_id, text) alone this migration
+    would have kept one and deleted ten REAL updates, flattening the incident's
+    timeline. Measured live: text-only would delete 3,661 rows against 3,454 for
+    (incident_id, ts, text) — a 207-row difference that is all real data.
+
+    freshet/ingest/statuspage.py guards the same thing one level up; the
+    migration has to hold the line too."""
+    conn.execute("DELETE FROM vector_records WHERE incident_id = 'dedupe-fixture:BOILER'")
+    same_text = "We are continuing to monitor for further issues."
+    for i, hours in enumerate((5, 4, 3)):
+        conn.execute(
+            "INSERT INTO vector_records"
+            " (chunk_id, event_id, incident_id, service, ts, indexed_at, source, text, embedding)"
+            f" VALUES (%s, %s, 'dedupe-fixture:BOILER', '{_SERVICE}',"
+            f"         now() - (%s || ' hours')::interval, now(), 'alert', %s, {_VEC})",
+            (f"chk_boiler_{i}", f"dedupe-fixture:BOILER:aaaaaaaaaaa{i}",
+             str(hours), same_text))
+
+    conn.execute(MIGRATION.read_text())
+
+    assert conn.execute(
+        "SELECT count(*) FROM vector_records WHERE incident_id = 'dedupe-fixture:BOILER'"
+    ).fetchone()[0] == 3, "three updates at three timestamps are three updates"
 
 
 def test_the_same_text_under_two_different_incidents_is_not_collapsed(conn):
