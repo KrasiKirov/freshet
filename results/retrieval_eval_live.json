@@ -5,6 +5,15 @@
     "providers": 22,
     "curated": "assistant-reviewed"
   },
+  "index": {
+    "n_chunks": 8966,
+    "n_events": 7700,
+    "n_providers": 42,
+    "non_first_frac": 0.141,
+    "mean_chars": 193,
+    "median_chars": 171,
+    "measured_at": "2026-09-03T16:33:34+00:00"
+  },
   "arms": {
     "hybrid": {
       "recall@5": 0.345,

@@ -163,6 +163,43 @@ query-blind guard both still hold. The before/after comparisons that justified
 `ts_rank_cd` and the ARM_K and chunk-size decisions need re-running on a settled
 clean index before they can be quoted again.
 
+### Second casualty of the same artefact: the corpus-shape argument
+
+Measured 2026-09-03 16:34Z.
+
+F6's actionable half was that the CI fixture corpus is not shaped like production
+(7.3% vs 40.7% multi-chunk events), and F7 leaned on the same gap to conclude
+that "the fixture corpus cannot validate a chunking change". Both rested on a
+statistic the amplified rows manufactured. The purged openai/hashicorp records
+were long multi-chunk documents — the parser digested an entire live component
+list into the update text — so they inflated the fragmentation rate and the mean
+chunk length together:
+
+| | fixture corpus | live (amplified) | live (clean) |
+|---|---|---|---|
+| multi-chunk events | 7.3% | 40.7% | **11.1%** |
+| non-first chunks (no title) | 13.7% | 40.6% | **14.1%** |
+| mean chunk chars | 159 | 235 | 193 |
+
+On clean data the two corpora are nearly the same shape — 13.7% against 14.1%
+non-first chunks. So:
+
+- **F6's premise is withdrawn.** "40.6% of live chunks carry no incident title"
+  is really 14.1%. The *rejection* of the title fix stands on its measurement
+  (recall@5 0.436 -> 0.400), and on clean data the effect would be smaller still,
+  since there are a third as many chunks for it to touch.
+- **F7's fixture-is-unrepresentative argument is withdrawn.** The CI corpus is a
+  reasonable proxy for the clean live index on chunk shape. The chunk-size
+  conclusion — leave `DEFAULT_MAX_CHARS` at 400 — is unaffected: it was decided on
+  the live 1/55-to-5/55 false-abstention result, not on the shape comparison.
+
+Both errors have one cause and one lesson: a distributional claim about a corpus
+is only as good as the corpus, and 61% of this one was a bug's output. The
+`index` block now written into `results/retrieval_eval_live.json` records
+n_chunks, n_events, providers, non-first fraction and a timestamp, so the next
+person can tell at a glance whether a committed number describes the index they
+are looking at.
+
 ## Measured and rejected
 
 **Incident title on every chunk.** Flink prepends `"<name>: "` to the update

@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from freshet.common.schemas import Event, EventSource
@@ -286,6 +286,32 @@ def main() -> None:
 
 
 
+# What the live index looked like when the numbers below were taken. Without it a
+# committed results file is unfalsifiable: results/retrieval_eval_live.json was
+# measured against a 12,155-row index of which 7,435 rows (61%) were amplified
+# duplicates from a source-adapter bug, and nothing in the file said so. Row
+# count and provider mix are the cheapest signal that a corpus changed underneath
+# a comparison.
+_INDEX_PROVENANCE_SQL = (
+    "WITH n AS (SELECT (regexp_match(chunk_id, '_(\\d+)$'))[1]::int AS idx,"
+    "                  length(text) AS len, service, event_id FROM vector_records)"
+    " SELECT count(*), count(DISTINCT event_id), count(DISTINCT service),"
+    "        count(*) FILTER (WHERE idx > 0), avg(len)::int,"
+    "        percentile_cont(0.5) WITHIN GROUP (ORDER BY len)::int FROM n")
+
+
+def index_provenance(conn) -> dict:
+    """Size and shape of the index a live eval ran against."""
+    chunks, events, providers, non_first, mean_chars, median_chars = conn.execute(
+        _INDEX_PROVENANCE_SQL).fetchone()
+    return {
+        "n_chunks": chunks, "n_events": events, "n_providers": providers,
+        "non_first_frac": round(non_first / chunks, 3) if chunks else 0.0,
+        "mean_chars": mean_chars, "median_chars": median_chars,
+        "measured_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+
+
 def _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder) -> None:
     """Score the LIVE index. Read-only: this must never write to it."""
     from freshet.common.db import connect
@@ -328,6 +354,9 @@ def _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder) -> None:
         "corpus": {"labeled": len(labels["labeled"]),
                    "providers": len({e["service"] for e in labels["labeled"]}),
                    "curated": labels.get("curated")},
+        # The index these numbers describe. A results file without this cannot be
+        # told apart from one measured on a different corpus.
+        "index": index_provenance(conn),
         "arms": scored,
         "gameability_guard": {"blind_recall@5": scored["blind_recent"]["recall@5"],
                               "hybrid_minus_blind": gap,

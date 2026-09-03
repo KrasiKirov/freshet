@@ -323,6 +323,14 @@ from a source-adapter bug, since purged. Full accounting in
   against the shipped 0.44. The raw floor is now provably too high: the lowest
   answerable query scores 0.687, under the shipped 0.70.
 
+**Second casualty, same cause.** The corpus-shape argument behind F6 and F7 also
+rested on the duplicates. Live non-first chunks: 40.6% reported, **14.1%** clean,
+against the fixture corpus's 13.7% — the purged records were long multi-chunk
+documents, so they inflated fragmentation and mean length together. The CI corpus
+is in fact a reasonable proxy for the clean index on chunk shape, so "the fixture
+cannot validate a chunking change" is withdrawn. The chunk-size decision (leave
+400) stands on its own evidence: 1/55 false abstentions against 5/55 at 800.
+
 Every recall/MRR number in this section is superseded and needs re-running on a
 settled clean index. On the current 8,966-chunk index: hybrid recall@5 0.345,
 vector_only 0.345, keyword_only 0.255, abstention 0/55 and 6/6, guard
