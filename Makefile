@@ -68,6 +68,14 @@ test-integration: ##dev
 
 # Autopilot: consume incident.lifecycle and print a cited brief per new incident.
 # Sources .env.local for ANTHROPIC_API_KEY, which the brief composer requires.
+# Restored from f0c4b56 — these were lost to the regex deletion that 6b11422
+# repaired the targets from, but not the variables they depend on. Undefined, every
+# $(FLINK_HOME) expanded to nothing: `test -d ''` failed, so flink-dist tried to
+# download `flink-` from a nonexistent URL, then curl attempted to write the Kafka
+# connector to /lib/ and died with error 56. `make stream` has been broken since.
+FLINK_VERSION := 1.20.0
+FLINK_HOME := .flink/flink-$(FLINK_VERSION)
+
 # One-time: fetch the Flink distribution and the Kafka connector.
 # The job is Flink SQL (pure JVM) — PyFlink is not used and not installable here,
 # because apache-flink requires apache-beam, which ships no macOS ARM64 wheel.
