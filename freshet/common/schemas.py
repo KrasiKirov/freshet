@@ -8,12 +8,13 @@ freshness metric in the eval harness — do not remove them.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def _utcnow() -> datetime:
@@ -22,6 +23,34 @@ def _utcnow() -> datetime:
 
 def _new_id(prefix: str = "evt") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+log = logging.getLogger(__name__)
+_WARNED: set[str] = set()
+
+
+def _to_utc(value: datetime) -> datetime:
+    """Attach UTC to a naive timestamp.
+
+    Postgres stores these in `timestamptz`, which interprets a naive value in
+    the SESSION time zone — so a message arriving without an offset silently
+    shifts every freshness metric by that offset, in the one project whose whole
+    claim is measuring freshness. Coercing rather than REJECTING is deliberate:
+    rejection would dead-letter legacy messages still retained on the topic and
+    break replay, which is a worse outcome than assuming the UTC the pipeline
+    already writes everywhere else. Warned once per process so drift is visible.
+    """
+    if value.tzinfo is not None:
+        return value
+    if "naive" not in _WARNED:
+        _WARNED.add("naive")
+        log.warning("timestamp arrived without a timezone; assuming UTC")
+    return value.replace(tzinfo=UTC)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Optional variant: Event's pipeline timestamps are absent until they are set."""
+    return None if value is None else _to_utc(value)
 
 
 class EventSource(str, Enum):
@@ -85,6 +114,11 @@ class Event(BaseModel):
     structured: dict[str, Any] = Field(default_factory=dict)
     refs: list[str] = Field(default_factory=list)
 
+    @field_validator("ts", "ingested_at", "indexed_at")
+    @classmethod
+    def _utc_event(cls, v: datetime | None) -> datetime | None:
+        return _as_utc(v)
+
     # --- freshness helpers ---
     def end_to_end_latency_s(self) -> float | None:
         """Seconds from the event happening to becoming queryable."""
@@ -102,7 +136,11 @@ class Event(BaseModel):
 class VectorRecord(BaseModel):
     """A retrievable chunk + its metadata (embedding stored in pgvector column)."""
 
-    chunk_id: str = Field(default_factory=lambda: _new_id("chk"))
+    # No default: the id is always "chk_<event_id>_<chunk_index>", and a factory
+    # producing any other shape is what let the two ordinal-parsing queries drift
+    # from the writer without anything failing.
+    chunk_id: str
+    chunk_index: int = 0
     event_id: str
     incident_id: str | None = None
     service: str
@@ -118,3 +156,8 @@ class VectorRecord(BaseModel):
     source: EventSource
     severity: Severity | None = None
     type: str = ""
+
+    @field_validator("ts", "indexed_at")
+    @classmethod
+    def _utc_record(cls, v: datetime) -> datetime:
+        return _to_utc(v)

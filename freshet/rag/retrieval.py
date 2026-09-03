@@ -12,6 +12,7 @@ from typing import Any
 
 from freshet.pipeline.embedding import Embedder, vec_literal
 from freshet.pipeline.index_stats import get_centroid
+from freshet.pipeline.metrics import ABSTENTIONS
 
 # Row columns are addressed by POSITION, so the shared prefix and the per-arm
 # score columns that follow it are declared together here. Adding a column
@@ -283,6 +284,8 @@ def hybrid_search(
     # means "the window is empty", not "no strong semantic match". The unfiltered
     # path keeps the calibrated floor exactly as it was.
     if service is not None or since is not None:
+        if not retrieval_topk:
+            ABSTENTIONS.inc()
         return HybridResult(hits=retrieval_topk, abstained=not retrieval_topk)
     # The centered space is the better abstention signal — see
     # freshet/pipeline/index_stats.py. Ranking stays in raw cosine either way.
@@ -292,6 +295,10 @@ def hybrid_search(
         abstained = should_abstain(csims, centered_floor)
     else:
         abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
+    # Counted regardless of WHICH floor decided it: the metric answers "how often do
+    # we refuse to answer", and that question does not change with the signal used.
+    if abstained:
+        ABSTENTIONS.inc()
     return HybridResult(hits=retrieval_topk, abstained=abstained)
 
 

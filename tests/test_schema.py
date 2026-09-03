@@ -44,14 +44,19 @@ def test_freshness_math():
 
 
 def test_vector_record_requires_core_fields():
+    """chunk_id is REQUIRED and carries the ordinal. It used to be minted by a
+    default factory as chk_<hex> — a shape the two queries that regex-parsed the
+    trailing _N could not read, so the invariant they assumed went unenforced."""
     vr = VectorRecord(
+        chunk_id="chk_evt_1_0",
         event_id="evt_1",
         service="s",
         ts=datetime.now(UTC),
         text="chunk",
         source=EventSource.POSTMORTEM,
     )
-    assert vr.chunk_id.startswith("chk_")
+    assert vr.chunk_id == "chk_evt_1_0"
+    assert vr.chunk_index == 0
 
 
 _MINIMAL = ('{"event_id":"github:INC1:u1","ts":"2026-08-18T11:42:00Z","service":"github",'
@@ -91,3 +96,28 @@ def test_type_stays_an_open_vocabulary_string():
     the topic."""
     ev = Event(service="s", source=EventSource.ALERT, type="deploy_started")
     assert ev.type == "deploy_started"
+
+
+def test_a_naive_timestamp_is_coerced_to_utc():
+    """Postgres `timestamptz` interprets a naive value in the SESSION time zone,
+    so an offset-less message silently shifts every freshness number this
+    project exists to measure."""
+    e = Event.model_validate_json(
+        '{"service":"s","source":"alert","type":"x","ts":"2026-08-22T10:00:00"}')
+    assert e.ts.tzinfo is not None
+    assert e.ts == datetime(2026, 8, 22, 10, 0, tzinfo=UTC)
+
+
+def test_an_offset_bearing_timestamp_keeps_its_instant():
+    e = Event.model_validate_json(
+        '{"service":"s","source":"alert","type":"x","ts":"2026-08-22T10:00:00-04:00"}')
+    assert e.ts == datetime(2026, 8, 22, 14, 0, tzinfo=UTC)
+
+
+def test_the_optional_pipeline_timestamps_are_coerced_too():
+    e = Event.model_validate_json(
+        '{"service":"s","source":"alert","type":"x","ts":"2026-08-22T10:00:00Z",'
+        '"ingested_at":"2026-08-22T10:00:01","indexed_at":"2026-08-22T10:00:02"}')
+    assert e.ingested_at.tzinfo is not None
+    assert e.indexed_at.tzinfo is not None
+    assert e.pipeline_latency_s() == 1.0

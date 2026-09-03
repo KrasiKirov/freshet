@@ -44,3 +44,13 @@ def test_port_zero_starts_nothing(caplog):
     with caplog.at_level("WARNING"):
         metrics.start_metrics_server(0)
     assert caplog.text == ""      # disabled deliberately: not a failure to report
+
+
+def test_the_generation_path_has_its_own_metrics():
+    """The review's worst failure mode — a dropped citation — had only a log
+    line. metrics.py covered ingest exclusively."""
+    from freshet.pipeline import metrics
+
+    for name in ("LLM_CALLS", "LLM_SECONDS", "LLM_TRUNCATED",
+                 "DROPPED_CITATIONS", "ABSTENTIONS"):
+        assert hasattr(metrics, name), f"missing metric: {name}"

@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from freshet.pipeline.chunking import split_sentences
+
 
 @dataclass
 class Findings:
@@ -60,25 +62,49 @@ _FOUND_BUT_UNNAMED = re.compile(
     # "identified the source of the issue ..." — a placeholder, not a name
     r"|identified the (?:source|cause) of (?:the|this)\s",
     re.I)
-_SENTENCE = re.compile(r"[^.!?]+[.!?]")
+# Names the cause noun but reports that it is not yet known. Distinct from
+# _PROMISSORY (which promises a future write-up) and _FOUND_BUT_UNNAMED (which
+# says it was found but not what it was). Deliberately narrow: it must attach to
+# the cause itself, so "caused by an expired cert; still investigating the
+# impact" — a real cause with work continuing — is untouched.
+_UNRESOLVED = re.compile(
+    r"(?:still|currently|actively) (?:investigating|determining"
+    r"|working to (?:identify|determine))[^.]{0,30}?(?:root cause|cause)"
+    r"|(?:root )?cause (?:is|remains) (?:still )?(?:unknown|unclear"
+    r"|under investigation|being investigated"
+    r"|not (?:yet )?(?:known|determined|identified))",
+    re.I)
+# ...UNLESS the same sentence goes on to name a suspect. "actively investigating
+# the root cause, which appears to be related to a database infrastructure
+# issue" is an in-progress investigation that still tells a responder where to
+# look — the naming half is exactly what makes it worth quoting.
+_NAMES_A_SUSPECT = re.compile(
+    r"which (?:appears|seems|is believed|is thought) to be"
+    r"|appears to (?:be|have been) (?:related to|caused by|due to)"
+    r"|(?:related|traced|linked|attributed) to (?:a|an|the)\s",
+    re.I)
+
 
 def _cause_sentence(text: str) -> str | None:
     """The single sentence in which a cause is stated, or None.
 
     Quoting one sentence keeps the brief honest and short: the surrounding
-    apology and postmortem promise are not the cause.
+    apology and postmortem promise are not the cause. Uses the chunker's
+    splitter — the local `[^.!?]+[.!?]` regex required terminal punctuation, so
+    a cause in an unterminated final sentence (common on status feeds) was
+    never seen, and the codebase carried two splitters with different rules.
     """
-    flat = " ".join(text.split())
-    for sentence in _SENTENCE.findall(flat):
-        stripped = sentence.strip()
-        lowered = stripped.lower()
+    for sentence in split_sentences(text):
+        lowered = sentence.lower()
         if not any(marker in lowered for marker in _CAUSE_MARKERS):
             continue
-        if _PROMISSORY.search(stripped):
+        if _PROMISSORY.search(sentence):
             continue          # a promise of an RCA is not an RCA
-        if _FOUND_BUT_UNNAMED.search(stripped):
+        if _FOUND_BUT_UNNAMED.search(sentence):
             continue          # "we found the cause" does not say what it was
-        return stripped
+        if _UNRESOLVED.search(sentence) and not _NAMES_A_SUSPECT.search(sentence):
+            continue          # "still investigating the cause" names nothing
+        return sentence
     return None
 
 
@@ -100,26 +126,42 @@ MAX_UPDATES = 4              # a Slack brief has to stay skimmable
 _MAX_UPDATE_CHARS = 200
 
 
-def findings_from_updates(service: str, status: str, hits,
-                          runbook: str | None) -> Findings:
-    """Brief the incident's own updates, newest first, each cited.
+def _clip(text: str, max_chars: int = _MAX_UPDATE_CHARS) -> str:
+    """Whole sentences up to max_chars, never a mid-word cut.
 
-    Status feeds state what is happening in the provider's own words but contain
-    no change events, so no cause can be derived from event types — and "no cause
-    found" is not a useful brief on its own. This reports
-    what the feed actually said, which is only possible because those updates
-    were indexed seconds after being posted.
+    The chunker was fixed to stop splitting sentences (3fca358) because a
+    fragment reads as noise; `text[:200]` here put the same fragment straight
+    back into the brief. Falls back to a word boundary only when even the first
+    sentence does not fit.
+    """
+    flat = " ".join(text.split())
+    if len(flat) <= max_chars:
+        return flat
+    kept = ""
+    for sentence in split_sentences(flat):
+        candidate = sentence if not kept else f"{kept} {sentence}"
+        if len(candidate) > max_chars:
+            break
+        kept = candidate
+    if not kept:
+        kept = flat[:max_chars].rsplit(" ", 1)[0]
+    return kept.rstrip() + "..."
+
+
+def update_lines(hits) -> list[str]:
+    """The incident's own updates, newest first, each cited.
+
+    Status feeds state what is happening in the provider's own words but carry
+    no change events, so no cause can be derived from event types — and "no
+    cause found" is not a useful brief on its own. This reports what the feed
+    actually said, which is only possible because those updates were indexed
+    seconds after being posted.
+
+    Returns the lines rather than a Findings: callers built a whole Findings —
+    passing a runbook that was then discarded — to keep one field of it.
     """
     newest = sorted(hits, key=lambda h: h.ts, reverse=True)[:MAX_UPDATES]
-    lines = []
-    for hit in newest:
-        text = " ".join(hit.text.split())
-        if len(text) > _MAX_UPDATE_CHARS:
-            text = text[:_MAX_UPDATE_CHARS].rstrip() + "..."
-        lines.append(f"{hit.ts:%H:%M} — {text} {cite_hit(hit)}")
-    return Findings(service=service, status=status, cause_text=None, cause_cite=None,
-                    fix_text=None, fix_cite=None, runbook=runbook, narrative=None,
-                    updates=lines)
+    return [f"{hit.ts:%H:%M} — {_clip(hit.text)} {cite_hit(hit)}" for hit in newest]
 
 
 def render_brief(f: Findings) -> str:

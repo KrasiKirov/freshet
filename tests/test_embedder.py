@@ -351,3 +351,33 @@ def test_wrong_dimension_vectors_fail_with_a_named_error():
     with pytest.raises(RuntimeError, match="384.*768"):
         make_handler(_FakeConn(), _ShortEmb(), producer)(ev.model_dump_json())
     assert producer.messages == [], "config errors raise, they do not dead-letter"
+
+
+def test_a_record_carries_its_chunk_ordinal():
+    """The ordinal lived only inside the primary key and was regex-extracted by
+    two queries. VectorRecord's own default id factory produced a DIFFERENT
+    shape (chk_<hex>), so nothing enforced the invariant they relied on."""
+    from freshet.common.schemas import Event, EventSource
+    from freshet.pipeline.embedder import records_for_event
+
+    ev = Event(service="api", source=EventSource.ALERT, type="status_update",
+               text="One sentence. " * 60)
+    recs = records_for_event(ev)
+    assert len(recs) > 1, "the fixture must actually chunk"
+    assert [r.chunk_index for r in recs] == list(range(len(recs)))
+    assert all(r.chunk_id == f"chk_{ev.event_id}_{r.chunk_index}" for r in recs)
+
+
+def test_chunk_id_has_no_default():
+    """A factory that produces a shape the ordinal cannot be read back out of is
+    what made the invariant unenforceable."""
+    from datetime import UTC, datetime
+
+    import pytest
+    from pydantic import ValidationError
+
+    from freshet.common.schemas import EventSource, VectorRecord
+
+    with pytest.raises(ValidationError):
+        VectorRecord(event_id="evt_1", service="api", ts=datetime.now(UTC),
+                     text="x", source=EventSource.ALERT)

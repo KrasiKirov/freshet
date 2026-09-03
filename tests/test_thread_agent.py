@@ -331,3 +331,69 @@ def test_abstained_corpus_hits_are_not_folded_in(monkeypatch):
     answer_question(_ConnWithUpdates([_update_row()]), _Emb(), _C(), "q",
                     incident_id="INC-1")
     assert [h.event_id for h in seen["hits"]] == ["INC-1:u1"]
+
+
+class _ThreadConn:
+    def __init__(self):
+        self.marks = []
+
+    def execute(self, sql, params=None):
+        self._sql = sql
+        if sql.startswith("UPDATE incidents SET thread_seen_ts"):
+            self.marks.append(params)
+        return self
+
+    def fetchall(self):
+        if "slack_ts IS NOT NULL" in self._sql:
+            return [("INC_1", "100.0", None, "C123")]
+        return []
+
+    def fetchone(self):
+        return None
+
+
+class _FlakyClient:
+    """Delivers the first answer, then fails on the second post."""
+
+    def __init__(self, error=None):
+        self.posts = []
+        self._error = error or RuntimeError("slack is down")
+
+    def conversations_replies(self, **kw):
+        return {"messages": [
+            {"ts": "100.0", "text": "the brief"},
+            {"ts": "101.0", "text": "what else is affected?"},
+            {"ts": "102.0", "text": "and how long?"},
+        ]}
+
+    def chat_postMessage(self, **kw):
+        self.posts.append(kw)
+        if len(self.posts) == 2:
+            raise self._error
+        return {"ts": "999.0"}
+
+
+def test_a_failed_post_keeps_the_marker_for_answers_already_delivered(monkeypatch):
+    """The marker was written once, after the whole thread. A failure part-way
+    discarded it — so the next poll re-posted every answer already delivered."""
+    from freshet.autopilot import thread_agent
+
+    monkeypatch.setattr(thread_agent, "answer_question", lambda *a, **k: "an answer")
+    conn, client = _ThreadConn(), _FlakyClient()
+
+    posted = thread_agent.poll_threads(conn, None, None, client, "#ops")
+
+    assert posted == 1
+    assert conn.marks == [("101.0", "INC_1")], \
+        "the delivered answer must be marked seen before the failure"
+
+
+def test_a_rate_limit_on_the_post_backs_the_whole_loop_off(monkeypatch):
+    """_is_rate_limit was applied to conversations.replies only, so a 429 on the
+    POST escaped as a raw error and ThreadPoller never backed off."""
+    from freshet.autopilot import thread_agent
+
+    monkeypatch.setattr(thread_agent, "answer_question", lambda *a, **k: "an answer")
+    client = _FlakyClient(error=Exception("ratelimited"))
+    with pytest.raises(thread_agent.RateLimited):
+        thread_agent.poll_threads(_ThreadConn(), None, None, client, "#ops")

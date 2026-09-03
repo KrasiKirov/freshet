@@ -2,7 +2,7 @@
 
 Defined at module level on the default registry so unit tests can read
 observations without any HTTP server. Note: because the module defines the
-full metric set at import, BOTH workers' endpoints expose all five metrics —
+full metric set at import, BOTH workers' endpoints expose every metric —
 each worker only increments its own, the rest sit at zero. Dashboards must
 therefore aggregate with sum() across instances (which is also what scaled
 multi-instance workers will need). Freshness buckets are sized for the
@@ -49,6 +49,35 @@ PIPELINE_LATENCY = Histogram(
     "freshet_pipeline_latency_seconds",
     "Pipeline latency: seconds from ingested_at to indexed_at",
     buckets=LATENCY_BUCKETS,
+)
+
+# --- generation side ---------------------------------------------------------
+# The ingest metrics above answer "is the index fresh?". Nothing answered "is
+# the generator behaving?" — a dropped citation, the system's worst documented
+# failure mode, had only a log line and no way to alert on it.
+
+LLM_CALLS = Counter(
+    "freshet_llm_calls_total",
+    "LLM compose calls admitted by the budget",
+)
+LLM_SECONDS = Histogram(
+    "freshet_llm_seconds",
+    "Wall-clock seconds per LLM compose call",
+    buckets=LATENCY_BUCKETS,
+)
+# A response cut off at max_tokens can end mid-citation, which the citation
+# regex cannot match and therefore cannot strip.
+LLM_TRUNCATED = Counter(
+    "freshet_llm_truncated_total",
+    "Responses that hit max_tokens instead of finishing",
+)
+DROPPED_CITATIONS = Counter(
+    "freshet_dropped_citations_total",
+    "Citations stripped because their event_id was not in the evidence",
+)
+ABSTENTIONS = Counter(
+    "freshet_retrieval_abstentions_total",
+    "Queries where the best cosine fell below the calibrated floor",
 )
 
 

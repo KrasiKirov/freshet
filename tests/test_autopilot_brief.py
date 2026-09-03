@@ -74,36 +74,36 @@ def _hit(minute, text, eid=None):
                            ts=datetime(2026, 8, 18, 12, minute, tzinfo=UTC))
 
 
-def test_findings_from_updates_cites_every_line_newest_first():
-    from freshet.autopilot.brief import findings_from_updates
+def test_update_lines_cites_every_line_newest_first():
+    from freshet.autopilot.brief import update_lines
 
     hits = [_hit(0, "We are investigating elevated errors."),
             _hit(30, "A fix has been implemented."),
             _hit(15, "The issue has been identified.")]
 
-    f = findings_from_updates("github", "opened", hits, runbook=None)
+    lines = update_lines(hits)
 
-    assert len(f.updates) == 3
-    assert "12:30" in f.updates[0], "newest update must come first"
-    assert "12:00" in f.updates[-1]
-    for line in f.updates:
+    assert len(lines) == 3
+    assert "12:30" in lines[0], "newest update must come first"
+    assert "12:00" in lines[-1]
+    for line in lines:
         assert "[e" in line and "@" in line, f"uncited update line: {line}"
 
 
-def test_findings_from_updates_caps_the_brief_and_truncates_long_text():
-    from freshet.autopilot.brief import MAX_UPDATES, findings_from_updates
+def test_update_lines_caps_the_brief_and_truncates_long_text():
+    from freshet.autopilot.brief import MAX_UPDATES, update_lines
 
     hits = [_hit(i, "x" * 400) for i in range(MAX_UPDATES + 5)]
-    f = findings_from_updates("github", "opened", hits, runbook=None)
-    assert len(f.updates) == MAX_UPDATES, "a Slack brief must stay skimmable"
-    assert all(len(line) < 300 for line in f.updates)
+    lines = update_lines(hits)
+    assert len(lines) == MAX_UPDATES, "a Slack brief must stay skimmable"
+    assert all(len(line) < 300 for line in lines)
 
 
-def test_findings_from_updates_collapses_whitespace():
-    from freshet.autopilot.brief import findings_from_updates
+def test_update_lines_collapses_whitespace():
+    from freshet.autopilot.brief import update_lines
 
-    f = findings_from_updates("x", "opened", [_hit(1, "a\n\n  b\tc")], runbook=None)
-    assert "a b c" in f.updates[0]
+    lines = update_lines([_hit(1, "a\n\n  b\tc")])
+    assert "a b c" in lines[0]
 
 
 def test_render_brief_shows_the_update_timeline():
@@ -272,7 +272,7 @@ def test_the_narrative_sees_a_bounded_window_of_updates():
             from datetime import UTC, datetime
             self.ts = datetime.now(UTC)
 
-    _summarise([_U(i) for i in range(200)], "svc", _C(), "q")
+    _summarise([_U(i) for i in range(200)], _C(), "q")
     assert seen["n"] == MAX_NARRATIVE_UPDATES == 20
 
 
@@ -292,5 +292,67 @@ def test_a_short_incident_is_not_padded_or_truncated():
             from datetime import UTC, datetime
             self.ts = datetime.now(UTC)
 
-    _summarise([_U(i) for i in range(3)], "svc", _C(), "q")
+    _summarise([_U(i) for i in range(3)], _C(), "q")
     assert seen["n"] == 3
+
+
+def test_a_cause_in_an_unterminated_final_sentence_is_found():
+    """`[^.!?]+[.!?]` required terminal punctuation, and status-feed updates
+    frequently omit it on the last sentence — so the cause was invisible."""
+    from freshet.autopilot.brief import _cause_sentence
+
+    assert _cause_sentence("This was caused by a bad deploy") == \
+        "This was caused by a bad deploy"
+
+
+def test_an_investigation_in_progress_is_not_reported_as_a_cause():
+    """"root cause" passed every filter in a sentence that names no cause."""
+    from freshet.autopilot.brief import _cause_sentence
+
+    assert _cause_sentence("We are still investigating the root cause.") is None
+    assert _cause_sentence("The root cause is still unknown.") is None
+
+
+def test_a_named_cause_survives_a_continuing_investigation_in_the_same_sentence():
+    from freshet.autopilot.brief import _cause_sentence
+
+    text = ("The outage was caused by an expired certificate; we are still "
+            "investigating the full customer impact.")
+    assert _cause_sentence(text) is not None
+
+
+def test_a_long_update_is_clipped_at_a_sentence_boundary_not_mid_word():
+    """text[:200] put back exactly the mid-sentence fragment the chunker was
+    fixed to stop producing (3fca358)."""
+    from freshet.autopilot.brief import update_lines
+
+    sentence = "Customers may see elevated error rates on write requests. "
+    [line] = update_lines([_hit(1, sentence * 6)])
+    body = line.split(" — ", 1)[1]
+    body = body[:body.rindex(" [")]
+    assert body.endswith("...")
+    assert body.removesuffix("...").endswith("requests."), body
+
+
+def test_a_brief_and_a_postmortem_are_assembled_by_the_same_code():
+    """They were ~80% duplicated, in different orders, and the drift was real:
+    the postmortem's narrative once bypassed citation verification entirely."""
+    import inspect
+
+    from freshet.autopilot import investigate
+
+    for fn in (investigate.gather_findings, investigate.gather_postmortem):
+        assert "_gather(" in inspect.getsource(fn), f"{fn.__name__} still duplicates"
+
+
+def test_an_incident_update_satisfies_the_composer_protocol():
+    """`_Update` structurally duck-typed RetrievedHit, and compose() was
+    annotated list[RetrievedHit] — a lie mypy could not see."""
+    from datetime import UTC, datetime
+
+    from freshet.autopilot.investigate import _Update
+    from freshet.rag.composer import Cited
+
+    u = _Update(event_id="evt_1", ts=datetime.now(UTC), text="x",
+                service="api", type="status_update")
+    assert isinstance(u, Cited)
