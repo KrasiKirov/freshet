@@ -116,6 +116,37 @@ def test_vector_records_are_converted_even_when_incidents_is_already_clean(conn)
     ).fetchone()[0] == "nsfix-b:ONLY1"
 
 
+def test_a_bare_row_converts_even_when_its_namespaced_form_is_already_taken(conn):
+    """Regression, found by running the migration against the real database rather
+    than trusting a green suite: it died on a duplicate key.
+
+    An eval run had seeded 225 fixture stubs into the working database, already in
+    namespaced form, with no provider and no chunks. 26 of them collided with real
+    incidents that still had bare ids, so the UPDATE tried to claim an id a stub
+    already held. The stub must go first — and it is identified by having no
+    evidence, not by the shape of its id."""
+    conn.execute("DELETE FROM vector_records WHERE chunk_id = 'chk_taken_0'")
+    conn.execute("DELETE FROM incidents WHERE incident_id IN ('TAKEN1', 'nsfix-a:TAKEN1')")
+    # The eval stub: already namespaced, no provider, no evidence.
+    conn.execute(
+        "INSERT INTO incidents (incident_id, title, opened_at, primary_service)"
+        " VALUES ('nsfix-a:TAKEN1', 'nsfix-a: resolved', now(), NULL)")
+    # The real incident: bare id, a provider, and a chunk to cite.
+    conn.execute(
+        "INSERT INTO incidents (incident_id, title, opened_at, primary_service)"
+        " VALUES ('TAKEN1', 'Elevated error rates', now(), 'nsfix-a')")
+    _seed_chunk(conn, "chk_taken_0", "nsfix-a:TAKEN1:aaaaaaaaaaaa", "TAKEN1", "nsfix-a")
+
+    conn.execute(_SCHEMA)
+
+    row = conn.execute(
+        "SELECT title FROM incidents WHERE incident_id = 'nsfix-a:TAKEN1'").fetchone()
+    assert row is not None and row[0] == "Elevated error rates", \
+        "the real incident must win the id; the evidence-free stub is what gets dropped"
+    assert conn.execute(
+        "SELECT count(*) FROM incidents WHERE incident_id = 'TAKEN1'").fetchone()[0] == 0
+
+
 def test_two_providers_sharing_a_raw_id_do_not_collide_after_migration(conn):
     """The whole point of the change: Statuspage ids are unique per tenant, so the
     same raw id from two providers must land on two distinct rows."""

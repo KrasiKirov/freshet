@@ -179,14 +179,23 @@ BEGIN
     IF EXISTS (SELECT 1 FROM incidents WHERE incident_id NOT LIKE '%:%')
        OR EXISTS (SELECT 1 FROM vector_records
                   WHERE incident_id IS NOT NULL AND incident_id NOT LIKE '%:%') THEN
-        -- Rows carrying neither a provider nor any indexed evidence (225 of 1,422
-        -- when measured) are residue from the historical lifecycle flood. They
-        -- cannot be namespaced and cannot be briefed. Cascades to the join tables.
-        -- Scoped to un-namespaced rows: now that the guard can also trip on
-        -- vector_records, an unqualified DELETE would reap provider-less rows in an
-        -- already-migrated incidents table, which is not this migration's business.
-        DELETE FROM incidents WHERE primary_service IS NULL
-                                AND incident_id NOT LIKE '%:%';
+        -- Rows carrying neither a provider nor any indexed evidence cannot be
+        -- namespaced (no provider to qualify them with) and cannot be briefed (no
+        -- evidence to cite), so they go first — which also frees the ids that the
+        -- UPDATE below is about to claim.
+        --
+        -- The predicate is "no provider AND no evidence", NOT "id looks bare".
+        -- Measured on the live database: all 225 such rows were ALREADY namespaced,
+        -- being eval-fixture stubs (titles like 'openai: resolved', zero chunks,
+        -- counts matching freshet/eval/fixtures/real exactly) seeded into the
+        -- working database by an eval run. Skipping them because they carried a
+        -- colon left 26 real incidents unable to convert — their namespaced form
+        -- was already taken by a stub — and the migration died on a duplicate key.
+        -- Evidence, not id shape, is what distinguishes a real incident here.
+        DELETE FROM incidents i
+        WHERE i.primary_service IS NULL
+          AND NOT EXISTS (SELECT 1 FROM vector_records v
+                          WHERE v.incident_id = i.incident_id);
 
         ALTER TABLE incident_services DROP CONSTRAINT incident_services_incident_id_fkey;
         ALTER TABLE incident_events   DROP CONSTRAINT incident_events_incident_id_fkey;
