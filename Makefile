@@ -1,9 +1,7 @@
 COMPOSE := docker compose
-# Prefer the repo's own virtualenv. Every run target imports project dependencies
-# (confluent_kafka, psycopg, ...), and a bare `python3` on PATH is the system
-# interpreter, which does not have them — so an unactivated shell failed with
-# ModuleNotFoundError. Falls back to PATH (CI installs into its own env), and
-# `make PYTHON=/path/to/python` still overrides both.
+# Prefer the repo's own virtualenv: every run target imports project
+# dependencies (confluent_kafka, psycopg, ...), and a bare `python3` is the
+# system interpreter without them. Falls back to PATH; `make PYTHON=...` overrides both.
 PYTHON := $(if $(wildcard $(CURDIR)/.venv/bin/python),$(CURDIR)/.venv/bin/python,$(shell command -v python3 2>/dev/null || command -v python))
 
 .PHONY: help up down db-init test test-integration poller api autopilot
@@ -68,17 +66,11 @@ test-integration: ##dev
 
 # Autopilot: consume incident.lifecycle and print a cited brief per new incident.
 # Sources .env.local for ANTHROPIC_API_KEY, which the brief composer requires.
-# Restored from f0c4b56 — these were lost to the regex deletion that 6b11422
-# repaired the targets from, but not the variables they depend on. Undefined, every
-# $(FLINK_HOME) expanded to nothing: `test -d ''` failed, so flink-dist tried to
-# download `flink-` from a nonexistent URL, then curl attempted to write the Kafka
-# connector to /lib/ and died with error 56. `make stream` has been broken since.
 FLINK_VERSION := 1.20.0
 FLINK_HOME := .flink/flink-$(FLINK_VERSION)
 
-# One-time: fetch the Flink distribution and the Kafka connector.
-# The job is Flink SQL (pure JVM) — PyFlink is not used and not installable here,
-# because apache-flink requires apache-beam, which ships no macOS ARM64 wheel.
+# One-time: fetch the Flink distribution and the Kafka connector. Flink SQL is
+# pure JVM — PyFlink isn't installable here (apache-beam ships no macOS ARM64 wheel).
 flink-dist: ##stack
 	@mkdir -p .flink
 	@test -d $(FLINK_HOME) || (cd .flink && \
@@ -92,9 +84,8 @@ flink-dist: ##stack
 stream: flink-dist ##run
 	@$(FLINK_HOME)/bin/start-cluster.sh >/dev/null 2>&1 || true
 	@sleep 5
-	@# Cancel any job already running. Each submission carries its OWN dedup state,
-	@# so a second job does not share the first's — it re-emits every update, and the
-	@# topic (and the embedder's workload) multiplies by the number of live jobs.
+	@# Cancel any job already running: each submission carries its OWN dedup
+	@# state, so a second job re-emits everything and multiplies the embedder's workload.
 	@for j in $$(curl -s -m 5 http://localhost:8081/jobs 2>/dev/null \
 	    | tr ',' '\n' | grep -B1 RUNNING | grep -o '[0-9a-f]\{32\}'); do \
 	  echo "cancelling running job $$j"; \
@@ -106,10 +97,9 @@ stream: flink-dist ##run
 stream-stop: ##run
 	@$(FLINK_HOME)/bin/stop-cluster.sh
 
-# What the stream job read vs what it emitted, per operator. json.ignore-parse-errors
-# drops non-JSON rows before they ever become rows, so they cannot be dead-lettered —
-# but the source still counted them. A source whose count climbs while the operators
-# behind it stay flat is a producer that has drifted from the schema.
+# What the stream job read vs emitted, per operator. json.ignore-parse-errors
+# drops non-JSON rows before they're dead-letterable, but the source still
+# counts them — a drifting producer shows as read climbing while output stays flat.
 stream-health: ##run
 	@$(PYTHON) -m freshet.stream.health
 
@@ -119,9 +109,9 @@ embedder: ##run
 poller: ##run
 	$(PYTHON) -m freshet.ingest.poller
 
-# One long-running process: poller + embedder + autopilot are separate targets,
-# but this is the one launchd keeps alive. CPU is bounded by FRESHET_TORCH_THREADS
-# (bge otherwise takes every core) and spend by the LLM budget in Postgres.
+# One long-running process: poller + embedder + autopilot are separate
+# targets, but this is the one launchd keeps alive. CPU bounded by
+# FRESHET_TORCH_THREADS (bge otherwise takes every core), spend by the LLM budget in Postgres.
 run-forever: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	mkdir -p logs; \
@@ -181,8 +171,8 @@ retrieval-eval: ##eval
 	@# Indexes the labeled fixture corpus into a DEDICATED freshet_eval database.
 	$(PYTHON) -m freshet.eval.retrieval_eval
 
-# Only meaningful after poller + stream + embedder have run together for HOURS:
-# it scores updates POSTED after indexing began, and there are only ~2/hour.
-# FRESHNESS_MIN_N=20 make freshness  -> fails instead of reporting a thin sample.
+# Only meaningful after poller + stream + embedder have run together for
+# HOURS: scores updates POSTED after indexing began, ~2/hour.
+# FRESHNESS_MIN_N=20 make freshness -> fails instead of reporting a thin sample.
 freshness: ##eval
 	$(PYTHON) -m freshet.eval.freshness
