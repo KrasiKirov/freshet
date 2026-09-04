@@ -342,3 +342,40 @@ def test_the_autopilot_idle_tick_forwards_its_composer():
     assert "composer" in inspect.signature(entry._handle).parameters
     assert "composer=composer" in inspect.getsource(entry._idle)
     assert "composer=composer" in inspect.getsource(entry._handle)
+
+
+def test_a_resolved_event_records_when_the_incident_actually_resolved():
+    """resolved_at was READ by _format_duration and estimate_impact and WRITTEN
+    by nothing, so a postmortem for an incident that had just resolved reported
+    it as 'ongoing' and carried no duration."""
+    class _Composer:
+        def compose(self, question, hits):
+            return "a summary"
+
+    conn = _FakeConn()
+    consumer.handle_lifecycle(conn, _resolved_json(), window_s=45, sink=StdoutSink(),
+                              composer=_Composer())
+    marks = [(q, p) for q, p in conn.executed if "resolved_at" in q and q.startswith("UPDATE")]
+    assert marks, "the resolved transition must be recorded on the incident row"
+    sql, params = marks[0]
+    assert "coalesce(resolved_at" in sql, "redelivery must not move the timestamp"
+    assert params[0] == datetime(2026, 7, 1, 0, 0, tzinfo=UTC), \
+        "must use the provider's own transition time, not now()"
+
+
+def test_the_resolution_is_recorded_even_when_the_postmortem_cannot_be_claimed():
+    """The incident resolving is a FACT; posting a postmortem is our ACTION. The
+    claim legitimately fails (already posted, or never briefed) — recording the
+    fact only on the happy path is how resolved_at stayed NULL for every
+    incident while the postmortem path itself worked."""
+    conn = _FakeConn(claim_ok=False)
+    consumer.handle_lifecycle(conn, _resolved_json(), window_s=45, sink=StdoutSink())
+    assert any("resolved_at" in q and q.startswith("UPDATE") for q, _ in conn.executed)
+
+
+def test_a_lifecycle_ts_without_an_offset_is_read_as_utc():
+    """timestamptz reads a naive value in the SESSION time zone, which would
+    shift every reported incident duration by that offset."""
+    ev = consumer.LifecycleEvent(type="resolved", incident_id="INC_1",
+                                 service="api", ts="2026-07-01T00:00:00")
+    assert consumer._event_ts(ev).tzinfo is not None

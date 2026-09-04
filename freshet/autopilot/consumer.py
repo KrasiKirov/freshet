@@ -101,6 +101,13 @@ _INDEXED_COUNT_SQL = (
     "SELECT count(*) FROM vector_records WHERE incident_id = %s")
 _RELEASE_POSTMORTEM_SQL = "UPDATE incidents SET postmortem_at = NULL WHERE incident_id = %s"
 
+# The resolution itself — read by _format_duration and estimate_impact, and
+# written by nothing until now, so every postmortem reported an incident that
+# had just resolved as "ongoing" and carried no duration. `coalesce` keeps the
+# FIRST resolution so at-least-once redelivery cannot move it.
+_MARK_RESOLVED_SQL = ("UPDATE incidents SET resolved_at = coalesce(resolved_at, %s)"
+                      " WHERE incident_id = %s")
+
 
 def claim_incident(conn, incident_id: str) -> bool:
     """Claim the brief slot. The caller must have ensured the row exists — a
@@ -160,12 +167,18 @@ def release_postmortem(conn, incident_id: str) -> None:
     conn.execute(_RELEASE_POSTMORTEM_SQL, (incident_id,))
 
 
-def _opened_at(ev: LifecycleEvent) -> datetime:
-    """The lifecycle ts, or now if it is unparseable — never block a brief on it."""
+def _event_ts(ev: LifecycleEvent) -> datetime:
+    """The lifecycle ts, or now if it is unparseable — never block a brief on it.
+
+    Coerced to UTC: Postgres reads a naive value into `timestamptz` using the
+    SESSION time zone, which would shift every incident duration derived from it
+    by that offset. Same guard freshet.common.schemas applies to Event.
+    """
     try:
-        return datetime.fromisoformat(ev.ts.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(ev.ts.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         return datetime.now(UTC)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
@@ -178,14 +191,14 @@ def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
     ev = LifecycleEvent.from_json(raw_json)
 
     if ev.type == "opened":
-        age = (datetime.now(UTC) - _opened_at(ev)).total_seconds()
+        age = (datetime.now(UTC) - _event_ts(ev)).total_seconds()
         if age > MAX_BRIEF_AGE_S:
             print(f"[autopilot] {ev.incident_id} opened {age / 3600:.0f}h ago — "
                   f"too old to brief")
             return
         # Both writers create the row: the embedder as it indexes, and here, so a
         # lifecycle event that beats the embedder can still brief.
-        ensure_incident(conn, ev.incident_id, ev.service, _opened_at(ev), ev.title)
+        ensure_incident(conn, ev.incident_id, ev.service, _event_ts(ev), ev.title)
         # Schedule and return. Sleeping here held the Kafka partition for the whole
         # debounce window, delaying every offset behind it. drain_due_briefs
         # delivers on an idle tick instead, so the offset commits immediately.
@@ -193,6 +206,12 @@ def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
         return
 
     if ev.type == "resolved":
+        # Recorded BEFORE the claim, and independent of it: the incident
+        # resolving is a FACT, while posting a postmortem is our ACTION, and the
+        # claim legitimately fails (already posted, or never briefed). Recording
+        # it only on the happy path is how resolved_at stayed NULL for every
+        # incident in the index while the postmortem path itself worked fine.
+        conn.execute(_MARK_RESOLVED_SQL, (_event_ts(ev), ev.incident_id))
         if not claim_postmortem(conn, ev.incident_id):
             # Not claimable yet: if a brief is still pending, remember that this
             # incident owes a postmortem rather than dropping it on the floor.
