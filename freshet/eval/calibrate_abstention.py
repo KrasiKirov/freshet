@@ -117,9 +117,8 @@ def main() -> None:
     report = {
         "raw": _block(on_all, on_with_cause, off, current),
         # The space the floor actually uses when a centroid is stored. Raw bge
-        # cosine is anisotropic enough that 12.2% of UNRELATED chunk pairs clear
-        # 0.70, which is why the raw block below reports an overlap no threshold
-        # can fix — see freshet/pipeline/index_stats.py.
+        # cosine is anisotropic enough that 12.2% of UNRELATED pairs clear
+        # 0.70 — see freshet/pipeline/index_stats.py.
         "centered": (_block(on_all_c, on_with_cause_c, off_c, float(current_c or 0.0))
                      if on_all_c and off_c else
                      {"proposal": None,
