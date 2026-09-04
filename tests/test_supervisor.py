@@ -5,6 +5,8 @@ Freshness scores only the CURRENT continuous run: a heartbeat gap over 300s
 so far. A child that dies unsupervised does not slow the measurement down, it
 silently restarts it at zero.
 """
+import subprocess
+
 from freshet.ops.supervisor import Child, supervise
 
 
@@ -26,6 +28,31 @@ class FakeProc:
 
     def wait(self, timeout=None):
         return self.code
+
+
+class FakeStuckProc:
+    """Ignores SIGTERM: terminate() is recorded but the process stays alive, so
+    wait() keeps timing out until kill() has actually been called."""
+
+    def __init__(self) -> None:
+        self.terminated = False
+        self.killed = False
+        self.wait_calls = 0
+
+    def poll(self):
+        return None
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        self.wait_calls += 1
+        if not self.killed:
+            raise subprocess.TimeoutExpired(cmd="stuck", timeout=timeout)
+        return 1
+
+    def kill(self):
+        self.killed = True
 
 
 def _clock():
@@ -100,6 +127,20 @@ def test_shutdown_terminates_every_child():
               should_stop=lambda: True, log=lambda m: None)
 
     assert all(p.terminated for p in procs), "a child survived shutdown"
+
+
+def test_shutdown_kills_a_child_that_ignores_sigterm():
+    """A poller that ignores SIGTERM and survives the supervisor's own exit is an
+    orphan: it keeps producing into the topic for the rest of the run, so the next
+    run starts with two pollers producing into the same topic."""
+    proc = FakeStuckProc()
+
+    supervise([Child("poller", ["poller"], "logs/p.log")],
+              spawn=lambda child: proc, clock=_clock(), sleep=lambda s: None,
+              should_stop=lambda: True, log=lambda m: None)
+
+    assert proc.killed, "a child that ignored SIGTERM was left running past shutdown"
+    assert proc.wait_calls >= 2, "kill() was issued but never confirmed with a second wait()"
 
 
 def test_restarts_are_counted_per_child():

@@ -91,7 +91,15 @@ def supervise(children: list[Child], *,
         try:
             child.proc.wait(timeout=20)
         except Exception:      # a stuck child must not block the rest
-            log(f"supervisor: {child.name} did not exit within 20s")
+            log(f"supervisor: {child.name} did not exit within 20s; sending SIGKILL")
+            child.proc.kill()
+            try:
+                # Confirm the kill landed rather than merely issuing it: an orphan
+                # here means the next run starts with two of this child producing
+                # into the same topic.
+                child.proc.wait(timeout=5)
+            except Exception:
+                log(f"supervisor: {child.name} did not exit after SIGKILL")
 
 
 def _start(child: Child, spawn: Callable[[Child], Any],
