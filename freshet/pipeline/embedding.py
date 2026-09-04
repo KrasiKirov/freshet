@@ -16,41 +16,31 @@ from typing import Protocol
 
 EMBEDDING_DIM = 768  # BAAI/bge-base-en-v1.5 output size
 
-# Per-model abstention floors. Cosine-similarity distributions differ by model:
-# MiniLM spreads roughly 0..1, while bge compresses similarities upward (~0.5+
-# even for unrelated pairs), so a shared floor cannot work. Both values are
-# calibrated with freshet/eval/calibrate_abstention.py on the benchmark corpus: bge
-# separates cleanly (on-corpus ≥ 0.735 vs hardest off-corpus negative 0.662;
-# 0.7 is the gap midpoint). Override with FRESHET_MIN_SIMILARITY; recalibrate
-# when the corpus or model changes.
+# Per-model abstention floors: cosine distributions differ by model (MiniLM
+# spreads ~0..1, bge compresses upward, ~0.5+ even for unrelated pairs).
+# Calibrated with calibrate_abstention.py: bge separates on-corpus >=0.735 vs
+# hardest off-corpus 0.662, 0.7 is the gap midpoint. Override FRESHET_MIN_SIMILARITY.
 MIN_SIMILARITY_MINILM = 0.3
 MIN_SIMILARITY_BGE = 0.7
 
-# The same floor, measured in the MEAN-CENTERED space (see
-# freshet/pipeline/index_stats.py). Raw bge cosine is anisotropic — random
-# unrelated chunk pairs on the live index average 0.594 and 12.2% clear 0.70 —
-# so the raw floor cuts a percentile rather than a meaning. Centering collapses
-# the off-corpus band from 0.485-0.687 to 0.369-0.433; 0.44 sits just above it.
-# Measured on 55 live labels with the query's own document excluded: raw @0.70
-# gives 4/55 false abstentions, centered @0.44 gives 2/55, and both reject all
-# 6 off-corpus questions. Recalibrate with `make calibrate-abstention` whenever
-# the corpus or model changes.
+# Same floor in mean-centered space (index_stats.py). Raw bge cosine is
+# anisotropic — unrelated pairs average 0.594, 12.2% clear 0.70 — so the raw
+# floor cuts a percentile, not a meaning. Centering shrinks the off-corpus band
+# 0.485-0.687 to 0.369-0.433; 0.44 sits just above it. Measured on 55 labels:
+# raw@0.70 gives 4/55 false abstentions, centered@0.44 gives 2/55. Recalibrate
+# with `make calibrate-abstention` when the corpus or model changes.
 MIN_SIMILARITY_BGE_CENTERED = 0.44
 
 
 class Embedder(Protocol):
-    # Identifies which model produced a vector. Stored beside every embedding so a
-    # query can tell "no relevant evidence" apart from "this index was built by a
-    # different model" — they are indistinguishable from similarity scores alone.
+    # Identifies which model produced a vector, so a query can tell "no relevant
+    # evidence" apart from "index built by a different model" — indistinguishable from scores alone.
     name: str
-    # The abstention floor, in raw cosine. On the Protocol because the query path
-    # depends on it: an embedder that omits it inherits the MiniLM floor of 0.3,
-    # and unrelated bge pairs average 0.594 — so the omission reads as
-    # "never abstain" and nothing anywhere reports it.
+    # Abstention floor, raw cosine. On the Protocol because an embedder that
+    # omits it inherits MiniLM's 0.3 — and bge pairs average 0.594, silently reading as "never abstain".
     min_similarity: float
-    # The same floor in the mean-centered space (freshet/pipeline/index_stats.py).
-    # None means this model has no centered calibration, and abstention stays in
-    # raw cosine rather than being measured against a floor nobody set.
+    # Same floor, mean-centered (index_stats.py). None means no centered
+    # calibration — abstention stays in raw cosine rather than an unmeasured floor.
     min_similarity_centered: float | None
 
     def encode(self, texts: list[str]) -> list[list[float]]: ...
@@ -122,14 +112,12 @@ class SentenceTransformerEmbedder:
         self.name = model_name
         self.query_instruction = query_instruction
         self.min_similarity = min_similarity
-        # None means "this model has no centered calibration" — abstention then
-        # stays in raw space even when a centroid exists, rather than inventing
-        # a floor for a distribution nobody measured.
+        # None means no centered calibration — abstention stays in raw space
+        # rather than inventing a floor for a distribution nobody measured.
         self.min_similarity_centered = min_similarity_centered
-        # The handler calls encode() once per Kafka message — 1-3 chunks — so
-        # the default of 32 does nothing in steady state. It is there for replay
-        # and re-index, where the caller passes the whole batch: measured on 2
-        # torch threads, 107 chunks/s at batch=1 against 507 at batch=32.
+        # encode() is called once per Kafka message (1-3 chunks), so default 32
+        # does nothing in steady state — it's for replay/re-index: measured 107
+        # chunks/s at batch=1 vs 507 at batch=32 (2 torch threads).
         self.batch_size = batch_size
 
     def encode(self, texts: list[str]) -> list[list[float]]:
@@ -148,10 +136,9 @@ def make_embedder(kind: str) -> Embedder:
     if kind == "stub":
         emb = StubEmbedder()
     elif kind == "minilm":
-        # Retired from live use: MiniLM's 384-dim vectors cannot index into the
-        # vector(768) schema, so every DB path would fail deep in psycopg. Its
-        # benchmark numbers survive as the frozen baseline
-        # construct SentenceTransformerEmbedder() directly.
+        # Retired: MiniLM's 384-dim vectors don't fit vector(768) — every DB
+        # path fails deep in psycopg. Benchmark numbers survive as the frozen
+        # baseline (construct SentenceTransformerEmbedder() directly for it).
         raise ValueError(
             "minilm (384-dim) no longer fits the vector(768) schema — use 'bge' "
             "(or 'stub' for keyless runs)")
