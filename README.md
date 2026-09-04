@@ -61,6 +61,14 @@ make autopilot   # posts cited briefs to Slack
 make freshness   # the one measurement
 ```
 
+For a measurement run, one supervisor replaces the four `make` targets — it
+restarts any process that dies and holds the machine awake, because freshness
+scores only an unbroken run:
+
+```
+./deploy/run-live.sh     # poller + embedder + autopilot, under caffeinate
+```
+
 Conditional-request validators persist to `~/.local/state/freshet/poll-cache.json`,
 so a restart resumes with 304s instead of re-downloading all 42 feeds. Override the
 location with `FRESHET_POLL_CACHE`, or set it to the empty string to disable.

@@ -5,17 +5,20 @@
 <dict>
   <key>Label</key><string>com.freshet.autopilot</string>
 
-  <!-- Runs the venv python DIRECTLY, not `cd … && make`.
-       A launchd agent does not inherit the Terminal's permission to read
-       ~/Documents, so `make` failed with "getcwd: Operation not permitted"
-       before it could find a target. Absolute paths and an explicit
-       WorkingDirectory avoid needing getcwd at all.
-       If the agent still cannot read the repo, grant Full Disk Access to
-       /bin/sh in System Settings > Privacy & Security, or move the repo
-       outside ~/Documents. -->
+  <!-- Supervises the WHOLE pipeline (poller + embedder + autopilot), not the
+       autopilot alone: freshness measures the poller and the embedder, and an
+       unsupervised crash in either ends the continuous run being measured.
+
+       KNOWN LIMITATION: a launchd agent does not inherit the Terminal's
+       permission to read ~/Documents, so with the repo there this agent fails
+       with "Operation not permitted" before it can exec anything. To run
+       unattended from a cold boot, either grant Full Disk Access to /bin/sh in
+       System Settings > Privacy & Security, or move the repo outside
+       ~/Documents. Measurement runs to date were launched from an already
+       permitted session instead. -->
   <key>ProgramArguments</key>
   <array>
-    <string>__REPO__/deploy/run-autopilot.sh</string>
+    <string>__REPO__/deploy/run-live.sh</string>
   </array>
   <key>WorkingDirectory</key><string>__REPO__</string>
 
