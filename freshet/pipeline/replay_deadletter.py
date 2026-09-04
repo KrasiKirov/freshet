@@ -20,9 +20,8 @@ from freshet.pipeline.embedder import DEADLETTER_TOPIC
 
 log = logging.getLogger(__name__)
 
-# An envelope we cannot route is still evidence. Consuming it and committing the
-# offset destroyed it silently; republishing to a quarantine topic keeps it for
-# inspection while letting the replay drain the rest of the queue.
+# An envelope we cannot route is still evidence: consuming and committing the
+# offset would destroy it silently; quarantine it instead.
 UNUSABLE_TOPIC = "deadletter.unusable"
 
 
