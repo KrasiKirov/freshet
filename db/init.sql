@@ -3,11 +3,14 @@
 -- Applied two ways, and BOTH must work: the Postgres container mounts this at
 -- docker-entrypoint-initdb.d (a FRESH volume), and tests/integration/conftest.py
 -- re-applies it to an EXISTING database on every run — so ordering is
--- load-bearing. test_schema_bootstraps.py asserts both paths reach the identical schema.
+-- load-bearing: ADD COLUMN IF NOT EXISTS guards the column, not the table, and
+-- still fails if the table doesn't exist yet. test_schema_bootstraps.py asserts
+-- both paths reach the identical schema.
 --
 -- Structure: (1) extension, (2) tables — every column in its CREATE TABLE,
 -- (3) indexes, (4) legacy migrations for volumes predating a change, (5) the
--- applied version. History that still MATTERS lives in section 4, guarded so a fresh volume skips it.
+-- applied version. History that still MATTERS lives in section 4, guarded so
+-- a fresh volume skips it.
 --
 -- No migration framework, deliberately: one deployment, container-initialized,
 -- no rolling upgrades. This file can't express a type change, NOT NULL, or a
@@ -38,7 +41,8 @@ CREATE TABLE IF NOT EXISTS vector_records (
     severity    text,                     -- 'SEV1'..'SEV4' or NULL
     type        text NOT NULL DEFAULT '',
     -- Which model produced each embedding. Vectors from different models
-    -- aren't comparable, but a mismatch is invisible: similarity just collapses toward zero and abstains.
+    -- aren't comparable, but a mismatch is invisible: similarity just
+    -- collapses toward zero and abstains.
     model       text,
     embedding   vector(768) NOT NULL,
     text_tsv    tsvector GENERATED ALWAYS AS (to_tsvector('english', text)) STORED
@@ -52,7 +56,8 @@ CREATE TABLE IF NOT EXISTS incidents (
     resolution_summary      text,
     -- Atomic find-or-create for correlator-opened ("auto") incidents: at most
     -- one open auto incident per service, enforced by the partial unique
-    -- index in section 3. Status-feed incidents (auto_opened=false) are exempt — a service can have several concurrent open ones.
+    -- index in section 3. Status-feed incidents (auto_opened=false) are
+    -- exempt — a service can have several concurrent open ones.
     primary_service         text,
     auto_opened             boolean NOT NULL DEFAULT false,
     -- Autopilot idempotency: a brief/postmortem fires at most once per
@@ -67,11 +72,13 @@ CREATE TABLE IF NOT EXISTS incidents (
     brief_delivered_at      timestamptz,
     postmortem_delivered_at timestamptz,
     -- When a brief becomes due. The debounce used to block the Kafka handler
-    -- for 45s/incident; scheduling here lets the offset commit immediately while an idle tick delivers it.
+    -- for 45s/incident; scheduling here lets the offset commit immediately
+    -- while an idle tick delivers it.
     brief_due_at            timestamptz,
     -- Set when an incident resolves before its brief delivered. The postmortem
     -- claim needs a delivered brief, so a resolve inside the debounce window
-    -- used to match nothing and vanish (offset already committed). Deferred here so the drain posts it once the brief lands.
+    -- used to match nothing and vanish (offset already committed). Deferred
+    -- here so the drain posts it once the brief lands.
     postmortem_needed       boolean NOT NULL DEFAULT false,
     -- Newest thread reply already answered, as a Slack ts string. Without it the
     -- responder re-answers the whole thread on every poll.
@@ -120,7 +127,8 @@ CREATE TABLE IF NOT EXISTS pipeline_heartbeat_log (
 -- The mean embedding of the index, per model. bge's cosine space is
 -- anisotropic: RANDOM unrelated pairs average 0.594 and 12.2% clear the 0.70
 -- floor — an absolute floor there is a percentile, not a semantic boundary.
--- Subtracting the centroid removes the shared component. Per model since vectors from different models share no geometry.
+-- Subtracting the centroid removes the shared component. Per model since
+-- vectors from different models share no geometry.
 CREATE TABLE IF NOT EXISTS index_stats (
     model       text PRIMARY KEY,
     centroid    vector(768) NOT NULL,
@@ -133,12 +141,15 @@ CREATE INDEX IF NOT EXISTS vector_records_service_ts_idx
     ON vector_records (service, ts DESC);
 
 -- Every brief/postmortem/thread reply reassembles ONE incident's updates via
--- `WHERE incident_id = %s`. Partial: correlator-opened events may lack an incident_id, no reason to index NULLs.
+-- `WHERE incident_id = %s`. Partial: correlator-opened events may lack an
+-- incident_id, no reason to index NULLs.
 CREATE INDEX IF NOT EXISTS vector_records_incident_idx
     ON vector_records (incident_id) WHERE incident_id IS NOT NULL;
 
 -- No ANN index yet, deliberately: at this corpus size an exact scan is fast
--- and exact. Add `USING hnsw (embedding vector_cosine_ops)` when row count or query p95 justifies it.
+-- and exact. HNSW trades recall for latency and would need its own recall
+-- check to stay honest — add `USING hnsw (embedding vector_cosine_ops)` only
+-- once row count or query p95 justifies it, with that check in place.
 CREATE INDEX IF NOT EXISTS vector_records_text_tsv_idx
     ON vector_records USING GIN (text_tsv);
 
@@ -150,7 +161,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS incidents_one_open_auto_per_service
 
 -- For volumes created before a change landed. A FRESH database makes every
 -- statement below a no-op — asserted by
--- test_a_fresh_database_and_an_evolved_one_reach_the_same_schema. Each is guarded to stay idempotent.
+-- test_a_fresh_database_and_an_evolved_one_reach_the_same_schema. Each is
+-- guarded to stay idempotent.
 
 -- Columns added to vector_records after its CREATE TABLE existed.
 ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS model text;
@@ -202,12 +214,14 @@ END $$;
 
 -- Namespace incident_id by provider: it's a PRIMARY KEY shared across 42
 -- Statuspage tenants whose ids are only unique per tenant — a collision merges
--- two providers' incidents. Guarded on absence of a colon (no raw id has one, the extractor captures \w+/[\w-]+ only), so re-running is a no-op.
+-- two providers' incidents. Guarded on absence of a colon (no raw id has one,
+-- the extractor captures \w+/[\w-]+ only), so re-running is a no-op.
 DO $$
 BEGIN
     -- The guard must name EVERY table the block converts, not just the
     -- first: keyed on `incidents` alone, a bare-id vector_records row with no
-    -- bare-id incidents row skipped the migration. incident_services/incident_events need no clause — both FK to incidents.
+    -- bare-id incidents row skipped the migration. incident_services/
+    -- incident_events need no clause — both FK to incidents.
     IF EXISTS (SELECT 1 FROM incidents WHERE incident_id NOT LIKE '%:%')
        OR EXISTS (SELECT 1 FROM vector_records
                   WHERE incident_id IS NOT NULL AND incident_id NOT LIKE '%:%') THEN

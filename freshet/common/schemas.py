@@ -85,7 +85,8 @@ class Event(BaseModel):
     event_id: str = Field(default_factory=lambda: _new_id("evt"))
 
     # Wire-format version, carried from raw.incidents through the Flink projection.
-    # Defaults to 1 for unversioned messages still on the topic, so replay parses instead of dead-lettering.
+    # Defaults to 1 for unversioned messages still on the topic, so replay
+    # parses instead of dead-lettering.
     v: int = 1
 
     ts: datetime = Field(default_factory=_utcnow, description="When the event occurred")

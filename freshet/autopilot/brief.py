@@ -55,7 +55,8 @@ _FOUND_BUT_UNNAMED = re.compile(
     # "identified the root cause and reverted..." — found it, never said what
     r"identified the (?:root cause|cause)(?!\s+of\s)"
     # Names the SYMPTOM traced, not the cause found ("source of load", "cause of
-    # packet loss"). Requiring "of THE|THIS" let every symptom noun through — measured 13/243 hits.
+    # packet loss"). Requiring "of THE|THIS" let every symptom noun through —
+    # measured 13/243 hits.
     r"|identified the (?:root cause|source|cause) (?:of|for)\s"
     # Announces the remedy, not the cause. Distinct from _UNRESOLVED ("not yet known").
     r"|(?:root )?cause (?:has been|had been|was|is) "

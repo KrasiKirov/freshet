@@ -259,7 +259,8 @@ def main() -> None:
                    "incidents": len({e.incident_id for e in events}),
                    "labeled": len(labels["labeled"]), "curated": labels.get("curated")},
         # Shape the numbers below were measured on: live index is 235 mean
-        # chars / 40.7% multi-chunk vs this corpus's 159 / 7.3% — a change that's free here may not be.
+        # chars / 40.7% multi-chunk vs this corpus's 159 / 7.3% — a change
+        # that's free here may not be.
         "corpus_shape": corpus_shape([chunk_text(e.text) for e in events]),
         "arms": scored,
         "gameability_guard": {

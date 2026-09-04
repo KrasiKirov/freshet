@@ -66,6 +66,8 @@ test-integration: ##dev
 
 # Autopilot: consume incident.lifecycle and print a cited brief per new incident.
 # Sources .env.local for ANTHROPIC_API_KEY, which the brief composer requires.
+# Load-bearing: undefined, $(FLINK_HOME) expands to empty and flink-dist silently
+# downloads a bogus URL (curl error 56).
 FLINK_VERSION := 1.20.0
 FLINK_HOME := .flink/flink-$(FLINK_VERSION)
 

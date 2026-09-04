@@ -62,7 +62,8 @@ CREATE TABLE normalized_updates (
   'topic' = 'normalized.updates',
   'properties.bootstrap.servers' = 'localhost:9092',
   -- Keyed by incident, like incident.lifecycle: ordering holds within a
-  -- partition only. Unkeyed, a second embedder instance could process one incident's updates out of order.
+  -- partition only. Unkeyed, a second embedder instance could process one
+  -- incident's updates out of order.
   'key.format' = 'json',
   'key.fields' = 'incident_id',
   'value.format' = 'json',
@@ -99,7 +100,8 @@ CREATE TABLE incident_lifecycle (
   'properties.bootstrap.servers' = 'localhost:9092',
   -- Partition by incident so 'opened'/'resolved' stay ordered. Kafka orders
   -- within a partition only: unkeyed, a 3-partition topic (deploy/topics.sh)
-  -- can deliver 'resolved' first, which the consumer skips (no brief yet) — losing the postmortem.
+  -- can deliver 'resolved' first, which the consumer skips (no brief yet) —
+  -- losing the postmortem.
   'key.format' = 'json',
   'key.fields' = 'incident_id',
   'value.format' = 'json',
@@ -111,7 +113,8 @@ CREATE TABLE incident_lifecycle (
 -- earliest and re-emits everything already emitted. The header once claimed
 -- 'checkpointed dedup' while nothing turned it on.
 --
--- `table.exec.source.idle-timeout` was removed: with the watermark gone, it advanced nothing and was a no-op.
+-- `table.exec.source.idle-timeout` was removed: with the watermark gone, it
+-- advanced nothing and was a no-op.
 
 SET 'execution.checkpointing.interval' = '10s';
 SET 'execution.checkpointing.min-pause' = '5s';
@@ -123,7 +126,8 @@ SET 'execution.checkpointing.externalized-checkpoint-retention' =
 
 -- One shared source for both lifecycle transitions: the two branches used to
 -- be byte-identical apart from status, including a pasted 12-line comment —
--- and the recency guard was pasted into only ONE. A view can't live inside a STATEMENT SET, so declared here.
+-- and the recency guard was pasted into only ONE. A view can't live inside a
+-- STATEMENT SET, so declared here.
 CREATE TEMPORARY VIEW recent_transitions AS
 SELECT provider, incident_id, incident_name, created_at, proc_time,
        CASE WHEN LOWER(status) IN ('resolved', 'completed', 'complete')
@@ -131,7 +135,8 @@ SELECT provider, incident_id, incident_name, created_at, proc_time,
 FROM raw_incidents
 WHERE created_at IS NOT NULL
   -- 'monitoring' counts as open: some providers never post investigating.
-  -- 'complete' (no 'd') is what hashicorp posts, measured live — without it those incidents never get a postmortem.
+  -- 'complete' (no 'd') is what hashicorp posts, measured live — without it
+  -- those incidents never get a postmortem.
   AND LOWER(status) IN ('investigating', 'identified', 'monitoring',
                         'resolved', 'completed', 'complete')
   -- Only RECENT transitions, both directions: the poller re-emits from
@@ -139,7 +144,8 @@ WHERE created_at IS NOT NULL
   -- this every incident in 3 years transitions again — measured 1,429 opens
   -- of 3,000 records, only 10 under a day old. The guard was once on the
   -- opened branch only, so a cold replay still flagged thousands of rows
-  -- postmortem_needed. A resolving update's own created_at is "now", so this is safe for long incidents.
+  -- postmortem_needed. A resolving update's own created_at is "now", so this
+  -- is safe for long incidents.
   AND created_at > CURRENT_TIMESTAMP - INTERVAL '24' HOUR;
 
 EXECUTE STATEMENT SET
@@ -166,7 +172,8 @@ SELECT coalesce(v, 1) AS v,
        'alert'      AS source,
        'status_update' AS type,
        -- Namespaced by provider: Statuspage ids are per-tenant, shared as a
-       -- PRIMARY KEY across 42 tenants — unqualified, a collision merges two providers' incidents.
+       -- PRIMARY KEY across 42 tenants — unqualified, a collision merges two
+       -- providers' incidents.
        provider || ':' || incident_id AS incident_id,
        incident_name || ': ' || text AS text,
        incident_name AS title
@@ -207,7 +214,8 @@ FROM (
              -- Kafka. A second sort key makes it a general Rank, whose
              -- changelog has updates — the sink rejects the job outright
              -- ("doesn't support consuming update and delete changes").
-             -- proc_time (not created_at) keeps emission immediate, independent of a re-emitted event's lateness.
+             -- proc_time (not created_at) keeps emission immediate,
+             -- independent of a re-emitted event's lateness.
              PARTITION BY provider, incident_id, transition
              ORDER BY proc_time ASC) AS seq
   FROM recent_transitions

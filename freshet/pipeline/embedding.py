@@ -27,17 +27,20 @@ MIN_SIMILARITY_BGE = 0.7
 # anisotropic — unrelated pairs average 0.594, 12.2% clear 0.70 — so the raw
 # floor cuts a percentile, not a meaning. Centering shrinks the off-corpus band
 # 0.485-0.687 to 0.369-0.433; 0.44 sits just above it. Measured on 55 labels:
-# raw@0.70 gives 4/55 false abstentions, centered@0.44 gives 2/55. Recalibrate
-# with `make calibrate-abstention` when the corpus or model changes.
+# raw@0.70 gives 4/55 false abstentions, centered@0.44 gives 2/55; both reject
+# all 6 off-corpus questions. Recalibrate with `make calibrate-abstention` when
+# the corpus or model changes.
 MIN_SIMILARITY_BGE_CENTERED = 0.44
 
 
 class Embedder(Protocol):
     # Identifies which model produced a vector, so a query can tell "no relevant
-    # evidence" apart from "index built by a different model" — indistinguishable from scores alone.
+    # evidence" apart from "index built by a different model" —
+    # indistinguishable from scores alone.
     name: str
     # Abstention floor, raw cosine. On the Protocol because an embedder that
-    # omits it inherits MiniLM's 0.3 — and bge pairs average 0.594, silently reading as "never abstain".
+    # omits it inherits MiniLM's 0.3 — and bge pairs average 0.594, silently
+    # reading as "never abstain".
     min_similarity: float
     # Same floor, mean-centered (index_stats.py). None means no centered
     # calibration — abstention stays in raw cosine rather than an unmeasured floor.

@@ -35,7 +35,8 @@ NO_EVIDENCE = "I don't have enough indexed evidence to answer that."
 log = logging.getLogger(__name__)
 
 # A citation is [event_id] or [event_id @ anything]. The stamp is ignored — we
-# substitute the true one, so the model can't express a wrong timestamp or lose a citation reformatting it.
+# substitute the true one, so the model can't express a wrong timestamp or
+# lose a citation reformatting it.
 _CITATION = re.compile(r"(\s*)\[([^\[\]]+?)(?:\s*@\s*(?:[^\[\]]*?))?\s*\]")
 # A bare [id] means inspecting brackets with no '@', so prose like "[sic]" or a
 # link label must not be mistaken for one: an id has no whitespace, is >=3
@@ -172,7 +173,8 @@ class AnthropicComposer:
             messages=[{
                 "role": "user",
                 # Without this the model can't answer "what happened today?" —
-                # timestamps alone give no anchor. Rides the user turn to keep the system prompt stable.
+                # timestamps alone give no anchor. Rides the user turn to keep
+                # the system prompt stable.
                 "content": (f"Current time: {datetime.now(UTC):%Y-%m-%d %H:%M} UTC\n\n"
                             f"Question: {question}\n\nEvents:\n{_evidence_block(hits)}"),
             }],
@@ -182,7 +184,8 @@ class AnthropicComposer:
         answer = next((b.text for b in resp.content if b.type == "text"), "")
         answer = verify_citations(answer, hits)
         # A response cut at max_tokens can end mid-citation — an unmatched
-        # "[evt_1 @ 2026-08-2" the regex can't see or strip. Say so rather than shipping a half sentence.
+        # "[evt_1 @ 2026-08-2" the regex can't see or strip. Say so rather
+        # than shipping a half sentence.
         if getattr(resp, "stop_reason", None) == "max_tokens":
             LLM_TRUNCATED.inc()
             log.warning("response hit max_tokens (%d); marking it truncated", MAX_TOKENS)
