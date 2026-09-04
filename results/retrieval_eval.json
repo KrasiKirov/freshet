@@ -5,6 +5,17 @@
     "labeled": 12,
     "curated": "reviewed"
   },
+  "corpus_shape": {
+    "n_events": 841,
+    "n_chunks": 975,
+    "mean_chars": 158.6,
+    "median_chars": 121,
+    "p95_chars": 371,
+    "max_chars_seen": 400,
+    "multi_chunk_events": 61,
+    "multi_chunk_frac": 0.073,
+    "non_first_frac": 0.137
+  },
   "arms": {
     "hybrid": {
       "recall@5": 0.917,
