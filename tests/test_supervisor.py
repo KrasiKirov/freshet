@@ -7,7 +7,9 @@ silently restarts it at zero.
 """
 import subprocess
 
-from freshet.ops.supervisor import Child, supervise
+import pytest
+
+from freshet.ops.supervisor import Child, DependencyDown, supervise
 
 
 class FakeProc:
@@ -155,3 +157,51 @@ def test_restarts_are_counted_per_child():
               should_stop=lambda: next(stops), log=lambda m: None)
 
     assert child.restarts >= 2
+
+
+def test_a_dependency_outage_halts_instead_of_looping_forever():
+    """The first real run restarted children 412 times over three hours against a
+    stopped Postgres and looked, in the log, exactly like a healthy run. A child
+    that dies within a second, repeatedly, is a dependency that is gone."""
+    def spawn(child):
+        return FakeProc(exits_after=0)
+
+    with pytest.raises(DependencyDown) as caught:
+        supervise([Child("embedder", ["embedder"], "logs/e.log")],
+                  spawn=spawn, clock=_clock(), sleep=lambda s: None,
+                  should_stop=lambda: False, max_fast_deaths=3,
+                  log=lambda m: None)
+
+    assert "embedder" in str(caught.value)
+
+
+def test_a_child_that_ran_a_while_does_not_count_toward_the_outage():
+    """Restarts spread over hours are ordinary. Only deaths inside FAST_DEATH_S
+    are evidence of a missing dependency, or a long healthy run would eventually
+    trip the halt for no reason."""
+    slow = iter([0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0])
+
+    def spawn(child):
+        return FakeProc(exits_after=0)
+
+    stops = iter([False, False, False, True])
+    child = Child("poller", ["poller"], "logs/p.log")
+    supervise([child], spawn=spawn, clock=lambda: next(slow),
+              sleep=lambda s: None, should_stop=lambda: next(stops),
+              max_fast_deaths=2, log=lambda m: None)
+
+    assert child.restarts >= 2, "the run should have continued, not halted"
+
+
+def test_the_fast_death_streak_resets_when_a_child_survives():
+    """One flaky restart must not accumulate toward a halt hours later."""
+    lives = iter([FakeProc(exits_after=0), FakeProc(exits_after=10**9)])
+
+    def spawn(child):
+        return next(lives)
+
+    stops = iter([False, False, False, True])
+    supervise([Child("poller", ["poller"], "logs/p.log")],
+              spawn=spawn, clock=_clock(), sleep=lambda s: None,
+              should_stop=lambda: next(stops), max_fast_deaths=2,
+              log=lambda m: None)

@@ -26,6 +26,18 @@ from typing import Any
 RESTART_BACKOFF_S = 30.0
 POLL_INTERVAL_S = 1.0
 
+# A child that dies this fast did not fail on its own work -- it failed to reach
+# something. Postgres and Redpanda both refuse a connection in milliseconds.
+FAST_DEATH_S = 15.0
+# Six consecutive fast deaths is ~3 minutes at the restart backoff. The first real
+# run spent THREE HOURS in this state emitting nothing a reader could distinguish
+# from healthy operation.
+MAX_FAST_DEATHS = 6
+
+
+class DependencyDown(RuntimeError):
+    """Raised when children are dying too fast to be failing at their own work."""
+
 
 @dataclass
 class Child:
@@ -39,6 +51,7 @@ class Child:
     log_handle: Any = None
     started_at: float = 0.0
     restarts: int = 0
+    fast_deaths: int = 0
 
 
 def _spawn(child: Child) -> subprocess.Popen:
@@ -63,8 +76,18 @@ def supervise(children: list[Child], *,
               backoff_s: float = RESTART_BACKOFF_S,
               should_stop: Callable[[], bool] = lambda: False,
               poll_s: float = POLL_INTERVAL_S,
+              fast_death_s: float = FAST_DEATH_S,
+              max_fast_deaths: int = MAX_FAST_DEATHS,
               log: Callable[[str], None] = _log) -> None:
-    """Start every child, restart any that exits, and terminate all on stop."""
+    """Start every child, restart any that exits, and terminate all on stop.
+
+    Raises `DependencyDown` -- after terminating and waiting out every other
+    child, the same as a normal shutdown -- if one child dies `max_fast_deaths`
+    times in a row within `fast_death_s` of its own start. That pattern means a
+    dependency the children need (Postgres, Redpanda) is gone, not that the
+    children themselves are broken; restarting into it forever would just hide
+    the outage instead of surfacing it.
+    """
     for child in children:
         _start(child, spawn, clock, log)
 
@@ -81,9 +104,29 @@ def supervise(children: list[Child], *,
                 log(f"supervisor: {child.name} died after {waited:.0f}s; "
                     f"waiting {backoff_s - waited:.0f}s before restart")
                 sleep(backoff_s - waited)
+            if waited < fast_death_s:
+                child.fast_deaths += 1
+                if child.fast_deaths >= max_fast_deaths:
+                    _shutdown(children, log)
+                    raise DependencyDown(
+                        f"{child.name} died within {fast_death_s:.0f}s "
+                        f"{child.fast_deaths} times in a row -- a dependency it "
+                        f"needs is gone (check `docker ps`); refusing to keep "
+                        f"restarting into it")
+            else:
+                child.fast_deaths = 0
             child.restarts += 1
             _start(child, spawn, clock, log)
 
+    _shutdown(children, log)
+
+
+def _shutdown(children: list[Child], log: Callable[[str], None]) -> None:
+    """Terminate every child and confirm each one actually exits, escalating to
+    SIGKILL if it ignores SIGTERM. Shared by the normal stop path and the
+    DependencyDown halt path so a halt is exactly as orphan-safe as a clean
+    shutdown -- neither leaves a child of this run alive to double-produce into
+    the next one."""
     for child in children:
         log(f"supervisor: stopping {child.name} (restarts={child.restarts})")
         child.proc.terminate()
@@ -134,7 +177,11 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
 
-    supervise(children, should_stop=lambda: stopping["now"])
+    try:
+        supervise(children, should_stop=lambda: stopping["now"])
+    except DependencyDown as exc:
+        _log(f"supervisor: HALTING -- {exc}")
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
