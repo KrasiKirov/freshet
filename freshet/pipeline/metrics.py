@@ -41,20 +41,17 @@ FRESHNESS = Histogram(
     buckets=LATENCY_BUCKETS,
 )
 # Freshness above is end-to-end (ts -> indexed_at), which on replayed or
-# status-feed corpora measures how old the incident was, not how fast the
-# pipeline ran: a real status update can be days old the moment it arrives.
-# Pipeline latency isolates the part the system controls and stays meaningful
-# on every corpus. Both are exposed; dashboards pick the one that fits the run.
+# status-feed corpora measures incident age, not pipeline speed. Pipeline
+# latency isolates what the system controls; both are exposed for dashboards.
 PIPELINE_LATENCY = Histogram(
     "freshet_pipeline_latency_seconds",
     "Pipeline latency: seconds from ingested_at to indexed_at",
     buckets=LATENCY_BUCKETS,
 )
 
-# --- generation side ---------------------------------------------------------
-# The ingest metrics above answer "is the index fresh?". Nothing answered "is
-# the generator behaving?" — a dropped citation, the system's worst documented
-# failure mode, had only a log line and no way to alert on it.
+# The ingest metrics above answer "is the index fresh?" Nothing answered "is
+# the generator behaving?" — a dropped citation, the worst documented failure
+# mode, had only a log line and no way to alert on it.
 
 LLM_CALLS = Counter(
     "freshet_llm_calls_total",
@@ -81,12 +78,10 @@ ABSTENTIONS = Counter(
 )
 
 
-# --- ingest stage ---
-# The poller had no metrics at all: the stage that determines freshness and talks to
-# 42 third parties was the one you could not see. `freshet_poll_updates_parsed`
-# dropping to zero for one provider, or jumping an order of magnitude, is the signal
-# that catches an adapter regression in an hour rather than by querying the index
-# months later — which is exactly how the openai amplification was found.
+# The poller had no metrics: the stage that determines freshness and talks to
+# 42 third parties was invisible. `freshet_poll_updates_parsed` dropping to
+# zero or jumping an order of magnitude catches an adapter regression in an
+# hour, not months later — how the openai amplification was found.
 POLL_FETCH = Counter(
     "freshet_poll_fetch_total",
     "Feed fetches by provider and outcome (200 / 304 / error / skipped)",
