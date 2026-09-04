@@ -33,9 +33,8 @@ from freshet.common.schemas import Event, EventSource
 
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures/real"
 RESULTS = pathlib.Path("results/retrieval_eval.json")
-# Overridable so two agents working the same checkout in parallel do not
-# TRUNCATE each other's eval database mid-run. Mirrors FRESHET_TEST_DB, which
-# tests/integration/conftest.py already reads for the same reason.
+# Overridable so two agents on the same checkout don't TRUNCATE each other's
+# eval DB mid-run — mirrors FRESHET_TEST_DB in tests/integration/conftest.py.
 EVAL_DB = os.environ.get("FRESHET_EVAL_DB", "freshet_eval")
 K = 5
 
@@ -74,8 +73,7 @@ def events_from_incident(provider: str, incident: dict) -> list[Event]:
             type="status_update",
             ts=datetime.fromisoformat(u["created_at"].replace("Z", "+00:00")),
             # Flink emits `incident_name || ': ' || text`, with the name also
-            # carried separately — reproduced exactly so chunking and titling
-            # behave here as they do in production.
+            # carried separately — reproduced exactly so chunking/titling match production.
             text=f"{name}: {body}" if name else body,
             title=name or None,
         ))
@@ -149,9 +147,8 @@ def ensure_eval_db() -> str:
 
     from freshet.common.db import DEFAULT_DSN
 
-    # Derived from the project's configured DSN by swapping only the database
-    # name — hardcoding host/port/credentials here silently pointed at a
-    # different Postgres (the stack listens on 5433, not the default 5432).
+    # Derived from the project's DSN by swapping only the database name —
+    # hardcoding host/port/credentials pointed at the wrong Postgres (5433, not 5432).
     base = os.environ.get("FRESHET_DSN", DEFAULT_DSN).rsplit("/", 1)[0]
     admin, dsn = f"{base}/postgres", f"{base}/{EVAL_DB}"
     with psycopg.connect(admin, autocommit=True) as c:
@@ -215,8 +212,7 @@ def main() -> None:
     from freshet.rag.retrieval import hybrid_search, keyword_sql, vector_sql
 
     # `live` scores the running index (42 providers, current) against labels
-    # curated from it; the default fixture corpus is frozen but reproducible
-    # anywhere, which is what makes it the one CI can run.
+    # curated from it; the fixture corpus is frozen and reproducible, so CI runs that.
     source = os.environ.get("RETRIEVAL_EVAL_SOURCE", "fixture")
     if source == "live":
         return _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder)
@@ -262,9 +258,8 @@ def main() -> None:
         "corpus": {"updates": len(events),
                    "incidents": len({e.incident_id for e in events}),
                    "labeled": len(labels["labeled"]), "curated": labels.get("curated")},
-        # The shape the numbers below were measured on. The live index is
-        # 235 mean chars / 40.7% multi-chunk against this corpus's 159 / 7.3%,
-        # so a chunking or context change that looks free here may not be.
+        # Shape the numbers below were measured on: live index is 235 mean
+        # chars / 40.7% multi-chunk vs this corpus's 159 / 7.3% — a change that's free here may not be.
         "corpus_shape": corpus_shape([chunk_text(e.text) for e in events]),
         "arms": scored,
         "gameability_guard": {
@@ -286,12 +281,11 @@ def main() -> None:
 
 
 
-# What the live index looked like when the numbers below were taken. Without it a
-# committed results file is unfalsifiable: results/retrieval_eval_live.json was
-# measured against a 12,155-row index of which 7,435 rows (61%) were amplified
-# duplicates from a source-adapter bug, and nothing in the file said so. Row
-# count and provider mix are the cheapest signal that a corpus changed underneath
-# a comparison.
+# What the live index looked like when these numbers were taken. Without it a
+# committed results file is unfalsifiable — retrieval_eval_live.json was once
+# measured against a 12,155-row index where 7,435 rows (61%) were amplified
+# duplicates from a source-adapter bug, unrecorded. Row count/provider mix are
+# the cheapest signal a corpus changed underneath a comparison.
 _INDEX_PROVENANCE_SQL = (
     "WITH n AS (SELECT (regexp_match(chunk_id, '_(\\d+)$'))[1]::int AS idx,"
     "                  length(text) AS len, service, event_id FROM vector_records)"
