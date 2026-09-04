@@ -59,8 +59,15 @@ _PROMISSORY = re.compile(
 _FOUND_BUT_UNNAMED = re.compile(
     # "identified the root cause and reverted..." — found it, never said what
     r"identified the (?:root cause|cause)(?!\s+of\s)"
-    # "identified the source of the issue ..." — a placeholder, not a name
-    r"|identified the (?:source|cause) of (?:the|this)\s",
+    # "identified the source of load", "the cause of packet loss", "of delays in
+    # DNS records creation" — names the SYMPTOM it traced, not the cause it
+    # found. The rule used to require "of THE|THIS", so every bare symptom noun
+    # walked through; measured on the live index that was 13 of 243 hits.
+    r"|identified the (?:root cause|source|cause) (?:of|for)\s"
+    # "the root cause has been fixed/addressed/resolved" — announces the remedy
+    # and names nothing. Distinct from _UNRESOLVED, which is "not yet known".
+    r"|(?:root )?cause (?:has been|had been|was|is) "
+    r"(?:fixed|addressed|resolved|mitigated|remediated|corrected|repaired)",
     re.I)
 # Names the cause noun but reports that it is not yet known. Distinct from
 # _PROMISSORY (which promises a future write-up) and _FOUND_BUT_UNNAMED (which
@@ -70,6 +77,11 @@ _FOUND_BUT_UNNAMED = re.compile(
 _UNRESOLVED = re.compile(
     r"(?:still|currently|actively) (?:investigating|determining"
     r"|working to (?:identify|determine))[^.]{0,30}?(?:root cause|cause)"
+    # "in the process of investigating the root cause", "continue looking into
+    # the root cause" — the same in-progress report the clause above catches,
+    # reached for with different words.
+    r"|(?:in the process of|continues? to|continuing to|continue) "
+    r"(?:investigat\w*|look\w*|determin\w*)[^.]{0,30}?(?:root cause|cause)"
     r"|(?:root )?cause (?:is|remains) (?:still )?(?:unknown|unclear"
     r"|under investigation|being investigated"
     r"|not (?:yet )?(?:known|determined|identified))",
@@ -81,7 +93,13 @@ _UNRESOLVED = re.compile(
 _NAMES_A_SUSPECT = re.compile(
     r"which (?:appears|seems|is believed|is thought) to be"
     r"|appears to (?:be|have been) (?:related to|caused by|due to)"
-    r"|(?:related|traced|linked|attributed) to (?:a|an|the)\s",
+    r"|(?:related|traced|linked|attributed) to (?:a|an|the)\s"
+    # "...identified the cause of the outage AS a misconfigured load balancer"
+    r"|(?:identified|traced|attributed|determined)[^.]{0,80}?\bas (?:a|an|the)\s"
+    # "...identified the root cause: an expired TLS certificate" — the colon
+    # attaches directly to the cause noun, so the "<title>: <text>" prefix Flink
+    # prepends to every update cannot be mistaken for it.
+    r"|(?:root cause|cause|source)\s*:\s*\S",
     re.I)
 
 
@@ -100,9 +118,13 @@ def _cause_sentence(text: str) -> str | None:
             continue
         if _PROMISSORY.search(sentence):
             continue          # a promise of an RCA is not an RCA
-        if _FOUND_BUT_UNNAMED.search(sentence):
+        # One rescue for both rejections: what separates a cause from an
+        # announcement is whether the provider says WHAT it was, not which
+        # phrasing they reached for.
+        names_one = _NAMES_A_SUSPECT.search(sentence)
+        if _FOUND_BUT_UNNAMED.search(sentence) and not names_one:
             continue          # "we found the cause" does not say what it was
-        if _UNRESOLVED.search(sentence) and not _NAMES_A_SUSPECT.search(sentence):
+        if _UNRESOLVED.search(sentence) and not names_one:
             continue          # "still investigating the cause" names nothing
         return sentence
     return None

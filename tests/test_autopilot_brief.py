@@ -152,13 +152,25 @@ def test_no_cause_is_claimed_when_none_is_stated():
 
 
 def test_identified_alone_is_not_a_cause_statement():
-    """"We have identified the issue" names nothing. It is a status, not a cause."""
+    """"We have identified the issue" names nothing. It is a status, not a cause.
+
+    REVERSED 2026-09-03. This case previously asserted that "identified the
+    source of a communication failure between services" IS a cause. Measured
+    against the live 42-provider index, that construction is an announcement:
+    the provider says they found the source of a SYMPTOM without saying what the
+    source was. Its siblings in the feeds are "identified the source of load",
+    "of errors", "of latency", "of packet loss" — 13 of 243 detector hits, all
+    reaching the brief's Cause line as if they were diagnoses. The module's own
+    rule is that reporting one "would be inventing content the provider never
+    gave", and this is that. A sentence that goes on to name something ("...as a
+    misconfigured load balancer", "...root cause: an expired certificate") still
+    counts — see test_a_cause_named_after_identifying_it_still_survives.
+    """
     from freshet.autopilot.brief import cause_from_updates
 
     assert cause_from_updates([_hit(0, "We have identified the issue.")]) is None
-    stated = cause_from_updates([_hit(0, "We identified the source of a "
-                                         "communication failure between services.")])
-    assert stated is not None and "communication failure" in stated[0]
+    assert cause_from_updates([_hit(0, "We identified the source of a "
+                                       "communication failure between services.")]) is None
 
 
 def test_the_earliest_stated_cause_wins():
@@ -356,3 +368,74 @@ def test_an_incident_update_satisfies_the_composer_protocol():
     u = _Update(event_id="evt_1", ts=datetime.now(UTC), text="x",
                 service="api", type="status_update")
     assert isinstance(u, Cited)
+
+
+# Real strings from the live 42-provider index. Each was surfaced as a "Cause"
+# by the detector, and none of them names one — they announce that the cause was
+# found or fixed, or they name the SYMPTOM that was traced.
+_ANNOUNCEMENTS_NOT_CAUSES = [
+    "The root cause has been fixed, and we are monitoring recovery.",
+    "The root cause has been addressed, and some sessions are starting to see recovery.",
+    "The root cause has been resolved, and no data was lost.",
+    "We have identified the source of load and addressed it, and are monitoring recovery.",
+    "We identified the source of errors affecting Pull Requests, Issues, and Search.",
+    "We've identified the cause of an issue impacting Log writes.",
+    "Our team has identified the cause of packet loss to our US data centers.",
+    "We've identified the source of latency and are reverting that change.",
+    "We have identified the cause of delays in DNS records creation.",
+]
+
+
+def test_announcing_that_the_cause_was_found_or_fixed_is_not_a_cause():
+    """Measured on the live index: 13 of 243 detector hits were these. The
+    filter only caught "identified the source of THE|THIS", so a bare symptom
+    noun ("of load", "of packet loss") walked straight through — and the Cause
+    line in the Slack brief quoted an announcement as if it were a diagnosis."""
+    from freshet.autopilot.brief import _cause_sentence
+
+    for text in _ANNOUNCEMENTS_NOT_CAUSES:
+        assert _cause_sentence(text) is None, text
+
+
+def test_a_cause_named_after_identifying_it_still_survives():
+    """The rejection must not swallow the sentences that DO name something: the
+    distinction is whether the provider says what it was, not whether the word
+    'identified' appears."""
+    from freshet.autopilot.brief import _cause_sentence
+
+    for text in (
+        "We identified the cause of the outage as a misconfigured load balancer.",
+        "We have identified the root cause: an expired TLS certificate.",
+        "The outage was caused by an expired certificate.",
+        "Our teams are investigating the root cause, which appears to be related "
+        "to a database infrastructure issue.",
+    ):
+        assert _cause_sentence(text) is not None, text
+
+
+def test_identifying_the_root_cause_OF_something_is_still_an_announcement():
+    """The rule covered "identified the cause of" but not "identified the ROOT
+    cause of", so "We have identified the root cause of this issue and fixed it"
+    survived — found and fixed, naming nothing. My own false-positive counter
+    had the same blind spot and reported zero while this was still getting
+    through."""
+    from freshet.autopilot.brief import _cause_sentence
+
+    assert _cause_sentence("We have identified the root cause of this issue "
+                           "and fixed it.") is None
+    assert _cause_sentence("We have identified the root cause of the Sign-ups "
+                           "and Billing outage.") is None
+    # still rescued when it actually names one
+    assert _cause_sentence("The root cause of the incident was traced to a code "
+                           "change which dropped change events.") is not None
+
+
+def test_more_ways_of_saying_the_investigation_is_ongoing():
+    """Same class as "still investigating the root cause", different words. Both
+    strings are verbatim from the live index."""
+    from freshet.autopilot.brief import _cause_sentence
+
+    assert _cause_sentence("We are in the process of investigating the root "
+                           "cause of this incident.") is None
+    assert _cause_sentence("We have mitigated the problem and continue looking "
+                           "into the root cause.") is None
