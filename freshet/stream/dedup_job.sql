@@ -1,24 +1,18 @@
 -- Freshet stream job: dedup, incident lifecycle, and correlated-degradation bursts.
 --
--- Written in Flink SQL, not PyFlink, because PyFlink cannot be installed on this
--- machine: apache-flink requires apache-beam, which publishes no macOS ARM64
--- wheel for any version. The Flink distribution itself is pure JVM and runs
--- natively, so the job is expressed declaratively and needs no Python at all.
+-- Flink SQL, not PyFlink: apache-flink requires apache-beam, which ships no
+-- macOS ARM64 wheel. The Flink distribution itself is pure JVM and needs no Python.
 --
--- Why Flink earns its place here:
---   1. The poller is stateless and re-emits every update on every 60s sweep.
---      The deduplication below is CHECKPOINTED keyed state, so each update
---      reaches the embedder exactly once and that guarantee survives a restart.
---   2. Deduping UPSTREAM of the embedder means unchanged text is never
---      re-embedded. At 42 feeds polled every 60s that is ~1,440 redundant
---      embeddings per incident per day.
+-- Why Flink: (1) the poller re-emits every update every 60s sweep; dedup here
+-- is CHECKPOINTED keyed state, so each update reaches the embedder exactly
+-- once, surviving a restart. (2) deduping UPSTREAM of the embedder avoids
+-- re-embedding unchanged text — ~1,440 redundant embeddings/incident/day at
+-- 42 feeds polled every 60s otherwise.
 --
--- An event-time burst window ("N providers degrading at once") was designed and
--- then DELETED: measured against 3.1 years of real data it fired zero times at
--- 5min/>=3 providers, because 42 providers are too few for simultaneous
--- degradation. It existed to justify the tool rather than to serve the
--- objective. At ~2000 providers it would be worth revisiting.
--- Embedding stays out of this job so it can scale on its own axis.
+-- An event-time burst window ("N providers degrading at once") was built then
+-- DELETED: against 3.1 years of real data it fired zero times at 5min/>=3
+-- providers — too few providers for simultaneous degradation. Revisit at
+-- ~2000 providers. Embedding stays out of this job so it scales on its own axis.
 
 CREATE TABLE raw_incidents (
   -- Wire-format version. NULL for the unversioned records still on the topic;
@@ -35,11 +29,9 @@ CREATE TABLE raw_incidents (
   text          STRING,
   incident_name STRING,
   proc_time     AS PROCTIME()
-  -- No WATERMARK. Every projection below dedups on proc_time, so no operator here
-  -- consumes event time; a watermark would only govern lateness for operators that
-  -- do not exist. It previously read `created_at - INTERVAL '7' DAY` while three
-  -- separate comments described it as 30s and as 90s — none of them true, and
-  -- none of them load-bearing.
+  -- No WATERMARK: every projection dedups on proc_time, not event time, so
+  -- nothing here consumes it. It previously read `created_at - INTERVAL '7'
+  -- DAY` while three comments called it 30s and 90s — none true, none load-bearing.
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'raw.incidents',
@@ -61,19 +53,16 @@ CREATE TABLE normalized_updates (
   type         STRING,
   incident_id  STRING,
   text         STRING,
-  -- The incident name as its own field. `text` keeps the "<name>: <update>" form
-  -- the embedder indexes, but only its FIRST chunk carries that prefix, so a
-  -- citation or a suggested question built from a later chunk was labelled with a
-  -- mid-sentence fragment. Splitting it back out of `text` would be a guess —
-  -- incident names contain colons — so it travels separately.
+  -- The incident name as its own field. `text` keeps "<name>: <update>" for
+  -- the embedder, but only the FIRST chunk carries that prefix — a citation
+  -- from a later chunk was a mid-sentence fragment. Travels separately since names contain colons.
   title        STRING
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'normalized.updates',
   'properties.bootstrap.servers' = 'localhost:9092',
-  -- Keyed by incident for the same reason incident.lifecycle is: ordering holds
-  -- within a partition only. Unkeyed, this topic could never be compacted and a
-  -- second embedder instance would process one incident's updates out of order.
+  -- Keyed by incident, like incident.lifecycle: ordering holds within a
+  -- partition only. Unkeyed, a second embedder instance could process one incident's updates out of order.
   'key.format' = 'json',
   'key.fields' = 'incident_id',
   'value.format' = 'json',
@@ -99,10 +88,8 @@ CREATE TABLE raw_deadletter (
 CREATE TABLE incident_lifecycle (
   incident_id STRING,
   service     STRING,
-  -- The column name IS the JSON field name on the wire. The consumer
-  -- (pipeline/lifecycle.py LifecycleEvent) reads `type`, and this projection emits
-  -- opened/resolved rather than the provider's raw status, so `type` is both the
-  -- contract and the accurate name. Backticked: `type` is reserved in Flink SQL.
+  -- The column name IS the JSON field name on the wire: the consumer
+  -- (pipeline/lifecycle.py) reads `type`. Backticked since `type` is reserved in Flink SQL.
   `type`      STRING,
   ts          TIMESTAMP_LTZ(3),
   title       STRING
@@ -110,10 +97,9 @@ CREATE TABLE incident_lifecycle (
   'connector' = 'kafka',
   'topic' = 'incident.lifecycle',
   'properties.bootstrap.servers' = 'localhost:9092',
-  -- Partition by incident so 'opened' and 'resolved' for the same incident are
-  -- ordered. Kafka orders within a partition only: unkeyed, a 3-partition topic
-  -- (declared in `deploy/topics.sh`) can deliver 'resolved' first, which the
-  -- consumer skips because no brief has been delivered — postmortem then lost.
+  -- Partition by incident so 'opened'/'resolved' stay ordered. Kafka orders
+  -- within a partition only: unkeyed, a 3-partition topic (deploy/topics.sh)
+  -- can deliver 'resolved' first, which the consumer skips (no brief yet) — losing the postmortem.
   'key.format' = 'json',
   'key.fields' = 'incident_id',
   'value.format' = 'json',
@@ -121,13 +107,11 @@ CREATE TABLE incident_lifecycle (
 );
 
 -- Keep-first dedup and the Kafka source offsets live in keyed state; without
--- checkpoints neither survives a restart, so a restarted job re-reads
--- raw.incidents from earliest and re-emits everything it already emitted. The
--- SQL header claimed 'checkpointed dedup' while nothing turned it on.
+-- checkpoints neither survives a restart, so a restarted job re-reads from
+-- earliest and re-emits everything already emitted. The header once claimed
+-- 'checkpointed dedup' while nothing turned it on.
 --
--- `table.exec.source.idle-timeout` used to be set here to stop a quiet partition
--- pinning the watermark. With the watermark gone (nothing in this job consumes
--- event time) it advances nothing and is a no-op, so it is gone too.
+-- `table.exec.source.idle-timeout` was removed: with the watermark gone, it advanced nothing and was a no-op.
 
 SET 'execution.checkpointing.interval' = '10s';
 SET 'execution.checkpointing.min-pause' = '5s';
@@ -137,10 +121,9 @@ SET 'state.checkpoints.dir' = 'file:///tmp/freshet-flink-checkpoints';
 SET 'execution.checkpointing.externalized-checkpoint-retention' =
     'RETAIN_ON_CANCELLATION';
 
--- One shared source for both lifecycle transitions. The two branches below used to
--- be byte-identical apart from their status list, including a twelve-line comment
--- copy-pasted into each -- and the recency guard was pasted into only ONE of them.
--- A view cannot live inside a STATEMENT SET, so it is declared here.
+-- One shared source for both lifecycle transitions: the two branches used to
+-- be byte-identical apart from status, including a pasted 12-line comment —
+-- and the recency guard was pasted into only ONE. A view can't live inside a STATEMENT SET, so declared here.
 CREATE TEMPORARY VIEW recent_transitions AS
 SELECT provider, incident_id, incident_name, created_at, proc_time,
        CASE WHEN LOWER(status) IN ('resolved', 'completed', 'complete')
@@ -148,40 +131,33 @@ SELECT provider, incident_id, incident_name, created_at, proc_time,
 FROM raw_incidents
 WHERE created_at IS NOT NULL
   -- 'monitoring' counts as open: some providers never post investigating.
-  -- 'complete' (no 'd') is what hashicorp posts -- measured on the live feed;
-  -- without it those incidents resolve silently and never get a postmortem.
+  -- 'complete' (no 'd') is what hashicorp posts, measured live — without it those incidents never get a postmortem.
   AND LOWER(status) IN ('investigating', 'identified', 'monitoring',
                         'resolved', 'completed', 'complete')
-  -- Only RECENT transitions, for BOTH directions. The source is a re-emitting
-  -- poller reading from earliest, and a resubmitted job starts with empty dedup
-  -- state, so without this every incident in 3 years of history transitions again:
-  -- a sample of 3,000 lifecycle records held 1,429 opens of which 10 were under a
-  -- day old. The Autopilot would page a human about outages from 2022.
-  -- The guard used to be on the opened branch only, so a cold replay still emitted
-  -- a 'resolved' for every historical incident and the consumer's
-  -- _DEFER_POSTMORTEM_SQL flagged thousands of rows postmortem_needed. A resolving
-  -- update's own created_at is "now", so this is safe for long-running incidents.
+  -- Only RECENT transitions, both directions: the poller re-emits from
+  -- earliest and a resubmitted job starts with empty dedup state, so without
+  -- this every incident in 3 years transitions again — measured 1,429 opens
+  -- of 3,000 records, only 10 under a day old. The guard was once on the
+  -- opened branch only, so a cold replay still flagged thousands of rows
+  -- postmortem_needed. A resolving update's own created_at is "now", so this is safe for long incidents.
   AND created_at > CURRENT_TIMESTAMP - INTERVAL '24' HOUR;
 
 EXECUTE STATEMENT SET
 BEGIN
 
--- 1. Deduplication. The poller re-delivers everything each sweep; keep the FIRST
---    arrival of each (provider, incident, update) and drop every repeat.
--- Rows that PARSE but have no usable created_at were dropped by every branch
--- below with no trace. Routing them to a dead-letter topic makes the loss
--- visible and replayable, the same contract the embedder already honours.
--- (json.ignore-parse-errors still silently drops rows that are not valid JSON
--- at all; those never become rows and so cannot be routed here.)
+-- 1. Deduplication. The poller re-delivers everything each sweep; keep the
+--    FIRST arrival of each (provider, incident, update), drop repeats.
+-- Rows that PARSE but have no usable created_at were silently dropped before;
+-- route them to a dead-letter topic instead (json.ignore-parse-errors still
+-- drops non-JSON rows before they ever become rows, so those can't be routed here).
 INSERT INTO raw_deadletter
 SELECT provider, incident_id, update_id, incident_name, status, text, proc_time
 FROM raw_incidents
 WHERE created_at IS NULL;
 
 INSERT INTO normalized_updates
--- Emits the project's canonical Event shape (freshet/common/schemas.py), which is
--- what the embedder, retrieval and Autopilot all speak. `ingested_at` is our
--- processing time, so the gap to `ts` is the poll wait we do not control.
+-- Emits the project's canonical Event shape (schemas.py). `ingested_at` is
+-- our processing time, so the gap to `ts` is the poll wait we don't control.
 SELECT coalesce(v, 1) AS v,
        provider || ':' || incident_id || ':' || update_id AS event_id,
        created_at   AS ts,
@@ -189,31 +165,24 @@ SELECT coalesce(v, 1) AS v,
        provider     AS service,
        'alert'      AS source,
        'status_update' AS type,
-       -- Namespaced by provider. Statuspage ids are per-tenant and this value is a
-       -- PRIMARY KEY shared by 42 tenants; unqualified, a collision merges two
-       -- providers' incidents into one row and the brief cites the wrong one.
+       -- Namespaced by provider: Statuspage ids are per-tenant, shared as a
+       -- PRIMARY KEY across 42 tenants — unqualified, a collision merges two providers' incidents.
        provider || ':' || incident_id AS incident_id,
        incident_name || ': ' || text AS text,
        incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (
-             -- body_digest is in the TUPLE, not in event_id. An identical
-             -- re-emission (the poller re-sends everything every 60s) is the same
-             -- tuple and is suppressed; an EDITED body is a new tuple and is
-             -- emitted once more under the SAME event_id, so the embedder's
-             -- idempotent upsert corrects the row in place and the orphan-chunk
-             -- delete handles an edit that shortened the text.
+             -- body_digest is in the TUPLE, not event_id: an identical
+             -- re-emission is the same tuple and suppressed; an EDITED body is
+             -- a new tuple, re-emitted under the SAME event_id, so the
+             -- embedder's idempotent upsert corrects the row in place.
              --
-             -- Do NOT "fix" this by switching to keep-last (ORDER BY proc_time
-             -- DESC): the poller is stateless and re-emits every update every
-             -- sweep, so keep-last would re-emit — and re-embed — the entire
-             -- corpus every 60 seconds, which is exactly what deduping upstream
-             -- of the embedder exists to prevent.
+             -- Do NOT switch to keep-last (ORDER BY proc_time DESC): the
+             -- poller re-emits every update every sweep, so keep-last would
+             -- re-embed the entire corpus every 60s — the opposite of why dedup is upstream.
              --
-             -- coalesce is for legibility, not correctness: records produced before
-             -- body_digest existed carry NULL, and SQL window partitioning already
-             -- groups NULLs together. Spelling it '' says so out loud, and matches
-             -- what the poller now always sends.
+             -- coalesce is legibility, not correctness: window partitioning
+             -- already groups NULLs; '' just says so and matches what the poller now sends.
              PARTITION BY provider, incident_id, update_id, coalesce(body_digest, '')
              ORDER BY proc_time ASC) AS seq
   FROM raw_incidents
@@ -221,29 +190,24 @@ FROM (
 )
 WHERE seq = 1;
 
--- 2. Incident lifecycle, for the Autopilot. v1 had to INFER this by correlating
+-- 2. Incident lifecycle, for the Autopilot: v1 inferred this by correlating
 --    event types; the feeds state it outright.
 --
---    FIRST-open and FIRST-resolve only. Deduping per UPDATE (as this used to)
---    emitted 'opened' for every investigating/identified update, so a long
---    incident fired the lifecycle repeatedly — the Autopilot re-claimed it on
---    each one and only the delivery guard stopped a duplicate brief. Partitioning
---    by (provider, incident_id) instead of (.., update_id) means one open and one
---    resolve per incident, which is what the surface actually means.
---    Partitioning by (provider, incident_id, transition) means one open and one
---    resolve per incident, which is what the surface actually means.
+--    FIRST-open and FIRST-resolve only: deduping per UPDATE (as this used to)
+--    fired 'opened' on every investigating/identified update, re-claiming a
+--    long incident repeatedly. Partitioning by (provider, incident_id,
+--    transition) gives one open and one resolve per incident.
 INSERT INTO incident_lifecycle
 SELECT provider || ':' || incident_id AS incident_id, provider AS service,
        transition AS `type`, created_at AS ts, incident_name AS title
 FROM (
   SELECT *, ROW_NUMBER() OVER (
              -- ORDER BY a SINGLE time attribute: this is what Flink recognises
-             -- as deduplication (keep-first), which is append-only and so can
-             -- feed a Kafka sink. Adding a second sort key makes it a general
-             -- Rank, whose changelog contains updates, and the sink rejects the
-             -- job outright with "doesn't support consuming update and delete
-             -- changes". proc_time (not created_at) keeps emission immediate and
-             -- independent of how late a re-emitted update's event time is.
+             -- as deduplication (keep-first), append-only and so sinkable to
+             -- Kafka. A second sort key makes it a general Rank, whose
+             -- changelog has updates — the sink rejects the job outright
+             -- ("doesn't support consuming update and delete changes").
+             -- proc_time (not created_at) keeps emission immediate, independent of a re-emitted event's lateness.
              PARTITION BY provider, incident_id, transition
              ORDER BY proc_time ASC) AS seq
   FROM recent_transitions
