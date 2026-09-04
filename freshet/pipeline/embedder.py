@@ -45,9 +45,8 @@ log = logging.getLogger(__name__)
 NORMALIZED_TOPIC = "normalized.updates"
 
 
-# A title is the "<incident_name>: " prefix Flink prepends to every update. Split
-# on the first ": " only — titles legitimately contain colons ("Aug 10: 30am UTC"),
-# and the incident name is always the leading segment.
+# The "<incident_name>: " prefix Flink prepends. Split on the first ": " only —
+# titles legitimately contain colons ("Aug 10: 30am UTC"), the name is always leading.
 MAX_TITLE_LEN = 120
 
 
@@ -60,13 +59,10 @@ def title_of(text: str) -> str | None:
     return head if 0 < len(head) <= MAX_TITLE_LEN else None
 
 
-# The incident title reaches the index only on chunk _0 — Flink prepends
-# "<name>: " to the text and the chunker splits it away for everything after.
-# That is 40.6% of live chunks with no incident context, and restoring it was
-# MEASURED and made retrieval worse (recall@5 0.436 -> 0.400): the repeated
-# title dominates short chunks and crowds out the body. The `title` column
-# carries the incident name for citation labelling instead. See RESULTS.md,
-# "Measured and rejected".
+# Title reaches only chunk _0 (Flink's "<name>: " prefix is split away after).
+# 40.6% of chunks lack it; restoring it was MEASURED and made retrieval worse
+# (recall@5 0.436 -> 0.400) — repeated titles crowd out short-chunk bodies.
+# `title` column carries it for citation instead. See RESULTS.md "Measured and rejected".
 def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorRecord]:
     """One record per text chunk. chunk_id derives from event_id + index, so
     redelivery and replay overwrite the same rows (idempotent). Blank text
@@ -93,9 +89,8 @@ def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorReco
     ]
 
 
-# Anything at or beyond the current chunk count is left over from a previous,
-# longer version of this text. Reads the stored ordinal rather than regex-parsing
-# it back out of the primary key.
+# Anything at or beyond the current chunk count is left over from a longer
+# previous version of this text. Reads the stored ordinal, not a regex re-parse.
 _DELETE_ORPHAN_CHUNKS_SQL = (
     "DELETE FROM vector_records WHERE event_id = %s AND chunk_index >= %s")
 # incident_events exists in the schema but nothing wrote to it.
@@ -158,23 +153,19 @@ def observe_indexed(rec: VectorRecord, ingested_at: datetime | None = None) -> N
 # so one poison event cannot crash-loop the worker (crash → redelivery → crash).
 EMBED_ATTEMPTS = 3
 
-# Versions this worker knows how to interpret. A higher one is NOT an error — the
-# fields it does understand are still valid, and dead-lettering would drain a whole
-# producer rollout — but it must not pass silently, or a half-migrated producer is
-# indistinguishable from a healthy pipeline.
+# Versions this worker understands. A higher one is NOT an error — its known
+# fields are still valid, and dead-lettering would drain a whole producer
+# rollout — but it must not pass silently, or a half-migrated producer looks healthy.
 KNOWN_WIRE_VERSIONS = frozenset({1})
 
-# A run of dead-letters this long is not message poison — it is the embedder itself
-# (OOM, missing weights, a bad torch thread setting). The upsert path already
-# refuses to dead-letter infrastructure failures because "dead-lettering them during
-# a DB outage would drain the stream into the DLQ"; without the same guard here, a
-# broken model empties the topic into the DLQ as fast as the consumer can poll it.
+# A run this long is not message poison, it's the embedder itself (OOM, missing
+# weights, bad torch settings). Without this guard — the upsert path has one, for
+# the same reason — a broken model drains the topic into the DLQ.
 MAX_CONSECUTIVE_DEADLETTERS = 10
 
-# consume_loop defaults to a synchronous offset commit per message, and this worker
-# never overrode it — that round trip, not the embedding, was the measured
-# throughput ceiling. Every write here is idempotent (chunk_id derives from
-# event_id), so a crash mid-batch redelivers work that overwrites its own rows.
+# Synchronous per-message offset commit, not embedding, was the measured
+# throughput ceiling. Every write is idempotent (chunk_id derives from
+# event_id), so a mid-batch crash just redelivers and overwrites its own rows.
 DEFAULT_COMMIT_EVERY = 50
 
 
@@ -223,8 +214,8 @@ def make_handler(conn, emb: Embedder, producer, *,
         try:
             ev = Event.model_validate_json(value)
         except Exception as e:
-            # Genuinely one bad message: a malformed record says nothing about the
-            # health of this worker, so it must not count toward the streak.
+            # A malformed record is real poison — it says nothing about worker
+            # health, so it must not count toward the streak.
             _dead_letter(str(e), value, systemic=False)
             return
         if ev.v not in KNOWN_WIRE_VERSIONS:
@@ -233,11 +224,9 @@ def make_handler(conn, emb: Embedder, producer, *,
                         ev.event_id, ev.v, sorted(KNOWN_WIRE_VERSIONS))
         records = records_for_event(ev)
         if not records:
-            # Nothing to index — but `incidents` is what autopilot claims
-            # against, and returning without a row means this incident can
-            # never be briefed and nothing reports it. The ordering rule below
-            # (a claimable row must not exist before its evidence) has nothing
-            # to order against here: there is no evidence and never will be.
+            # No records, but `incidents` is what autopilot claims against —
+            # returning without a row means this incident is never briefed.
+            # Nothing to order against here: no evidence and never will be.
             ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
             return
         for attempt in range(1, attempts + 1):
@@ -256,10 +245,9 @@ def make_handler(conn, emb: Embedder, producer, *,
             raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
         wrong = next((len(v) for v in vectors if len(v) != EMBEDDING_DIM), None)
         if wrong is not None:
-            # Same class of problem as the count mismatch, and previously it
-            # surfaced as a psycopg error from inside upsert_record — an
-            # infrastructure failure, which is not what a misconfigured
-            # embedder is. Name it where it happens.
+            # Same class as the count mismatch — this used to surface as a
+            # psycopg error from inside upsert_record, an infrastructure
+            # failure it isn't. Name it here.
             raise RuntimeError(
                 f"embedder {getattr(emb, 'name', '?')!r} returned {wrong}-dim vectors, "
                 f"but the schema is vector({EMBEDDING_DIM}) — re-index with a "
@@ -268,12 +256,10 @@ def make_handler(conn, emb: Embedder, producer, *,
             upsert_record(conn, rec, vector, getattr(emb, "name", None))
             observe_indexed(rec, ingested_at=ev.ingested_at)
         # Re-embedding a SHORTER text leaves the previous run's extra chunks
-        # behind: chunk_id is per index, so upserts overwrite _0.._n and orphan
-        # _n+1.. — stale text that still answers queries.
+        # behind — chunk_id is per index, so upserts overwrite _0.._n and orphan _n+1..
         conn.execute(_DELETE_ORPHAN_CHUNKS_SQL, (ev.event_id, len(records)))
         # Autopilot claims against `incidents`; without a row its UPDATE matches
-        # nothing and the incident is silently never briefed. Written after the
-        # upserts so a failed index does not leave a claimable row with no evidence.
+        # nothing. Written after the upserts so a failed index leaves no claimable row.
         ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
         if ev.incident_id:
             conn.execute(_INCIDENT_EVENT_SQL, (ev.incident_id, ev.event_id))
@@ -311,10 +297,9 @@ def run(
     emb = embedder or make_embedder("bge")
     conn = connect(dsn)
     producer = make_producer(brokers)
-    # One heartbeat shared by the handler and the idle tick. Beating only on
-    # handled messages made a quiet stretch indistinguishable from downtime:
-    # at ~2 updates/hour the freshness window reset every few minutes and the
-    # measurement could never accumulate.
+    # Shared heartbeat: beating only on handled messages made a quiet stretch
+    # look like downtime — at ~2 updates/hour the freshness window reset every
+    # few minutes and the measurement could never accumulate.
     heartbeat = Heartbeat("embedder")
     handle = make_handler(conn, emb, producer, topic=topic,
                           deadletter_topic=deadletter_topic, heartbeat=heartbeat)
@@ -324,9 +309,9 @@ def run(
                          auto_commit=False, stop=stop,
                          idle_timeout_s=idle_timeout_s,
                          commit_every=commit_every,
-                         # Matters only once commit_every > 1: without it an offset
-                         # batch could commit past a dead-letter produce that has
-                         # not been acknowledged, losing the evidence silently.
+                         # Matters only once commit_every > 1: without it a commit
+                         # could land past an unacknowledged dead-letter produce,
+                         # losing the evidence silently.
                          pre_commit=producer.flush,
                          idle_hook=lambda: _beat(heartbeat, conn))
     finally:
@@ -340,11 +325,9 @@ def main() -> None:
     p.add_argument("--brokers", default="localhost:9092")
     p.add_argument("--group", default="embedder")
     p.add_argument("--max", type=int, default=None)
-    # No `stub` here on purpose. StubEmbedder exists so unit tests and CI run
-    # without a 440MB download, but it produces random unit vectors — pointing the
-    # real indexer at it silently fills the index with noise that looks like data,
-    # which is exactly what happened once and made every query abstain. Tests
-    # construct StubEmbedder() directly; production has no way to reach it.
+    # No `stub` here on purpose. StubEmbedder gives tests random unit vectors
+    # without a 440MB download; pointing production at it once silently filled
+    # the index with noise that made every query abstain. Tests construct it directly.
     p.add_argument("--embedder", choices=["bge"], default="bge")
     p.add_argument("--dsn", default=None)
     p.add_argument("--metrics-port", type=int, default=8002, help="Prometheus /metrics port (0 disables)")
