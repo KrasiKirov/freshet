@@ -19,12 +19,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-# Routine maintenance notices are near-identical to each other by construction
-# ("SIN (Singapore) on ...: We will be performing scheduled maintenance"), so
-# every one of them "recurs" and the line becomes noise. Recurrence is a claim
-# about FAILURES repeating; measured on the live corpus this filter is what
-# separates the Durable Objects case (genuinely the third occurrence) from six
-# datacenter maintenance windows that merely look alike.
+# Maintenance notices are near-identical by construction ("SIN (Singapore):
+# We will be performing scheduled maintenance"), so every one "recurs" and
+# becomes noise. This filter separates the Durable Objects case (genuinely
+# the third occurrence) from six maintenance windows that merely look alike.
 _MAINTENANCE_MARKERS = (
     "scheduled maintenance", "will be performing", "planned maintenance",
     "maintenance window", "maintenance is scheduled",
@@ -71,9 +69,8 @@ def find_recurrences(conn, embedder, *, service: str, incident_id: str,
 
     if not query_text.strip() or is_maintenance(query_text):
         return []
-    # service-filtered: a Cloudflare outage recurring is a fact about Cloudflare.
-    # The filter also puts this on the browse contract, where the caller's filter
-    # is the relevance signal rather than the cosine floor.
+    # service-filtered: a Cloudflare outage recurring is a fact about
+    # Cloudflare. Puts this on the browse contract, where the filter is the relevance signal.
     result = hybrid_search(conn, embedder, query_text, k=CANDIDATE_K, service=service)
     floor = getattr(embedder, "min_similarity", 0.7)
 
