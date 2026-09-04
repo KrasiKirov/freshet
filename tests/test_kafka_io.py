@@ -56,3 +56,54 @@ def test_after_handler_runs_before_the_offset_commits(monkeypatch):
     )
     assert order == ["h", "d"]
     assert c.committed >= 1
+
+
+def _capture_consumer_config(monkeypatch) -> dict:
+    """Intercept the librdkafka Consumer constructor and return its config."""
+    import confluent_kafka
+
+    captured: dict = {}
+
+    class _Consumer:
+        def __init__(self, conf):
+            captured.update(conf)
+
+        def subscribe(self, topics):
+            pass
+
+    monkeypatch.setattr(confluent_kafka, "Consumer", _Consumer)
+    return captured
+
+
+def test_the_consumer_tolerates_a_slow_batch_without_being_ejected(monkeypatch):
+    """librdkafka ejects a consumer that has not polled within
+    max.poll.interval.ms (its default is 300s). The embedder's per-message work
+    is unbounded, and being ejected is strictly worse than being slow: the
+    rebalance halts progress, and the heartbeat gap it opens RESETS the freshness
+    run window — so a slow embedder destroys the evidence that it was slow.
+    Observed in production: one fetch stalled 566s and the consumer left the
+    group."""
+    from freshet.common import kafka_io
+
+    captured = _capture_consumer_config(monkeypatch)
+    kafka_io.make_consumer("localhost:9092", "g", ["t"])
+    assert captured["max.poll.interval.ms"] >= 600_000, \
+        "must exceed the observed 566s stall with headroom"
+
+
+def test_the_poll_interval_is_overridable(monkeypatch):
+    from freshet.common import kafka_io
+
+    captured = _capture_consumer_config(monkeypatch)
+    monkeypatch.setenv("FRESHET_MAX_POLL_INTERVAL_MS", "120000")
+    kafka_io.make_consumer("localhost:9092", "g", ["t"])
+    assert captured["max.poll.interval.ms"] == 120_000
+
+
+def test_a_junk_override_falls_back_to_the_default(monkeypatch):
+    from freshet.common import kafka_io
+
+    captured = _capture_consumer_config(monkeypatch)
+    monkeypatch.setenv("FRESHET_MAX_POLL_INTERVAL_MS", "not-a-number")
+    kafka_io.make_consumer("localhost:9092", "g", ["t"])
+    assert captured["max.poll.interval.ms"] == kafka_io.DEFAULT_MAX_POLL_INTERVAL_MS

@@ -8,9 +8,37 @@ at-least-once; downstream upserts must be idempotent (keyed on chunk_id).
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections.abc import Callable
+
+# librdkafka ejects a consumer that has not called poll() within this window
+# (its own default is 300_000). The embedder's per-message work is unbounded: a
+# long update chunks into many texts, each embedded, with EMBED_ATTEMPTS retries
+# on top, and the resilient DB connection retries reconnects underneath. In
+# production one fetch stalled 566s and the consumer left the group.
+#
+# Being ejected is strictly worse than being slow. The rebalance halts all
+# progress, and the heartbeat gap it opens RESETS the freshness run window — so a
+# slow embedder destroys the very evidence that it was slow, which is the one
+# measurement this project exists to produce.
+#
+# Raising this does NOT hide a wedged worker. Liveness is proven independently by
+# the Postgres heartbeat (freshet/common/heartbeat.py): a stalled embedder stops
+# beating within GAP_TOLERANCE_S no matter what Kafka believes about group
+# membership. Kafka's ejection was never the detector — it was only the damage.
+DEFAULT_MAX_POLL_INTERVAL_MS = 900_000     # 15 min
+
+
+def _max_poll_interval_ms() -> int:
+    raw = os.environ.get("FRESHET_MAX_POLL_INTERVAL_MS")
+    if raw is None:
+        return DEFAULT_MAX_POLL_INTERVAL_MS
+    try:
+        return int(raw)
+    except ValueError:
+        return DEFAULT_MAX_POLL_INTERVAL_MS
 
 
 def make_producer(brokers: str):
@@ -76,6 +104,7 @@ def make_consumer(brokers: str, group_id: str, topics: list[str], auto_commit: b
             "group.id": group_id,
             "auto.offset.reset": "earliest",
             "enable.auto.commit": auto_commit,
+            "max.poll.interval.ms": _max_poll_interval_ms(),
         }
     )
     c.subscribe(topics)
