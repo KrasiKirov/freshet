@@ -9,19 +9,16 @@ import re
 
 _PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 # Resource-utilisation readings are percentages too, but a busy CPU is not a
-# failing request: counting them let a routine `cpu 50%` metric sample be
-# reported as "source reports ~50% errors" and escalate an incident to High.
-# Excluded by the resource word rather than by matching every error phrasing,
-# since the utilisation vocabulary is far smaller and more stable.
+# failing request — counting them let `cpu 50%` be reported as "~50% errors".
+# Excluded by resource word, since that vocabulary is smaller and more stable.
 _UTILISATION_RE = re.compile(
     r"\b(cpu|memory|mem|ram|disk|storage|heap|swap|utili[sz]ation|usage|"
     r"saturation|capacity|load)\b", re.I)
 
 
-# A percentage only means failure if the SAME sentence is about failing. Excluding
-# utilisation words was not enough: "99.9% availability" and "traffic is up 40%"
-# both cleared it and were reported as "source reports ~99.9% errors". Requiring
-# error context in the sentence is the positive test the negative one was missing.
+# A percentage only means failure if the SAME sentence is about failing.
+# Excluding utilisation words wasn't enough: "99.9% availability" and "traffic
+# is up 40%" both cleared it and were reported as "~99.9% errors".
 _ERROR_CONTEXT_RE = re.compile(
     r"\b(error|errors|failur\w*|failing|failed|fail|timeout\w*|timing out|"
     r"5\d{2}s?|4\d{2}s?|unavailab\w*|degrad\w*|drop\w*|reject\w*)\b", re.I)
@@ -71,9 +68,8 @@ def classify_impact(services: list[str], opened_at, resolved_at,
     mins = _duration_min(opened_at, resolved_at)
     if (pct is not None and pct >= 25) or n >= 3 or (mins is not None and mins >= 60):
         return "High"
-    # Low requires *positive* evidence of small impact (an explicitly stated low
-    # percentage). No stated figure means unknown severity → Medium, not Low: an
-    # on-call responder should not downgrade an unquantified incident to Low.
+    # Low requires POSITIVE evidence of small impact. No stated figure means
+    # unknown severity -> Medium, not Low — don't downgrade an unquantified incident.
     if (pct is not None and pct < 5) and n == 1 and (mins is None or mins < 10):
         return "Low"
     return "Medium"
