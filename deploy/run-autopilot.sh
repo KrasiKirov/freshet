@@ -1,8 +1,6 @@
 #!/bin/sh
-# Launched by launchd, which provides almost no environment: no PATH beyond the
-# basics, no shell profile, and no inherited permission to read ~/Documents.
-# Everything is therefore absolute, and the repo root is resolved from this
-# script's own location rather than from getcwd.
+# Launched by launchd, which provides almost no environment (no PATH beyond
+# basics, no profile, no ~/Documents access) — everything here is absolute.
 set -eu
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
