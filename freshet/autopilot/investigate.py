@@ -20,12 +20,10 @@ _RUNBOOK_SQL = ("SELECT text FROM vector_records WHERE service = %s AND type = '
                 " ORDER BY ts LIMIT 1")
 _INCIDENT_META_SQL = "SELECT opened_at, resolved_at FROM incidents WHERE incident_id = %s"
 _INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_id = %s"
-# The brief's update timeline is a DIRECT lookup, not a similarity search:
-# an incident's updates are a known, complete set, and retrieval filters only by
-# service — so a search would happily cite the provider's OTHER incidents.
-# Long updates are chunked, so DISTINCT ON (event_id) returned ONE chunk and the
-# brief never saw the rest — a cause stated in chunk 1 was invisible. Reassemble
-# the update by concatenating its chunks in stored-ordinal order.
+# Direct lookup, not a similarity search: an incident's updates are a known,
+# complete set, and retrieval-by-service alone would cite other incidents.
+# Chunked updates returned only ONE chunk via DISTINCT ON (event_id), hiding a
+# cause stated in chunk 1 — reassemble by concatenating chunks in stored order.
 _INCIDENT_UPDATES_SQL = (
     "SELECT event_id,"
     "       max(ts) AS ts,"
@@ -74,11 +72,9 @@ def _impact_for(conn, incident_id: str, service: str, hits) -> str:
     return estimate_impact(services, opened_at, resolved_at, [h.text for h in hits])
 
 
-# The LLM sees a bounded window of an incident's updates. p50 is 3 updates and
-# p90 is 6, but the tail runs to 179 — one such incident sends ~58k input tokens,
-# and it is billed twice (brief, then postmortem). Deterministic extraction still
-# reads EVERY update, so a cause stated in update #1 of 179 is never missed; only
-# the narrative's evidence is capped, and the brief renders 4 updates anyway.
+# The LLM sees a bounded window. p50 is 3 updates, p90 is 6, tail runs to 179
+# (~58k input tokens, billed twice: brief + postmortem). Deterministic
+# extraction still reads EVERY update, so a cause in #1 of 179 is never missed.
 MAX_NARRATIVE_UPDATES = 20
 
 
@@ -103,10 +99,9 @@ def _summarise(updates: Sequence[Cited], composer, question: str) -> str | None:
     try:
         return composer.compose(question, updates)
     except BudgetExhausted:
-        # A pause, not a failure. The caller releases its claim and keeps
-        # brief_due_at, so this posts in the next window rather than being
-        # delivered degraded and marked done. Swallowing it here made
-        # consumer.drain_due_briefs' defer path unreachable.
+        # A pause, not a failure: the caller releases its claim and keeps
+        # brief_due_at, posting next window. Swallowing it made
+        # drain_due_briefs' defer path unreachable.
         raise
     except Exception as exc:          # never let generation break an alert
         log.warning("summary generation failed (%r); rendering without it", exc)
@@ -128,22 +123,18 @@ def _gather(conn, service: str, incident_id: str, status: str, question: str,
                  fix_text=None, fix_cite=None, runbook=fetch_runbook(conn, service),
                  narrative=None, meta=meta)
     # Cause/fix from change events is kept for corpora that have them; status
-    # feeds have none, so the update timeline is ADDED, not substituted. It is
-    # sourced by direct lookup so the brief cannot cite a different incident.
+    # feeds have none, so the update timeline is ADDED via direct lookup.
     f.updates = update_lines(own)
     # Fall back to the provider's own words IF an update actually states a cause.
     stated = cause_from_updates(own)
     if stated:
         f.cause_text, f.cause_cite = stated
-    # Generation: the "G" in RAG, and the default path. The composer grounds a
-    # short summary in this incident's own updates and every citation it emits is
-    # verified against them. It summarises only — the Cause line stays a verbatim
-    # provider quote, so the model never gets to diagnose.
+    # Generation: the "G" in RAG, the default path. It summarises only — Cause
+    # stays a verbatim provider quote, so the model never gets to diagnose.
     f.narrative = _summarise(own, composer, question)
     f.impact = _impact_for(conn, incident_id, service, own)
-    # Recurrence is the only input that is NOT addressable by key: which past
-    # incident resembles this one has no primary key, so it goes through the
-    # retrieval path the eval measures. Optional — no embedder, no claim.
+    # Recurrence is the only input NOT addressable by key — which past incident
+    # resembles this one goes through the retrieval path the eval measures.
     if embedder is not None and own:
         f.recurrence = _recurrence_for(conn, embedder, service, incident_id, own)
     return f
