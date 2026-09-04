@@ -9,20 +9,18 @@ import time
 
 from freshet.autopilot.brief import Findings, render_brief
 
-# A transient Slack error (429, a blip) must not take the autopilot down, but an
-# undeliverable brief must NOT be reported as delivered: the consumer marks the
-# incident delivered on return, which would permanently suppress the retry. So:
-# retry a few times, then RAISE. The consumer releases its claim and the Kafka
-# offset stays uncommitted, so the brief is redelivered rather than lost.
+# A transient Slack error must not take autopilot down, but an undeliverable
+# brief must NOT be reported delivered — the consumer marks it delivered on
+# return, permanently suppressing retry. So: retry a few times, then RAISE, so
+# the consumer releases its claim and the offset stays uncommitted.
 MAX_ATTEMPTS = 3
 RETRY_BASE_S = 2.0
 
 _EMOJI = {"open": "🔴", "investigating": "🔴", "identified": "🔴",
           "monitoring": "🟠", "resolved": "🟢", "postmortem": "🟢"}
 
-# The LLM narrative is standard Markdown, but Slack section blocks use *mrkdwn*,
-# where bold is single asterisks and there are no ATX headings — so `**bold**` and
-# `## Heading` render literally unless converted first.
+# The LLM narrative is standard Markdown, but Slack section blocks use
+# *mrkdwn* — bold is single asterisks, no ATX headings — so convert first.
 _MD_BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
 _MD_HEADING = re.compile(r"(?m)^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]*#*[ \t]*$")
 
