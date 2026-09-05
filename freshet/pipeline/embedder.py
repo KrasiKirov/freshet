@@ -40,13 +40,9 @@ from freshet.pipeline.metrics import (
 
 log = logging.getLogger(__name__)
 
-# Produced by the Flink dedup job (freshet/stream/dedup_job.py). The poller is
-# stateless and writes raw.incidents; everything downstream of dedup reads this.
 NORMALIZED_TOPIC = "normalized.updates"
 
 
-# The "<incident_name>: " prefix Flink prepends. Split on the first ": " only —
-# titles legitimately contain colons ("Aug 10: 30am UTC"), the name is always leading.
 MAX_TITLE_LEN = 120
 
 
@@ -59,16 +55,11 @@ def title_of(text: str) -> str | None:
     return head if 0 < len(head) <= MAX_TITLE_LEN else None
 
 
-# Title reaches only chunk _0 (Flink's "<name>: " prefix is split away after).
-# 40.6% of chunks lack it; restoring it was MEASURED and made retrieval worse
-# (recall@5 0.436 -> 0.400) — repeated titles crowd out short-chunk bodies.
-# `title` column carries it for citation instead. See RESULTS.md "Measured and rejected".
 def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorRecord]:
     """One record per text chunk. chunk_id derives from event_id + index, so
     redelivery and replay overwrite the same rows (idempotent). Blank text
     yields no records."""
     stamp = now or datetime.now(UTC)
-    # Prefer the field Flink sends; derive only for legacy messages that lack it.
     title = ev.title or title_of(ev.text)
     return [
         VectorRecord(
@@ -89,11 +80,8 @@ def records_for_event(ev: Event, now: datetime | None = None) -> list[VectorReco
     ]
 
 
-# Anything at or beyond the current chunk count is left over from a longer
-# previous version of this text. Reads the stored ordinal, not a regex re-parse.
 _DELETE_ORPHAN_CHUNKS_SQL = (
     "DELETE FROM vector_records WHERE event_id = %s AND chunk_index >= %s")
-# incident_events exists in the schema but nothing wrote to it.
 _INCIDENT_EVENT_SQL = (
     "INSERT INTO incident_events (incident_id, event_id) VALUES (%s, %s)"
     " ON CONFLICT DO NOTHING")
@@ -149,23 +137,16 @@ def observe_indexed(rec: VectorRecord, ingested_at: datetime | None = None) -> N
         PIPELINE_LATENCY.observe((rec.indexed_at - ingested_at).total_seconds())
 
 
-# Encode failures retry this many times inline before the message dead-letters,
-# so one poison event cannot crash-loop the worker (crash → redelivery → crash).
+# Retries before a message dead-letters, so one poison event can't crash-loop the worker.
 EMBED_ATTEMPTS = 3
 
-# Versions this worker understands. A higher one is NOT an error — its known
-# fields are still valid, and dead-lettering would drain a whole producer
-# rollout — but it must not pass silently, or a half-migrated producer looks healthy.
+# A higher wire version is not an error (known fields are still valid) but must
+# not pass silently.
 KNOWN_WIRE_VERSIONS = frozenset({1})
 
-# A run this long is not message poison, it's the embedder itself (OOM, missing
-# weights, bad torch settings). Without this guard — the upsert path has one, for
-# the same reason — a broken model drains the topic into the DLQ.
+# This many dead-letters in a row means the embedder itself is broken, not the messages.
 MAX_CONSECUTIVE_DEADLETTERS = 10
 
-# Synchronous per-message offset commit, not embedding, was the measured
-# throughput ceiling. Every write is idempotent (chunk_id derives from
-# event_id), so a mid-batch crash just redelivers and overwrites its own rows.
 DEFAULT_COMMIT_EVERY = 50
 
 
@@ -196,7 +177,6 @@ def make_handler(conn, emb: Embedder, producer, *,
     from freshet.common.kafka_io import produce_sync
 
     heartbeat = heartbeat or Heartbeat("embedder")
-    # Consecutive SYSTEMIC dead-letters. A dict because `handle` closes over it.
     streak = {"deadletters": 0}
 
     def _dead_letter(error: str, value: str, *, systemic: bool) -> None:
@@ -214,8 +194,6 @@ def make_handler(conn, emb: Embedder, producer, *,
         try:
             ev = Event.model_validate_json(value)
         except Exception as e:
-            # A malformed record is real poison — it says nothing about worker
-            # health, so it must not count toward the streak.
             _dead_letter(str(e), value, systemic=False)
             return
         if ev.v not in KNOWN_WIRE_VERSIONS:
@@ -224,9 +202,6 @@ def make_handler(conn, emb: Embedder, producer, *,
                         ev.event_id, ev.v, sorted(KNOWN_WIRE_VERSIONS))
         records = records_for_event(ev)
         if not records:
-            # No records, but `incidents` is what autopilot claims against —
-            # returning without a row means this incident is never briefed.
-            # Nothing to order against here: no evidence and never will be.
             ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
             return
         for attempt in range(1, attempts + 1):
@@ -240,14 +215,9 @@ def make_handler(conn, emb: Embedder, producer, *,
                     return
                 sleep(0.2 * attempt)
         if len(vectors) != len(records):
-            # zip would silently truncate; a miscounting embedder is a code
-            # bug, not message poison — fail loudly
             raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(records)} chunks")
         wrong = next((len(v) for v in vectors if len(v) != EMBEDDING_DIM), None)
         if wrong is not None:
-            # Same class as the count mismatch — this used to surface as a
-            # psycopg error from inside upsert_record, an infrastructure
-            # failure it isn't. Name it here.
             raise RuntimeError(
                 f"embedder {getattr(emb, 'name', '?')!r} returned {wrong}-dim vectors, "
                 f"but the schema is vector({EMBEDDING_DIM}) — re-index with a "
@@ -255,18 +225,12 @@ def make_handler(conn, emb: Embedder, producer, *,
         for rec, vector in zip(records, vectors, strict=True):
             upsert_record(conn, rec, vector, getattr(emb, "name", None))
             observe_indexed(rec, ingested_at=ev.ingested_at)
-        # Re-embedding a SHORTER text leaves the previous run's extra chunks
-        # behind — chunk_id is per index, so upserts overwrite _0.._n and orphan _n+1..
         conn.execute(_DELETE_ORPHAN_CHUNKS_SQL, (ev.event_id, len(records)))
-        # Autopilot claims against `incidents`; without a row its UPDATE matches
-        # nothing. Written after the upserts so a failed index leaves no claimable row.
         ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
         if ev.incident_id:
             conn.execute(_INCIDENT_EVENT_SQL, (ev.incident_id, ev.event_id))
         streak["deadletters"] = 0    # a success proves the worker is healthy
         EMBEDDER_MESSAGES.inc()      # one per Kafka message, not per chunk
-        # Proof of uptime for the freshness eval: without it a catch-up burst
-        # after an outage is indistinguishable from a slow pipeline.
         heartbeat.beat(conn)
 
     return handle
@@ -297,9 +261,6 @@ def run(
     emb = embedder or make_embedder("bge")
     conn = connect(dsn)
     producer = make_producer(brokers)
-    # Shared heartbeat: beating only on handled messages made a quiet stretch
-    # look like downtime — at ~2 updates/hour the freshness window reset every
-    # few minutes and the measurement could never accumulate.
     heartbeat = Heartbeat("embedder")
     handle = make_handler(conn, emb, producer, topic=topic,
                           deadletter_topic=deadletter_topic, heartbeat=heartbeat)
@@ -309,9 +270,6 @@ def run(
                          auto_commit=False, stop=stop,
                          idle_timeout_s=idle_timeout_s,
                          commit_every=commit_every,
-                         # Matters only once commit_every > 1: without it a commit
-                         # could land past an unacknowledged dead-letter produce,
-                         # losing the evidence silently.
                          pre_commit=producer.flush,
                          idle_hook=lambda: _beat(heartbeat, conn))
     finally:
@@ -325,9 +283,6 @@ def main() -> None:
     p.add_argument("--brokers", default="localhost:9092")
     p.add_argument("--group", default="embedder")
     p.add_argument("--max", type=int, default=None)
-    # No `stub` here on purpose. StubEmbedder gives tests random unit vectors
-    # without a 440MB download; pointing production at it once silently filled
-    # the index with noise that made every query abstain. Tests construct it directly.
     p.add_argument("--embedder", choices=["bge"], default="bge")
     p.add_argument("--dsn", default=None)
     p.add_argument("--metrics-port", type=int, default=8002, help="Prometheus /metrics port (0 disables)")
