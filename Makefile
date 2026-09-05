@@ -1,15 +1,11 @@
 COMPOSE := docker compose
-# Prefer the repo's own virtualenv: every run target imports project
-# dependencies (confluent_kafka, psycopg, ...), and a bare `python3` is the
-# system interpreter without them. Falls back to PATH; `make PYTHON=...` overrides both.
+# Prefer the repo's own virtualenv; `make PYTHON=...` overrides.
 PYTHON := $(if $(wildcard $(CURDIR)/.venv/bin/python),$(CURDIR)/.venv/bin/python,$(shell command -v python3 2>/dev/null || command -v python))
 
 .PHONY: help up down db-init test test-integration poller api autopilot
 
 .DEFAULT_GOAL := help
 
-# `make` with no argument lists what exists, grouped. There are ~29 targets;
-# without this the only way to discover them is to read the file.
 help: ##meta
 	@echo "Freshet — make targets"
 	@for g in stack dev run demo eval; do \
@@ -24,7 +20,6 @@ help: ##meta
 	done
 	@echo ""
 
-# Bring the stack up and block until both containers report healthy.
 up: ##stack
 	$(COMPOSE) up -d
 	@echo "waiting for services to be healthy..."
@@ -42,37 +37,30 @@ up: ##stack
 	@sh deploy/topics.sh >/dev/null
 	@echo "topics declared (see deploy/topics.sh)."
 
-# Tear down and drop the Postgres volume.
 down: ##stack
 	COMPOSE_PROFILES=obs $(COMPOSE) down -v
 
-# Apply the schema to a running stack (idempotent).
 db-init: ##stack
 	docker exec -i freshet-postgres psql -v ON_ERROR_STOP=1 -U freshet -d freshet < db/init.sql
 
-# Apply a one-off migration from db/migrations/ (db-init only applies the schema).
+# db-init only applies the schema; this applies a one-off migration.
 db-migrate: ##stack
 	@test -n "$(FILE)" || { echo "usage: make db-migrate FILE=db/migrations/....sql"; exit 1; }
 	docker exec -i freshet-postgres psql -v ON_ERROR_STOP=1 -U freshet -d freshet < $(FILE)
 
-# Run the unit tests (no broker needed; integration tests are excluded by pytest addopts).
 test: ##dev
 	$(PYTHON) -m pytest -q
 
-# Integration tests against the running stack (make up first).
+# Integration tests need the stack up (make up).
 test-integration: ##dev
 	$(PYTHON) -m pytest -q -m integration
 
 
-# Autopilot: consume incident.lifecycle and print a cited brief per new incident.
-# Sources .env.local for ANTHROPIC_API_KEY, which the brief composer requires.
-# Load-bearing: undefined, $(FLINK_HOME) expands to empty and flink-dist silently
-# downloads a bogus URL (curl error 56).
+# Load-bearing: if undefined, $(FLINK_HOME) expands to empty and flink-dist
+# silently downloads a bogus URL.
 FLINK_VERSION := 1.20.0
 FLINK_HOME := .flink/flink-$(FLINK_VERSION)
 
-# One-time: fetch the Flink distribution and the Kafka connector. Flink SQL is
-# pure JVM — PyFlink isn't installable here (apache-beam ships no macOS ARM64 wheel).
 flink-dist: ##stack
 	@mkdir -p .flink
 	@test -d $(FLINK_HOME) || (cd .flink && \
@@ -82,12 +70,10 @@ flink-dist: ##stack
 	  https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.3.0-1.20/flink-sql-connector-kafka-3.3.0-1.20.jar
 	@echo "flink $(FLINK_VERSION) ready in $(FLINK_HOME)"
 
-# Start the local Flink cluster and submit the dedup + lifecycle job.
 stream: flink-dist ##run
 	@$(FLINK_HOME)/bin/start-cluster.sh >/dev/null 2>&1 || true
 	@sleep 5
-	@# Cancel any job already running: each submission carries its OWN dedup
-	@# state, so a second job re-emits everything and multiplies the embedder's workload.
+	@# Cancel any job already running, or a second submission doubles output.
 	@for j in $$(curl -s -m 5 http://localhost:8081/jobs 2>/dev/null \
 	    | tr ',' '\n' | grep -B1 RUNNING | grep -o '[0-9a-f]\{32\}'); do \
 	  echo "cancelling running job $$j"; \
@@ -99,9 +85,6 @@ stream: flink-dist ##run
 stream-stop: ##run
 	@$(FLINK_HOME)/bin/stop-cluster.sh
 
-# What the stream job read vs emitted, per operator. json.ignore-parse-errors
-# drops non-JSON rows before they're dead-letterable, but the source still
-# counts them — a drifting producer shows as read climbing while output stays flat.
 stream-health: ##run
 	@$(PYTHON) -m freshet.stream.health
 
@@ -111,11 +94,8 @@ embedder: ##run
 poller: ##run
 	$(PYTHON) -m freshet.ingest.poller
 
-# One long-running process: poller + embedder + autopilot are separate
-# targets, but this runs autopilot alone, unsupervised. launchd instead execs
-# deploy/run-live.sh, which runs all three under freshet.ops.supervisor. CPU
-# bounded by FRESHET_TORCH_THREADS (bge otherwise takes every core), spend by
-# the LLM budget in Postgres.
+# Runs autopilot alone, unsupervised. launchd instead execs deploy/run-live.sh,
+# which runs poller + embedder + autopilot under freshet.ops.supervisor.
 run-forever: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	mkdir -p logs; \
@@ -125,7 +105,6 @@ run-forever: ##run
 	FRESHET_SINK=slack \
 	exec $(PYTHON) -m freshet.autopilot --brokers localhost:9092 --sink slack
 
-# Install/remove the launchd agent that keeps `run-forever` alive across reboots.
 service-install: ##run
 	@mkdir -p $(HOME)/Library/LaunchAgents logs
 	@chmod +x deploy/run-live.sh
@@ -143,40 +122,28 @@ autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
 
-# Trigger a brief on demand from a REAL indexed incident, for screenshots.
-# Live incidents arrive ~2/hour, which is the wrong rate for taking pictures.
 demo-brief: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot.demo_trigger $(ARGS)
 
 review-labels: ##eval
-	@# Print a reproducible 20-row sample for HUMAN review; --apply records verdicts.
 	$(PYTHON) -m freshet.eval.review_labels $(ARGS)
 
 calibrate-abstention: ##eval
-	@# Proposes an abstention floor from paraphrased live labels. Never writes it.
 	$(PYTHON) -m freshet.eval.calibrate_abstention
 
 chunk-sweep: ##eval
-	@# Sweeps DEFAULT_MAX_CHARS against the labeled fixture corpus. Re-indexes the
-	@# dedicated eval database once per size; never touches the live index.
 	$(PYTHON) -m freshet.eval.chunk_sweep
 
 index-stats: ##eval
-	@# Recompute the index centroid that the abstention floor is measured against.
-	@# Re-run after a bulk re-index; a few minutes of drift is immaterial.
 	$(PYTHON) -m freshet.pipeline.index_stats $(ARGS)
 
 label-live: ##eval
-	@# Curate cause labels from the LIVE index (LLM judge; output is draft).
 	$(PYTHON) -m freshet.eval.label_live
 
 retrieval-eval: ##eval
-	@# Indexes the labeled fixture corpus into a DEDICATED freshet_eval database.
 	$(PYTHON) -m freshet.eval.retrieval_eval
 
-# Only meaningful after poller + stream + embedder have run together for
-# HOURS: scores updates POSTED after indexing began, ~2/hour.
 # FRESHNESS_MIN_N=20 make freshness -> fails instead of reporting a thin sample.
 freshness: ##eval
 	$(PYTHON) -m freshet.eval.freshness
