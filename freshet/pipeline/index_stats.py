@@ -1,15 +1,15 @@
 """The index's own geometry, recorded per embedding model.
 
 bge's cosine space is anisotropic: on this corpus, RANDOM unrelated chunk pairs
-average 0.594 and 12.2% of them clear the 0.70 abstention floor. An absolute
-floor in that space cuts a percentile, not a meaning — which is why
-calibrate_abstention could find no threshold separating on-corpus from
-off-corpus questions.
+average around 0.59 and a meaningful fraction of them clear the 0.70 abstention
+floor. An absolute floor in that space cuts a percentile, not a meaning — a
+labeled-fixture calibration tool once confirmed no absolute threshold separated
+on-corpus from off-corpus questions, but that tool and its labeled fixture have
+since been retired, so the finding is not reproducible against current data.
 
-Subtracting the corpus mean removes the shared component. Measured on the live
-index (55 labels, self-document excluded), raw @0.70 gives 4/55 false
-abstentions and centered @0.44 gives 2/55, with all 6 off-corpus questions still
-rejected in both.
+Subtracting the corpus mean removes the shared component, which is why
+abstention is measured in the mean-centered space rather than raw cosine (see
+`MIN_SIMILARITY_BGE_CENTERED` in `pipeline/embedding.py`).
 
 The centroid is stored, not recomputed per query: it is an aggregate over the
 whole index and moves slowly. It is refreshed by `make index-stats`, and a

@@ -126,23 +126,8 @@ demo-brief: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	$(PYTHON) -m freshet.autopilot.demo_trigger $(ARGS)
 
-review-labels: ##eval
-	$(PYTHON) -m freshet.eval.review_labels $(ARGS)
-
-calibrate-abstention: ##eval
-	$(PYTHON) -m freshet.eval.calibrate_abstention
-
-chunk-sweep: ##eval
-	$(PYTHON) -m freshet.eval.chunk_sweep
-
 index-stats: ##eval
 	$(PYTHON) -m freshet.pipeline.index_stats $(ARGS)
-
-label-live: ##eval
-	$(PYTHON) -m freshet.eval.label_live
-
-retrieval-eval: ##eval
-	$(PYTHON) -m freshet.eval.retrieval_eval
 
 live-eval: ##eval
 	$(PYTHON) -m freshet.eval.live_retrieval

@@ -16,13 +16,16 @@ from typing import Protocol
 
 EMBEDDING_DIM = 768  # BAAI/bge-base-en-v1.5 output size
 
-# Per-model abstention floors: cosine distributions differ by model. Calibrated
-# with calibrate_abstention.py; override via FRESHET_MIN_SIMILARITY.
+# Per-model abstention floors: cosine distributions differ by model. These are
+# now fixed constants — the labeled-fixture calibration tool that derived them
+# has been retired, and its evidence retired with it, so the values below can
+# no longer be reproduced or re-derived; override via FRESHET_MIN_SIMILARITY.
 MIN_SIMILARITY_MINILM = 0.3
 MIN_SIMILARITY_BGE = 0.7
 
-# Same floor in mean-centered space (index_stats.py); recalibrate with
-# `make calibrate-abstention` when the corpus or model changes.
+# Same floor in mean-centered space (index_stats.py). Fixed for the same
+# reason: no calibration tool remains to recompute it against a new corpus
+# or model.
 MIN_SIMILARITY_BGE_CENTERED = 0.44
 
 

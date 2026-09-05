@@ -55,9 +55,9 @@ def _pack_words(sentence: str, max_chars: int) -> list[str]:
 def chunk_text(text: str, max_chars: int | None = None) -> list[str]:
     """Pack whole sentences up to max_chars; never split one unless it cannot fit.
 
-    The default is read at CALL time, not bound at import: `freshet/eval/
-    chunk_sweep.py` rebinds DEFAULT_MAX_CHARS to sweep it, and an import-time
-    default would silently ignore that and report identical rows for every size.
+    The default is read at CALL time, not bound at import: a caller can rebind
+    `DEFAULT_MAX_CHARS` at runtime, and an import-time default would silently
+    ignore that and keep using whatever value was in effect at import.
     """
     max_chars = DEFAULT_MAX_CHARS if max_chars is None else max_chars
     chunks: list[str] = []
