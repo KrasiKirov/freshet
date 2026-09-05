@@ -33,13 +33,10 @@ from freshet.common.schemas import Event, EventSource
 
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures/real"
 RESULTS = pathlib.Path("results/retrieval_eval.json")
-# Overridable so two agents on the same checkout don't TRUNCATE each other's
-# eval DB mid-run — mirrors FRESHET_TEST_DB in tests/integration/conftest.py.
 EVAL_DB = os.environ.get("FRESHET_EVAL_DB", "freshet_eval")
 K = 5
 
-# Hard negatives: on-call vocabulary for systems these five feeds never cover,
-# plus plainly unrelated questions. Both must abstain, or the floor is theatre.
+# Questions the system must abstain on.
 OFF_CORPUS = [
     "why is the payments-gateway kubernetes cluster out of memory?",
     "who rotated the TLS certificates on the internal edge proxy?",
@@ -65,15 +62,12 @@ def events_from_incident(provider: str, incident: dict) -> list[Event]:
             continue
         out.append(Event(
             event_id=event_id_for(provider, incident["id"], u["id"]),
-            # Matches what the Flink projection writes; load_labels already splits
-            # entry["incident_id"] on ':' expecting this form.
             incident_id=f"{provider}:{incident['id']}",
             service=provider,
             source=EventSource.ALERT,
             type="status_update",
             ts=datetime.fromisoformat(u["created_at"].replace("Z", "+00:00")),
-            # Flink emits `incident_name || ': ' || text`, with the name also
-            # carried separately — reproduced exactly so chunking/titling match production.
+            # mirrors Flink's `incident_name || ': ' || text`
             text=f"{name}: {body}" if name else body,
             title=name or None,
         ))
@@ -147,8 +141,6 @@ def ensure_eval_db() -> str:
 
     from freshet.common.db import DEFAULT_DSN
 
-    # Derived from the project's DSN by swapping only the database name —
-    # hardcoding host/port/credentials pointed at the wrong Postgres (5433, not 5432).
     base = os.environ.get("FRESHET_DSN", DEFAULT_DSN).rsplit("/", 1)[0]
     admin, dsn = f"{base}/postgres", f"{base}/{EVAL_DB}"
     with psycopg.connect(admin, autocommit=True) as c:
@@ -211,8 +203,7 @@ def main() -> None:
     from freshet.pipeline.embedding import make_embedder
     from freshet.rag.retrieval import hybrid_search, keyword_sql, vector_sql
 
-    # `live` scores the running index (42 providers, current) against labels
-    # curated from it; the fixture corpus is frozen and reproducible, so CI runs that.
+    # `live` scores the running index; fixture is the frozen corpus CI uses.
     source = os.environ.get("RETRIEVAL_EVAL_SOURCE", "fixture")
     if source == "live":
         return _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder)
@@ -258,9 +249,6 @@ def main() -> None:
         "corpus": {"updates": len(events),
                    "incidents": len({e.incident_id for e in events}),
                    "labeled": len(labels["labeled"]), "curated": labels.get("curated")},
-        # Shape the numbers below were measured on: live index is 235 mean
-        # chars / 40.7% multi-chunk vs this corpus's 159 / 7.3% — a change
-        # that's free here may not be.
         "corpus_shape": corpus_shape([chunk_text(e.text) for e in events]),
         "arms": scored,
         "gameability_guard": {
@@ -282,11 +270,6 @@ def main() -> None:
 
 
 
-# What the live index looked like when these numbers were taken. Without it a
-# committed results file is unfalsifiable — retrieval_eval_live.json was once
-# measured against a 12,155-row index where 7,435 rows (61%) were amplified
-# duplicates from a source-adapter bug, unrecorded. Row count/provider mix are
-# the cheapest signal a corpus changed underneath a comparison.
 _INDEX_PROVENANCE_SQL = (
     "WITH n AS (SELECT (regexp_match(chunk_id, '_(\\d+)$'))[1]::int AS idx,"
     "                  length(text) AS len, service, event_id FROM vector_records)"
@@ -349,8 +332,6 @@ def _main_live(hybrid_search, keyword_sql, vector_sql, make_embedder) -> None:
         "corpus": {"labeled": len(labels["labeled"]),
                    "providers": len({e["service"] for e in labels["labeled"]}),
                    "curated": labels.get("curated")},
-        # The index these numbers describe. A results file without this cannot be
-        # told apart from one measured on a different corpus.
         "index": index_provenance(conn),
         "arms": scored,
         "gameability_guard": {"blind_recall@5": scored["blind_recent"]["recall@5"],
