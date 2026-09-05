@@ -20,10 +20,7 @@ _RUNBOOK_SQL = ("SELECT text FROM vector_records WHERE service = %s AND type = '
                 " ORDER BY ts LIMIT 1")
 _INCIDENT_META_SQL = "SELECT opened_at, resolved_at FROM incidents WHERE incident_id = %s"
 _INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_id = %s"
-# Direct lookup, not a similarity search: an incident's updates are a known,
-# complete set, and retrieval-by-service alone would cite other incidents.
-# Chunked updates returned only ONE chunk via DISTINCT ON (event_id), hiding a
-# cause stated in chunk 1 — reassemble by concatenating chunks in stored order.
+# concatenates chunk rows per event_id so a cause split across chunks isn't hidden
 _INCIDENT_UPDATES_SQL = (
     "SELECT event_id,"
     "       max(ts) AS ts,"
@@ -72,9 +69,6 @@ def _impact_for(conn, incident_id: str, service: str, hits) -> str:
     return estimate_impact(services, opened_at, resolved_at, [h.text for h in hits])
 
 
-# The LLM sees a bounded window. p50 is 3 updates, p90 is 6, tail runs to 179
-# (~58k input tokens, billed twice: brief + postmortem). Deterministic
-# extraction still reads EVERY update, so a cause in #1 of 179 is never missed.
 MAX_NARRATIVE_UPDATES = 20
 
 
@@ -99,9 +93,7 @@ def _summarise(updates: Sequence[Cited], composer, question: str) -> str | None:
     try:
         return composer.compose(question, updates)
     except BudgetExhausted:
-        # A pause, not a failure: the caller releases its claim and keeps
-        # brief_due_at, posting next window. Swallowing it made
-        # drain_due_briefs' defer path unreachable.
+        # pause, not failure: caller keeps brief_due_at and retries next window
         raise
     except Exception as exc:          # never let generation break an alert
         log.warning("summary generation failed (%r); rendering without it", exc)
@@ -122,19 +114,14 @@ def _gather(conn, service: str, incident_id: str, status: str, question: str,
     f = Findings(service=service, status=status, cause_text=None, cause_cite=None,
                  fix_text=None, fix_cite=None, runbook=fetch_runbook(conn, service),
                  narrative=None, meta=meta)
-    # Cause/fix from change events is kept for corpora that have them; status
-    # feeds have none, so the update timeline is ADDED via direct lookup.
     f.updates = update_lines(own)
-    # Fall back to the provider's own words IF an update actually states a cause.
     stated = cause_from_updates(own)
     if stated:
         f.cause_text, f.cause_cite = stated
-    # Generation: the "G" in RAG, the default path. It summarises only — Cause
-    # stays a verbatim provider quote, so the model never gets to diagnose.
+    # narrative summarises; cause_text stays a verbatim provider quote
     f.narrative = _summarise(own, composer, question)
     f.impact = _impact_for(conn, incident_id, service, own)
-    # Recurrence is the only input NOT addressable by key — which past incident
-    # resembles this one goes through the retrieval path the eval measures.
+    # recurrence is the only field resolved by retrieval rather than key lookup
     if embedder is not None and own:
         f.recurrence = _recurrence_for(conn, embedder, service, incident_id, own)
     return f
@@ -151,7 +138,6 @@ def _recurrence_for(conn, embedder, service: str, incident_id: str, own) -> str 
     from freshet.autopilot.recurrence import find_recurrences, recurrence_line
 
     earliest = min(own, key=lambda u: u.ts)
-    # Query with the provider's own symptom text, exactly as the eval does.
     matches = find_recurrences(conn, embedder, service=service,
                                incident_id=incident_id, query_text=earliest.text,
                                before=earliest.ts)
