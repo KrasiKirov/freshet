@@ -26,7 +26,7 @@ makes the metric measure pipeline speed rather than when it was switched on.
 
 **Measured: n = 38, mean 101.82s, p50 90.19s, p95 197.65s**, ratio **24.39×**
 against this run's derived hourly-batch arm (2483.33s). Scored across the
-current run's unbroken 09:00:00 span (2026-09-04T19:57:01Z – 2026-09-05T04:57:00Z,
+current run's unbroken 8:59:59 span (2026-09-04T19:57:01Z – 2026-09-05T04:57:00Z,
 still running), zero child restarts. `n` counts individual updates, not
 incidents — several updates in this run belong to the same incident thread.
 
@@ -40,9 +40,9 @@ scored as ~9.8 hours of staleness. The measurement was of my own outage.
 Uptime is now proven rather than assumed: the embedder writes a heartbeat, and
 only the CURRENT unbroken run is scored (a gap over 5 minutes starts a new run).
 A restart therefore resets the window instead of charging its backlog to the
-pipeline's speed. With no live arrivals yet the report carries `status: not yet
-measured` and no ratio at all, and `FRESHNESS_MIN_N` fails the run rather than
-reporting a thin sample.
+pipeline's speed. If there are no live arrivals, the report carries `status: not
+yet measured` and no ratio at all, and `FRESHNESS_MIN_N` fails the run rather
+than reporting a thin sample.
 
 ## Measured on the live pipeline
 
@@ -339,6 +339,51 @@ Every recall/MRR number in this section is superseded and needs re-running on a
 settled clean index. On the current 8,966-chunk index: hybrid recall@5 0.345,
 vector_only 0.345, keyword_only 0.255, abstention 0/55 and 6/6, guard
 `meaningful`. That is a different corpus, not a regression.
+
+## Autonomous delivery
+
+Three real incidents opened and were briefed with no human trigger:
+
+| incident | title | opened | briefed | gap | resolved | postmortem | gap |
+|---|---|---|---|---|---|---|---|
+| `github:31355391` | Disruption with Copilot Code Review | 20:39:00Z | 20:41:25.98Z | **+146.0s** | 22:26:00Z | 22:27:53.74Z | +113.7s |
+| `github:31355785` | Degradation in repos contents API | 22:02:00Z | 22:03:43.50Z | **+103.5s** | 22:23:00Z | 22:24:46.09Z | +106.1s |
+| `cloudflare:ftvf8c3m4mv5` | Elevated R2 503 errors, Eastern North America | 21:10:00Z | 21:12:32.70Z | **+152.7s** | 2026-09-05 00:42:00Z | 2026-09-05 00:46:46.28Z | +286.3s |
+
+All three timestamps are direct reads from `incidents` after the run ended, not
+carried forward from an earlier check — `cloudflare:ftvf8c3m4mv5` had not yet
+resolved the last time this was measured, and re-querying is what turned up its
+resolve and postmortem rows.
+
+**No human triggered any of these.** `make demo-brief`'s candidate query
+(`freshet/autopilot/demo_trigger.py`) requires `count(DISTINCT event_id) >= 3`
+indexed updates before it will even list an incident; `github:31355391` had
+exactly one indexed row when it briefed, so the demo tool could not have
+selected it — not merely "wasn't used," but structurally incapable of it. And
+`slack_ts` has exactly one writer in the codebase, `mark_brief_delivered`
+(`freshet/autopilot/consumer.py`), fed only by `sink.deliver()`'s return value;
+the dry-run sink returns `None`. A non-null `slack_ts`, which all three rows
+carry, can only be a real Slack API response.
+
+**Coverage is 3 of 3 real incidents, not 3 of 10.** 13 incidents opened during
+this run window: the 3 above, and 10 scheduled-maintenance rows (Twilio SMS
+carrier-partner maintenance across several regions, and two Cloudflare
+datacentre maintenance windows in Canberra and Fukuoka). None of the 10 was
+briefed. The `incidents` table records an `opened_at` for maintenance rows same
+as for outages, but the lifecycle projection's status predicate correctly
+declines to emit an `opened` event for them — the two paths disagree, and only
+the briefing path's behavior is user-visible. Briefing a maintenance window as
+an outage would be a false alarm, so the 3-of-3 figure, not 3-of-13, is the
+right one to quote.
+
+**8 briefs were delivered over the run in total**: the 3 above, plus 5 more at
+start-up (`grafana:31354051`, `zoom:31354321`,
+`hashicorp:01M1PRS06XEYC48D769GDVZ0YW`, `vercel:31354879`,
+`cloudflare:6ztvhhp2ll11`) for incidents that had opened during an earlier
+Docker/Kafka outage. Those 5 were caught up within an 11-second window once the
+pipeline came back; their open-to-brief gaps (182s–10,503s) measure how long
+the outage delayed them, not the pipeline's steady-state latency, and are not
+counted among the latency figures above.
 
 ## Honest limits
 
