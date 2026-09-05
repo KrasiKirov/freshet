@@ -24,7 +24,11 @@ a ratio of 0.06** — streaming apparently *losing* to hourly batch — purely b
 three years of backfilled history had all been indexed at once. The filter is what
 makes the metric measure pipeline speed rather than when it was switched on.
 
-**Status: not yet measured**, and the eval now says so rather than emitting zeros.
+**Measured: n = 38, mean 101.82s, p50 90.19s, p95 197.65s**, ratio **24.39×**
+against this run's derived hourly-batch arm (2483.33s). Scored across the
+current run's unbroken 09:00:00 span (2026-09-04T19:57:01Z – 2026-09-05T04:57:00Z,
+still running), zero child restarts. `n` counts individual updates, not
+incidents — several updates in this run belong to the same incident thread.
 
 The earlier number here (`n=33`, ratio 0.06 — streaming apparently 14x SLOWER than
 hourly batch) was an artifact and has been deleted. Its cause is worth recording:

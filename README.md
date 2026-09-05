@@ -86,12 +86,15 @@ uses a dedicated `freshet_test` database so it cannot touch a running index.
 | dedup | 3,676 → **3,671** (exactly the 5 duplicate records in the corpus) |
 | observed rate | ~**50 updates/day**, ~2 incidents/hour |
 | incidents stating a cause | **3 of 68 (4%)** |
+| staleness | **24.39×** hourly batch — n=38 updates, mean 101.82s (p50 90.19s, p95 197.65s) vs derived 2483.33s arm, 09:00:00 unbroken run |
 
-**Staleness — the headline number — is not yet measured.** `results/freshness.json`
-reports `n = 0`: only updates posted *after* indexing began are scored, and live
-updates arrive at roughly 2/hour, so it needs a multi-hour run. Derived from the
-poll cadence it should land near **~58×** an hourly batch index (~31s vs ~1800s),
-but that figure is an expectation, not a measurement, until `n` is meaningful.
+**Staleness — the headline number — measures 24.39×** an hourly batch index: a
+streaming mean of 101.82s (p50 90.19s, p95 197.65s) against this run's derived
+batch arm of 2483.33s, from **n = 38** live updates scored over an unbroken
+09:00:00 run (`results/freshness.json`). `n` counts individual updates, not
+incidents — several updates here belong to the same incident thread. Derived
+from the poll cadence alone, the expectation was **~58×** (~31s vs ~1800s); the
+measured figure is well below that expectation.
 
 ## Honest limits
 

@@ -1,11 +1,11 @@
 {
-  "streaming_mean_s": 77.08,
-  "streaming_p50_s": 77.08,
-  "streaming_p95_s": 77.08,
-  "batch_mean_s": 3600.0,
+  "streaming_mean_s": 101.82,
+  "streaming_p50_s": 90.19,
+  "streaming_p95_s": 197.65,
+  "batch_mean_s": 2483.33,
   "batch_interval_s": 3600.0,
-  "ratio": 46.7,
-  "n": 1,
-  "filter": "current continuous run (since 2026-08-19T19:46:00+00:00)",
+  "ratio": 24.39,
+  "n": 38,
+  "filter": "current continuous run (since 2026-09-04T19:57:00+00:00)",
   "note": "t0 = the provider's own posting time, so the poll wait we do not control is included. Only LIVE arrivals are scored (posted after indexing began); backfilled history would otherwise report the moment the pipeline was switched on rather than its speed. The batch arm is derived from the refresh cadence: uniformly-arriving events wait interval/2 on average. Only the pipeline's CURRENT continuous run is scored, proven by heartbeat: a restart or an outage starts a new run rather than charging the catch-up burst to the pipeline's speed."
 }
