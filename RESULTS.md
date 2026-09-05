@@ -14,8 +14,16 @@ branch and do not describe this code.
   from *fetch* time instead would flatter the number by excluding its dominant
   term.
 - **t1** = the moment the update is queryable in pgvector.
-- **Comparison arm** = an hourly batch index. Derived, not guessed: uniformly
-  arriving events wait `interval/2` on average, so the hourly arm is ~1800s.
+- **Comparison arm** = an hourly batch index. `batch_staleness` waits for the
+  next refresh boundary after an update posts — but that boundary's phase
+  within the hour is an arbitrary choice, and real arrivals cluster at the top
+  of the hour (scheduled maintenance windows start on the hour by nature).
+  Scoring one phase alone — HH:00:00 exactly — lets the workload's own
+  clustering pick the most flattering (or least flattering) alignment. The
+  arm reported below is the mean batch wait **averaged over every one of the
+  3,600 possible second-offsets the boundary could sit at**, which is what
+  makes uniformly-arriving events average `interval/2`: that derivation only
+  holds once the alignment itself stops being a free variable.
 
 **Only live arrivals are scored** — updates posted after indexing began
 (`ts >= min(indexed_at)`). This matters more than it sounds. Scored without that
@@ -24,11 +32,39 @@ a ratio of 0.06** — streaming apparently *losing* to hourly batch — purely b
 three years of backfilled history had all been indexed at once. The filter is what
 makes the metric measure pipeline speed rather than when it was switched on.
 
-**Measured: n = 38, mean 101.82s, p50 90.19s, p95 197.65s**, ratio **24.39×**
-against this run's derived hourly-batch arm (2483.33s). Scored across the
-current run's unbroken 8:59:59 span (2026-09-04T19:57:01Z – 2026-09-05T04:57:00Z,
-still running), zero child restarts. `n` counts individual updates, not
-incidents — several updates in this run belong to the same incident thread.
+**Measured: n = 35 updates (39 scored rows), mean 99.78s, p50 90.19s,
+p95 197.65s**, ratio **18.04×** against the alignment-independent hourly-batch
+arm (1800.46s). `n` counts distinct updates (`event_id`); `vector_records` holds
+one row per chunk, and two Cloudflare maintenance notices in this window each
+contributed 3 rows for 1 update, which is where the 39 → 35 difference comes
+from. Scored across the run's unbroken span from process start to clean
+shutdown, 2026-09-04T19:57:01Z – 2026-09-05T05:03:56Z (**9:06:55**, basis:
+`logs/supervisor.log`'s matched start/stop lines), zero child restarts.
+
+**The alignment sensitivity, disclosed rather than buried:** sweeping the same
+39 rows across all 3,600 possible boundary phases gives a mean of 1800.46s
+(ratio 18.04×), a median of 1652.05s (16.56×), and a range from 1298.34s
+(13.01×) to 2565.91s (25.72×). The phase this run's workload is *least*
+favorable to happens to be almost exactly HH:00:00 — an hourly batch aligned
+there would score **25.72×**, not because that alignment is realistic but
+because this run's arrivals cluster right after the hour, which is the one
+phase against which they each wait nearly a full interval. The published
+18.04× does not assume that alignment; it is the figure that holds regardless
+of which one a batch system actually uses.
+
+The pipeline stopped at 2026-09-05T05:03:56Z, after a clean shutdown
+(`logs/supervisor.log` shows three matched `stopping` lines, `restarts=0`, no
+orphaned children) — this is a completed run, not one still in progress.
+
+**Source-timestamp granularity is an unmodelled term.** 93% of corpus rows
+(5,393 of 5,802) and 37 of the 39 scored rows carry `ts` truncated to a whole
+minute by the source itself — of the providers in this run's scored window,
+only HashiCorp publishes sub-minute precision. Measured staleness therefore
+includes up to 60s of source-side rounding that the pipeline did not cause.
+This is *conservative*: truncation rounds `posted_at` down, which inflates the
+measured streaming wait, which *depresses* the ratio — correcting it would
+raise 18.04×, not lower it. It stays an open, unmodelled term in this
+project's one measurement rather than something folded into the headline.
 
 The earlier number here (`n=33`, ratio 0.06 — streaming apparently 14x SLOWER than
 hourly batch) was an artifact and has been deleted. Its cause is worth recording:
@@ -344,11 +380,18 @@ vector_only 0.345, keyword_only 0.255, abstention 0/55 and 6/6, guard
 
 Three real incidents opened and were briefed with no human trigger:
 
-| incident | title | opened | briefed | gap | resolved | postmortem | gap |
+| incident | title | opened | brief delivered | gap | resolved | postmortem delivered | gap |
 |---|---|---|---|---|---|---|---|
-| `github:31355391` | Disruption with Copilot Code Review | 20:39:00Z | 20:41:25.98Z | **+146.0s** | 22:26:00Z | 22:27:53.74Z | +113.7s |
-| `github:31355785` | Degradation in repos contents API | 22:02:00Z | 22:03:43.50Z | **+103.5s** | 22:23:00Z | 22:24:46.09Z | +106.1s |
-| `cloudflare:ftvf8c3m4mv5` | Elevated R2 503 errors, Eastern North America | 21:10:00Z | 21:12:32.70Z | **+152.7s** | 2026-09-05 00:42:00Z | 2026-09-05 00:46:46.28Z | +286.3s |
+| `github:31355391` | Disruption with Copilot Code Review | 20:39:00Z | 20:41:27.69Z | **+147.7s** | 22:26:00Z | 22:27:55.56Z | +115.6s |
+| `github:31355785` | Degradation in repos contents API | 22:02:00Z | 22:03:45.28Z | **+105.3s** | 22:23:00Z | 22:24:47.78Z | +107.8s |
+| `cloudflare:ftvf8c3m4mv5` | Elevated R2 503 errors, Eastern North America | 21:10:00Z | 21:12:34.65Z | **+154.6s** | 2026-09-05 00:42:00Z | 2026-09-05 00:46:48.24Z | +288.2s |
+
+"Brief delivered" and "postmortem delivered" are `incidents.brief_delivered_at`
+and `incidents.postmortem_delivered_at` — the timestamps `mark_brief_delivered`
+writes once the sink actually posts. An earlier version of this table quoted
+`briefed_at`/`postmortem_at`, which is when the consumer *claims the lease*
+before generating and posting the brief; that made all six gaps 1.7–1.9s
+smaller than the delivery the numbers claim to measure.
 
 All three timestamps are direct reads from `incidents` after the run ended, not
 carried forward from an earlier check — `cloudflare:ftvf8c3m4mv5` had not yet
@@ -365,7 +408,7 @@ selected it — not merely "wasn't used," but structurally incapable of it. And
 the dry-run sink returns `None`. A non-null `slack_ts`, which all three rows
 carry, can only be a real Slack API response.
 
-**Coverage is 3 of 3 real incidents, not 3 of 10.** 13 incidents opened during
+**Coverage is 3 of 3 real incidents, not 3 of 13.** 13 incidents opened during
 this run window: the 3 above, and 10 scheduled-maintenance rows (Twilio SMS
 carrier-partner maintenance across several regions, and two Cloudflare
 datacentre maintenance windows in Canberra and Fukuoka). None of the 10 was

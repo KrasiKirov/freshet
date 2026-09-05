@@ -1,11 +1,20 @@
 {
-  "streaming_mean_s": 101.82,
+  "streaming_mean_s": 99.78,
   "streaming_p50_s": 90.19,
   "streaming_p95_s": 197.65,
-  "batch_mean_s": 2483.33,
+  "batch_mean_s": 1800.46,
+  "batch_mean_s_min": 1298.34,
+  "batch_mean_s_median": 1652.05,
+  "batch_mean_s_max": 2565.91,
+  "batch_mean_s_top_of_hour": 2565.91,
   "batch_interval_s": 3600.0,
-  "ratio": 24.39,
-  "n": 38,
+  "ratio": 18.04,
+  "ratio_min": 13.01,
+  "ratio_median": 16.56,
+  "ratio_max": 25.72,
+  "ratio_top_of_hour": 25.72,
+  "n": 35,
+  "n_rows": 39,
   "filter": "current continuous run (since 2026-09-04T19:57:00+00:00)",
-  "note": "t0 = the provider's own posting time, so the poll wait we do not control is included. Only LIVE arrivals are scored (posted after indexing began); backfilled history would otherwise report the moment the pipeline was switched on rather than its speed. The batch arm is derived from the refresh cadence: uniformly-arriving events wait interval/2 on average. Only the pipeline's CURRENT continuous run is scored, proven by heartbeat: a restart or an outage starts a new run rather than charging the catch-up burst to the pipeline's speed."
+  "note": "t0 = the provider's own posting time, so the poll wait we do not control is included. Only LIVE arrivals are scored (posted after indexing began); backfilled history would otherwise report the moment the pipeline was switched on rather than its speed. `n` counts distinct updates (event_id); `n_rows` is the underlying chunk-row count, since vector_records holds one row per chunk. The batch arm is the mean batch wait over EVERY possible refresh-boundary phase, not one alignment: a single phase (e.g. HH:00:00 exactly) can be inflated or flattered by which offset this run's arrivals happen to cluster against, and real arrivals cluster at the top of the hour because scheduled maintenance windows start on the hour. batch_mean_s_top_of_hour and ratio_top_of_hour report that single aligned figure for comparison; batch_mean_s_min/_median/_max show the spread across all alignments. Only the pipeline's CURRENT continuous run is scored, proven by heartbeat: a restart or an outage starts a new run rather than charging the catch-up burst to the pipeline's speed."
 }

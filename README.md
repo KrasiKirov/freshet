@@ -86,15 +86,35 @@ uses a dedicated `freshet_test` database so it cannot touch a running index.
 | dedup | 3,676 → **3,671** (exactly the 5 duplicate records in the corpus) |
 | observed rate | ~**50 updates/day**, ~2 incidents/hour |
 | incidents stating a cause | **3 of 68 (4%)** |
-| staleness | **24.39×** hourly batch — n=38 updates, mean 101.82s (p50 90.19s, p95 197.65s) vs derived 2483.33s arm, 8:59:59 unbroken run |
+| staleness | **18.04×** hourly batch, alignment-independent — n=35 updates, mean 99.78s (p50 90.19s, p95 197.65s) vs 1800.46s arm, 9:06:55 unbroken run |
 
-**Staleness — the headline number — measures 24.39×** an hourly batch index: a
-streaming mean of 101.82s (p50 90.19s, p95 197.65s) against this run's derived
-batch arm of 2483.33s, from **n = 38** live updates scored over an unbroken
-8:59:59 run (`results/freshness.json`). `n` counts individual updates, not
-incidents — several updates here belong to the same incident thread. Derived
-from the poll cadence alone, the expectation was **~58×** (~31s vs ~1800s); the
-measured figure is well below that expectation.
+**Staleness — the headline number — measures 18.04×** an hourly batch index: a
+streaming mean of 99.78s (p50 90.19s, p95 197.65s) against a batch arm of
+1800.46s, from **n = 35** distinct live updates (39 scored chunk rows) over the
+run's unbroken 9:06:55 span (2026-09-04T19:57:01Z – 2026-09-05T05:03:56Z,
+process start to clean shutdown; `results/freshness.json`). `n` counts distinct
+updates (`event_id`), not chunk rows — two Cloudflare maintenance notices each
+contributed 3 rows for 1 update.
+
+**The batch arm is alignment-independent, not the HH:00:00 figure.** An hourly
+batch waits for its next refresh boundary, but that boundary's phase within the
+hour is an arbitrary choice — one of 3,600 possible second-offsets — and real
+arrivals cluster at the top of the hour because scheduled maintenance windows
+start on the hour by nature. Scoring only the HH:00:00 alignment lets this
+run's own clustering pick a flattering or unflattering number: swept across all
+3,600 phases, this run's arm ranges from 1298.34s (13.01×) to 2565.91s
+(25.72×, which is what HH:00:00 alone would report), with a median of 1652.05s
+(16.56×). The published **18.04×** is the mean across every alignment, not the
+one this workload happens to be least favorable to. That derivation is why
+1800.46s lands almost exactly on the textbook `interval/2` = 1800s a uniform
+hourly cadence implies; the 24.39× figure this replaced did not, because it was
+scoring one arbitrary alignment rather than the cadence itself.
+
+Measured staleness also includes up to 60s of source-side rounding: 93% of the
+corpus and 37 of the 39 scored rows carry a provider timestamp truncated to the
+minute (only HashiCorp's rows in this window carry sub-minute precision). That
+rounding inflates the measured streaming wait, which understates the ratio —
+correcting it would raise 18.04×, not lower it.
 
 ## Honest limits
 
