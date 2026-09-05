@@ -26,13 +26,8 @@ from freshet.rag.timeframe import infer_window
 log = logging.getLogger(__name__)
 
 MAX_QUESTION_CHARS = 500
-# The idle tick fires ~once/second when the lifecycle topic is quiet. Polling
-# every thread on every tick made 493 conversations.replies calls in three
-# minutes and Slack rate-limited us; a human happily waits 30s for an answer.
 POLL_INTERVAL_S = 30.0
 RATE_LIMIT_BACKOFF_S = 60.0
-# Threads stop being conversational quickly; polling a week of them forever is
-# what makes the call volume grow without bound.
 THREAD_WINDOW_HOURS = 24
 ABSTAIN_REPLY = ("I don't have enough relevant indexed evidence to answer that "
                  "confidently.")
@@ -76,21 +71,15 @@ def answer_question(conn, embedder, composer, question: str,
     since, window = infer_window(question)
     result = hybrid_search(conn, embedder, question, k=6, since=since)
 
-    # The thread's own incident is ALWAYS evidence: a follow-up is usually
-    # deictic — "give me more details on this event" scored 0.661 against a
-    # 0.700 floor and abstained, since "this event" has no semantic content to
-    # match. A key lookup, so it costs nothing and can't pull in another incident.
+    # the thread's own incident is always included: a deictic follow-up may
+    # have no semantic content of its own to match
     evidence = _thread_evidence(conn, incident_id) if incident_id else []
     if not result.abstained:
-        # Abstained means every hit fell below the calibrated floor — folding
-        # them in anyway would quietly discard the signal the floor exists to give.
         known = {h.event_id for h in evidence}
         evidence += [h for h in result.hits if h.event_id not in known]
 
     if not evidence:
         return _with_window(ABSTAIN_REPLY, window)
-    # The question is untrusted Slack text; the composer refuses instructions
-    # found in evidence, and every citation is verified before this posts.
     answer = composer.compose(question, evidence) or NO_EVIDENCE
     return _with_window(answer, window)
 
@@ -152,14 +141,14 @@ def poll_threads(conn, embedder, composer, client, channel: str, *,
     for incident_id, thread_ts, seen_ts, thread_channel in conn.execute(
             _OPEN_THREADS_SQL, (channel, limit)).fetchall():
         try:
-            # the stored ID, not the #name: conversations.replies rejects names
+            # thread_channel is the stored id, not a #name
             resp = client.conversations_replies(channel=thread_channel, ts=thread_ts,
                                                 oldest=seen_ts or thread_ts)
             messages = list(resp["messages"] or [])
         except Exception as exc:
             if _is_rate_limit(exc):
                 raise RateLimited(str(exc)) from exc   # back the whole loop off
-            # One bad thread must not stop the rest — but log it once, not per tick.
+            # one bad thread must not stop the rest
             log.warning("thread %s unreadable: %r", thread_ts, exc)
             continue
 
@@ -173,8 +162,7 @@ def poll_threads(conn, embedder, composer, client, channel: str, *,
                 answer = answer_question(conn, embedder, composer, message["text"],
                                      incident_id=incident_id)
             except BudgetExhausted as exc:
-                # Do NOT advance thread_seen_ts: the question stays unanswered and
-                # is picked up once the budget frees, rather than lost.
+                # leaves thread_seen_ts unadvanced; retried once the budget frees
                 log.warning("thread question deferred: %s", exc)
                 return posted
             try:
@@ -183,14 +171,10 @@ def poll_threads(conn, embedder, composer, client, channel: str, *,
             except Exception as exc:
                 if _is_rate_limit(exc):
                     raise RateLimited(str(exc)) from exc   # back the whole loop off
-                # Leave unanswered and move on — the marker for answers already
-                # delivered was persisted below, so they aren't re-posted next poll.
                 log.warning("could not answer in thread %s: %r", thread_ts, exc)
                 break
             posted += 1
             newest = message["ts"] if not newest else max(newest, message["ts"])
-            # Persisted after EVERY answer: batching to the end meant a later
-            # failure discarded the marker for posts that HAD succeeded, re-posting them all.
             conn.execute(_MARK_SEEN_SQL, (newest, incident_id))
             seen_ts = newest
     return posted
