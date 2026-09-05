@@ -194,14 +194,52 @@ def test_a_child_that_ran_a_while_does_not_count_toward_the_outage():
 
 
 def test_the_fast_death_streak_resets_when_a_child_survives():
-    """One flaky restart must not accumulate toward a halt hours later."""
-    lives = iter([FakeProc(exits_after=0), FakeProc(exits_after=10**9)])
+    """One flaky restart must not accumulate toward a halt hours later: a child
+    that dies fast, then runs past fast_death_s, then dies fast again must read
+    as ONE fast death, not two -- a non-reset counter would trip max_fast_deaths
+    here and halt on a pattern that isn't a dependency outage."""
+    # start=0.0; death#1 waited=5.0 (fast); restart at 5.0; death#2 waited=25.0
+    # (survived -- resets the streak); restart at 30.0; death#3 waited=2.0 (fast).
+    ticks = iter([0.0, 5.0, 5.0, 30.0, 30.0, 32.0, 32.0])
 
     def spawn(child):
-        return next(lives)
+        return FakeProc(exits_after=0)
 
     stops = iter([False, False, False, True])
-    supervise([Child("poller", ["poller"], "logs/p.log")],
-              spawn=spawn, clock=_clock(), sleep=lambda s: None,
-              should_stop=lambda: next(stops), max_fast_deaths=2,
-              log=lambda m: None)
+    child = Child("poller", ["poller"], "logs/p.log")
+    try:
+        supervise([child], spawn=spawn, clock=lambda: next(ticks),
+                  sleep=lambda s: None, should_stop=lambda: next(stops),
+                  max_fast_deaths=2, fast_death_s=10.0, log=lambda m: None)
+    except DependencyDown:
+        pytest.fail("the streak did not reset: a restart that survived past "
+                    "fast_death_s still counted toward the halt")
+
+    assert child.fast_deaths == 1, (
+        f"expected exactly one fast death after the mid-sequence reset, "
+        f"got {child.fast_deaths}")
+
+
+def test_the_halt_path_shuts_down_every_child_like_a_normal_exit():
+    """DependencyDown must go through the same _shutdown as a clean stop. An
+    earlier draft raised straight past it, orphaning every other child on the
+    one path where the process is about to exit -- a human caught it in review,
+    with no regression test. An orphaned poller means the next run starts with
+    two producers on raw.incidents."""
+    stuck = FakeStuckProc()
+    healthy = FakeProc(exits_after=0)  # dies fast every restart -- trips the halt
+
+    def spawn(child):
+        return stuck if child.name == "poller" else healthy
+
+    children = [Child("poller", ["poller"], "logs/p.log"),
+                Child("embedder", ["embedder"], "logs/e.log")]
+
+    with pytest.raises(DependencyDown):
+        supervise(children, spawn=spawn, clock=_clock(), sleep=lambda s: None,
+                  should_stop=lambda: False, max_fast_deaths=2,
+                  log=lambda m: None)
+
+    assert stuck.terminated, "the halt path never terminated the stuck child"
+    assert stuck.killed, "the halt path never escalated to SIGKILL for the stuck child"
+    assert healthy.terminated, "the halt path never terminated the other child"
