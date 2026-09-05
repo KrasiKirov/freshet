@@ -1,0 +1,44 @@
+{
+  "source": "live index",
+  "measures": "within-incident linking (NOT causal identification)",
+  "provenance": {
+    "n_queries": 1144,
+    "n_eligible_incidents": 1144,
+    "max_queries_cap": null,
+    "n_chunks": 5802,
+    "n_events": 4882,
+    "n_providers": 42,
+    "measured_at": "2026-09-05T18:22:35+00:00"
+  },
+  "arms": {
+    "hybrid": {
+      "recall@5": 0.708,
+      "mrr": 0.513,
+      "top1_cite": 0.392,
+      "n": 1144
+    },
+    "vector_only": {
+      "recall@5": 0.851,
+      "mrr": 0.717,
+      "top1_cite": 0.632,
+      "n": 1144
+    },
+    "keyword_only": {
+      "recall@5": 0.332,
+      "mrr": 0.24,
+      "top1_cite": 0.183,
+      "n": 1144
+    },
+    "blind_recent": {
+      "recall@5": 0.003,
+      "mrr": 0.001,
+      "top1_cite": 0.001,
+      "n": 1144
+    }
+  },
+  "gameability_guard": {
+    "blind_recall@5": 0.003,
+    "hybrid_minus_blind": 0.705,
+    "verdict": "meaningful"
+  }
+}

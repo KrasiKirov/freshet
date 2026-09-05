@@ -144,6 +144,9 @@ label-live: ##eval
 retrieval-eval: ##eval
 	$(PYTHON) -m freshet.eval.retrieval_eval
 
+live-eval: ##eval
+	$(PYTHON) -m freshet.eval.live_retrieval
+
 # FRESHNESS_MIN_N=20 make freshness -> fails instead of reporting a thin sample.
 freshness: ##eval
 	$(PYTHON) -m freshet.eval.freshness
