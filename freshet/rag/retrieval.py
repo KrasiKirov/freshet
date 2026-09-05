@@ -14,8 +14,7 @@ from freshet.pipeline.embedding import Embedder, vec_literal
 from freshet.pipeline.index_stats import get_centroid
 from freshet.pipeline.metrics import ABSTENTIONS
 
-# Columns are addressed by POSITION; adding one without shifting these
-# indices silently mislabels every field after it.
+# Columns are addressed by POSITION; keep these indices in sync with _COLS.
 _COLS = "chunk_id, event_id, service, ts, indexed_at, source, text, type, title"
 TITLE_IDX = 8
 _VEC_SIM_IDX = 9         # vector arm:  ..., title, similarity, centered_similarity
@@ -24,9 +23,7 @@ _KW_SIM_IDX = 10         # keyword arm: ..., title, rank, similarity, centered_s
 _KW_CSIM_IDX = 11
 
 
-# Mean-centered cosine: `<=>` normalizes operands, so subtracting the centroid
-# from both sides is the whole transform. Always emitted (NULL if no centroid)
-# so the positional indices above stay constant-width.
+# Always emitted (NULL if no centroid) so the positional indices stay constant-width.
 def _centered_expr(centered: bool) -> str:
     if not centered:
         return " NULL::double precision AS centered_similarity"
@@ -41,8 +38,6 @@ def _where(service: str | None, since: datetime | None,
         clauses.append("service = %(service)s")
     if since is not None:
         clauses.append("ts >= %(since)s")
-    # Drops the query's own document — otherwise it's trivially its own top
-    # hit, making the abstention metric structurally unable to fire.
     if exclude_event_id is not None:
         clauses.append("event_id <> %(exclude_event_id)s")
     return (" WHERE " + " AND ".join(clauses)) if clauses else ""
@@ -50,8 +45,6 @@ def _where(service: str | None, since: datetime | None,
 
 def vector_sql(service: str | None, since: datetime | None,
                exclude_event_id: str | None = None, centered: bool = False) -> str:
-    # chunk_id breaks distance ties deterministically — without it, tied rows
-    # come back in heap order, which shifts run-to-run since the eval re-INSERTs.
     return (
         f"SELECT {_COLS}, 1 - (embedding <=> %(qvec)s::vector) AS similarity,"
         + _centered_expr(centered) +
@@ -60,15 +53,9 @@ def vector_sql(service: str | None, since: datetime | None,
     )
 
 
-# websearch_to_tsquery ANDs terms, killing recall for verbose questions against
-# terse events. Swap & for | so any term matches and ts_rank/RRF do the
-# ranking — safe, since the swap runs on an already-parsed tsquery.
-#
-# EXCEPT negated queries: `outage -maintenance` -> `'outag' & !'mainten'`; the
-# swap to `|` matches every row merely lacking "maintenance" (measured 88% and
-# 97% of the index on two live queries), degenerating the arm to near-everything.
-# So a `-term` keeps websearch's AND form. `position('!' in ...)` avoids
-# escaping a literal % in this %(name)s format string.
+# Swap & for | so any term matches (websearch's AND form kills recall on verbose
+# questions), except a negated query (`-term`), which keeps AND so `!term` still
+# excludes rows instead of matching almost everything.
 _WS_TSQUERY = "websearch_to_tsquery('english', %(q)s)"
 _OR_TSQUERY = (
     f"CASE WHEN position('!' in {_WS_TSQUERY}::text) > 0"
@@ -82,13 +69,7 @@ def keyword_sql(service: str | None, since: datetime | None,
     where = _where(service, since, exclude_event_id)
     match = f"text_tsv @@ {_OR_TSQUERY}"
     where = (where + " AND " + match) if where else (" WHERE " + match)
-    # ts_rank ties heavily on terse events, leaving the chunk_id hash to decide
-    # LIMIT survivors. ts_rank_cd scores cover density instead (flag 32
-    # normalizes by rank+1). Measured on 55 live labels: keyword_only recall@5
-    # 0.309->0.364, mrr 0.232->0.251; hybrid recall@5 0.455->0.473, mrr
-    # 0.328->0.313.
-    # Cosine computed here too so a lexical-only hit isn't discarded by
-    # abstention (used to default to 0.0, wrongly reading as "no evidence").
+    # Cosine computed here too so a lexical-only hit isn't discarded by abstention.
     return (
         f"SELECT {_COLS},"
         f" ts_rank_cd(text_tsv, {_OR_TSQUERY}, 32) AS rank,"
@@ -127,8 +108,7 @@ def should_abstain(similarities: list[float], min_similarity: float) -> bool:
 
 
 
-# Fallback floor (MiniLM-calibrated); a per-model `min_similarity` attribute
-# wins when set — bge's compressed cosine makes 0.3 effectively never-abstain.
+# Fallback floor; a per-model `min_similarity` attribute wins when set.
 DEFAULT_MIN_SIMILARITY = 0.3
 
 
@@ -139,10 +119,7 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-# Per-arm depth before fusion. Vector-arm recall@5 0.436, recall@20 0.655,
-# recall@50 0.764 — a third of found answers sit below this cut. Raising costs
-# one larger LIMIT, no LLM tokens (delivered k is a separate decision). Sweep
-# via FRESHET_ARM_K.
+# Per-arm depth before fusion; override via FRESHET_ARM_K.
 ARM_K = _int_env("FRESHET_ARM_K", 20)
 
 
@@ -168,11 +145,8 @@ class RetrievedHit:
     type: str
     similarity: float   # measured cosine, whichever arm found the hit
     score: float        # fused RRF score (recency decay was deleted)
-    # Optional and last: the chunk is always present, the incident's name is not
-    # (legacy rows predate the column). Defaulting keeps every existing caller valid.
     title: str | None = None
-    # Cosine measured after subtracting the index centroid. None when no
-    # centroid is stored — abstention then falls back to the raw floor.
+    # None when no centroid is stored — abstention then falls back to the raw floor.
     centered_similarity: float | None = None
 
 
@@ -202,8 +176,6 @@ def hybrid_search(
         min_similarity = _default_min_similarity(embedder)
     centered_floor = _default_min_similarity_centered(embedder)
     model = getattr(embedder, "name", "") or ""
-    # Only worth the centered arm if this model HAS a centered calibration;
-    # otherwise the column would be measured against a floor nobody set.
     centroid = get_centroid(conn, model) if centered_floor is not None else None
     [qvec] = embedder.encode_query([question])
     params: dict[str, Any] = {"qvec": vec_literal(qvec), "q": question, "k": ARM_K}
@@ -229,8 +201,6 @@ def hybrid_search(
     hits: list[RetrievedHit] = []
     for chunk_id, rrf_score in fused:
         row, _ = vec_map.get(chunk_id) or kw_map[chunk_id]
-        # both arms now report cosine, so a keyword-only hit is not treated as
-        # having zero similarity
         similarity = (vec_map[chunk_id][1] if chunk_id in vec_map
                       else kw_map[chunk_id][1])
         csim_idx = _VEC_CSIM_IDX if chunk_id in vec_map else _KW_CSIM_IDX
@@ -249,32 +219,22 @@ def hybrid_search(
 
     hits.sort(key=lambda h: h.score, reverse=True)
     retrieval_topk = hits[:k]
-    # An explicit filter changes the relevance contract: the calibrated cosine
-    # floor assumes "is this specific thing in the corpus?", but a filtered
-    # browse query resembles no single incident (a real outage scored 0.549,
-    # which the floor would veto). So a time/service filter IS the relevance
-    # signal — abstention there just means "the window is empty".
+    # A time/service filter IS the relevance signal here, so it skips the cosine floor.
     if service is not None or since is not None:
         if not retrieval_topk:
             ABSTENTIONS.inc()
         return HybridResult(hits=retrieval_topk, abstained=not retrieval_topk)
-    # The centered space is the better abstention signal — see
-    # freshet/pipeline/index_stats.py. Ranking stays in raw cosine either way.
     csims = [h.centered_similarity for h in retrieval_topk
              if h.centered_similarity is not None]
     if centered_floor is not None and csims:
         abstained = should_abstain(csims, centered_floor)
     else:
         abstained = should_abstain([h.similarity for h in retrieval_topk], min_similarity)
-    # Counted regardless of WHICH floor decided it: the metric answers "how often do
-    # we refuse to answer", and that question does not change with the signal used.
     if abstained:
         ABSTENTIONS.inc()
     return HybridResult(hits=retrieval_topk, abstained=abstained)
 
 
-# Demo-scale index: a full GROUP BY is cheap. At production scale this would move
-# to a small provenance table written once per indexing run.
 _INDEX_MODELS_SQL = "SELECT coalesce(model, 'unknown'), count(*) FROM vector_records GROUP BY 1"
 
 
