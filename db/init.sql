@@ -19,9 +19,11 @@
 -- 768 dims = BAAI/bge-base-en-v1.5 (the stub matches it). 384-dim MiniLM
 -- can't index here; its benchmark numbers are a frozen snapshot (RESULTS.md M14).
 
+-- 1. Extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
 
+-- 2. Tables
 CREATE TABLE IF NOT EXISTS vector_records (
     chunk_id    text PRIMARY KEY,
     -- The chunk ordinal, stored rather than parsed from the primary key. Two
@@ -42,7 +44,8 @@ CREATE TABLE IF NOT EXISTS vector_records (
     type        text NOT NULL DEFAULT '',
     -- Which model produced each embedding. Vectors from different models
     -- aren't comparable, but a mismatch is invisible: similarity just
-    -- collapses toward zero and abstains.
+    -- collapses toward zero and abstains. Recording the model lets that be
+    -- detected and reported instead.
     model       text,
     embedding   vector(768) NOT NULL,
     text_tsv    tsvector GENERATED ALWAYS AS (to_tsvector('english', text)) STORED
@@ -137,6 +140,7 @@ CREATE TABLE IF NOT EXISTS index_stats (
 );
 
 
+-- 3. Indexes
 CREATE INDEX IF NOT EXISTS vector_records_service_ts_idx
     ON vector_records (service, ts DESC);
 
@@ -159,7 +163,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS incidents_one_open_auto_per_service
     ON incidents (primary_service) WHERE resolved_at IS NULL AND auto_opened;
 
 
--- Legacy migrations: for volumes created before a change landed. A FRESH
+-- Legacy migrations (section 4): for volumes created before a change landed. A FRESH
 -- database makes every statement below a no-op — asserted by
 -- test_a_fresh_database_and_an_evolved_one_reach_the_same_schema. Each is
 -- guarded to stay idempotent.
@@ -271,6 +275,7 @@ BEGIN
 END $$;
 
 
+-- 5. Applied version
 -- Bump when a section above changes, so a stale volume is diagnosable.
 CREATE TABLE IF NOT EXISTS schema_version (
     version    integer PRIMARY KEY,

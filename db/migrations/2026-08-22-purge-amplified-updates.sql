@@ -1,7 +1,7 @@
 -- Purge rows written by the pre-fix parser for providers whose markup was not
 -- understood. Their identity digested the live "Affected components" list, so each
 -- incident accumulated one record per component flip (measured 2026-08-22, before
--- the fix -- see docs/ingestion-review.md):
+-- the fix -- see docs/embedding-audit.md):
 --   openai:    5,360 chunks / 2,414 events / 97 incidents  (24.9 events per incident)
 --   hashicorp: 1,790 chunks /   616 events / 26 incidents  (23.7 events per incident)
 -- against a 2.8-7.5 baseline for every other provider. After the fix both parse at
