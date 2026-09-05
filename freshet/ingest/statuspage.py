@@ -40,8 +40,7 @@ _TAG = re.compile(r"<[^>]+>")
 _UPDATE = re.compile(
     r"<small>(?P<when>.*?)</small>\s*<br\s*/?>\s*<strong>(?P<status>.*?)</strong>\s*-\s*"
     r"(?P<body>.*?)(?=<small>|\Z)", re.I | re.S)
-# A second markup shape from providers not on Atlassian Statuspage (openai,
-# hashicorp): one block per entry holding CURRENT state, so one entry = one update.
+# second markup shape (non-Atlassian providers): one block holds current state
 _STATUS_LINE = re.compile(r"<b>\s*Status:\s*(?P<status>[^<]+?)\s*</b>(?P<body>.*)",
                           re.I | re.S)
 # Trailing component list reflects LIVE state, not the incident — excluded from identity.
@@ -52,9 +51,8 @@ _WHEN = re.compile(r"([A-Z][a-z]{2})\s+(\d{1,2})\s*,\s*(\d{1,2}):(\d{2})\s*([A-Z
 _MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], start=1)}
-# Only offsets UNAMBIGUOUS worldwide (e.g. CST is US-6 and China+8, so it's excluded).
-# An unresolvable stamp falls back to the entry's ISO `updated` and increments
-# TIMESTAMP_FALLBACK rather than guessing.
+# offsets unambiguous worldwide only; an unresolvable stamp falls back to the
+# entry's ISO `updated`
 _OFFSETS = {"UTC": 0, "GMT": 0, "UT": 0, "Z": 0,
             "EST": -5, "EDT": -4, "CDT": -5,
             "MST": -7, "MDT": -6, "PST": -8, "PDT": -7,
