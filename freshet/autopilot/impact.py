@@ -8,17 +8,13 @@ from __future__ import annotations
 import re
 
 _PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
-# Resource-utilisation readings are percentages too, but a busy CPU is not a
-# failing request — counting them let `cpu 50%` be reported as "~50% errors".
-# Excluded by resource word, since that vocabulary is smaller and more stable.
+# resource-utilisation percentages (e.g. "cpu 50%") are not failing requests
 _UTILISATION_RE = re.compile(
     r"\b(cpu|memory|mem|ram|disk|storage|heap|swap|utili[sz]ation|usage|"
     r"saturation|capacity|load)\b", re.I)
 
 
-# A percentage only means failure if the SAME sentence is about failing.
-# Excluding utilisation words wasn't enough: "99.9% availability" and "traffic
-# is up 40%" both cleared it and were reported as "~99.9% errors".
+# a percentage only means failure if the same sentence is about failing
 _ERROR_CONTEXT_RE = re.compile(
     r"\b(error|errors|failur\w*|failing|failed|fail|timeout\w*|timing out|"
     r"5\d{2}s?|4\d{2}s?|unavailab\w*|degrad\w*|drop\w*|reject\w*)\b", re.I)
@@ -68,8 +64,7 @@ def classify_impact(services: list[str], opened_at, resolved_at,
     mins = _duration_min(opened_at, resolved_at)
     if (pct is not None and pct >= 25) or n >= 3 or (mins is not None and mins >= 60):
         return "High"
-    # Low requires POSITIVE evidence of small impact. No stated figure means
-    # unknown severity -> Medium, not Low — don't downgrade an unquantified incident.
+    # Low requires positive evidence of small impact; no stated figure stays Medium
     if (pct is not None and pct < 5) and n == 1 and (mins is None or mins < 10):
         return "Low"
     return "Medium"

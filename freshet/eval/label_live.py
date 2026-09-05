@@ -51,9 +51,7 @@ _QUESTION = (
     "title given — never invent specifics beyond it."
 )
 
-# Questions generated from a title reuse the title's words, and every chunk
-# carries that title as a prefix — so the lexical arm matches wording, not
-# meaning. A paraphrase keeps the service name (realistic) but avoids the title's distinctive terms.
+# the lexical arm would match wording, not meaning, if paraphrases reused the title's words
 _PARAPHRASE = (
     "Write the question an on-call engineer asks when they want to know WHY an "
     "incident happened.\n\n"
@@ -178,10 +176,6 @@ if __name__ == "__main__":
     main()
 
 
-# Generating questions put fabricated text into the benchmark: a check over 64
-# paraphrases found 7 naming a product the incident never involved (Postman
-# became "the mail delivery application"). Use real queries instead — each
-# incident's FIRST update is the symptom in the provider's own words.
 
 MAX_QUERY_CHARS = 400        # a symptom statement, not a whole postmortem
 

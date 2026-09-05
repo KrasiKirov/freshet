@@ -78,13 +78,12 @@ def main() -> None:
     embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
     current = float(getattr(embedder, "min_similarity", 0.3))
 
-    # min_similarity=0 so nothing abstains: this measures the distribution the
-    # floor is supposed to cut, not what survives the current cut.
+    # min_similarity=0 measures the raw distribution, not what survives the current floor
     on_all, on_with_cause = [], []
     on_all_c, on_with_cause_c = [], []
     for entry in labels["labeled"]:
-        # The query's own document is excluded: these labels are verbatim indexed
-        # update text, so leaving it in measures a self-match, not retrieval.
+        # excludes the query's own document: these labels are indexed update text,
+        # so leaving it in is a self-match, not retrieval
         r = hybrid_search(conn, embedder, entry["query"], k=K, min_similarity=0.0,
                           exclude_event_id=entry.get("query_event_id"))
         sim, csim = max_similarity(r.hits), max_centered_similarity(r.hits)
@@ -116,9 +115,8 @@ def main() -> None:
 
     report = {
         "raw": _block(on_all, on_with_cause, off, current),
-        # The space the floor actually uses when a centroid is stored. Raw bge
-        # cosine is anisotropic enough that 12.2% of UNRELATED pairs clear
-        # 0.70 — see freshet/pipeline/index_stats.py.
+        # the space the floor actually uses when a centroid is stored; see
+        # freshet/pipeline/index_stats.py
         "centered": (_block(on_all_c, on_with_cause_c, off_c, float(current_c or 0.0))
                      if on_all_c and off_c else
                      {"proposal": None,
