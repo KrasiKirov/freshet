@@ -34,13 +34,10 @@ NO_EVIDENCE = "I don't have enough indexed evidence to answer that."
 
 log = logging.getLogger(__name__)
 
-# A citation is [event_id] or [event_id @ anything]. The stamp is ignored — we
-# substitute the true one, so the model can't express a wrong timestamp or
-# lose a citation reformatting it.
+# Matches [event_id] or [event_id @ anything]; the stamp is replaced with the true one.
 _CITATION = re.compile(r"(\s*)\[([^\[\]]+?)(?:\s*@\s*(?:[^\[\]]*?))?\s*\]")
-# A bare [id] means inspecting brackets with no '@', so prose like "[sic]" or a
-# link label must not be mistaken for one: an id has no whitespace, is >=3
-# chars, and carries a digit or _:- , which "[note]"/"[see here]" don't.
+# A bracket is a citation only if its contents are id-shaped: no whitespace,
+# >=3 chars, containing a digit or one of _:-.
 _ID_SHAPED = re.compile(r"^(?=.*[\d_:\-])[A-Za-z0-9][A-Za-z0-9_.:\-]{2,}$")
 
 
@@ -101,8 +98,6 @@ class Cited(Protocol):
     because `_Update` only duck-types it.
     """
 
-    # Read-only properties, not bare attributes: investigate._Update is a
-    # FROZEN dataclass, so a frozen field can't satisfy a mutable protocol member.
     @property
     def event_id(self) -> str: ...
 
@@ -135,16 +130,8 @@ _SYSTEM = (
     "when the events hold nothing from that period."
 )
 
-# Model pin, reviewed 2026-08-22. claude-sonnet-4-6 is current, not deprecated.
-# claude-sonnet-5 is the same list price ($3/$15) on introductory pricing
-# ($2/$10) through 2026-08-31 — attractive, but every RESULTS.md number came
-# from this generator, so bumping it needs an eval re-run. Hazard: `temperature`
-# is REJECTED with a 400 on Sonnet 5 / Opus 5, so temperature=0 for reproducible
-# briefs doesn't port forward. Override with FRESHET_LLM_MODEL.
 DEFAULT_MODEL = "claude-sonnet-4-6"
 
-# Briefs/thread answers are short, so this is a deliberate cost cap, not a
-# lowball — stop_reason is checked, so a truncated response never ships as complete.
 MAX_TOKENS = 4096
 
 
@@ -164,17 +151,12 @@ class AnthropicComposer:
         if not hits:
             return NO_EVIDENCE
         started = time.monotonic()
-        # thinking omitted: grounded summarization is simple and we want a
-        # fast, cheap answer; the final-answer-only line in _SYSTEM keeps reasoning from leaking in.
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=MAX_TOKENS,
             system=_SYSTEM,
             messages=[{
                 "role": "user",
-                # Without this the model can't answer "what happened today?" —
-                # timestamps alone give no anchor. Rides the user turn to keep
-                # the system prompt stable.
                 "content": (f"Current time: {datetime.now(UTC):%Y-%m-%d %H:%M} UTC\n\n"
                             f"Question: {question}\n\nEvents:\n{_evidence_block(hits)}"),
             }],
@@ -183,9 +165,6 @@ class AnthropicComposer:
         LLM_SECONDS.observe(time.monotonic() - started)
         answer = next((b.text for b in resp.content if b.type == "text"), "")
         answer = verify_citations(answer, hits)
-        # A response cut at max_tokens can end mid-citation — an unmatched
-        # "[evt_1 @ 2026-08-2" the regex can't see or strip. Say so rather
-        # than shipping a half sentence.
         if getattr(resp, "stop_reason", None) == "max_tokens":
             LLM_TRUNCATED.inc()
             log.warning("response hit max_tokens (%d); marking it truncated", MAX_TOKENS)
