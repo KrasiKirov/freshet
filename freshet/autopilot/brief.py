@@ -23,10 +23,7 @@ class Findings:
     narrative: str | None
     meta: str | None = None
     impact: str | None = None
-    # Newest-first, pre-cited update lines. Status feeds carry no change events,
-    # so cause/fix is often empty and this is the brief's actual content.
     updates: list[str] = field(default_factory=list)
-    # "Has this happened before?" — the one input a key lookup cannot supply.
     recurrence: str | None = None
 
 
@@ -35,57 +32,39 @@ def cite_hit(hit) -> str:
 
 
 
-# Phrases where a provider actually NAMES a cause. Deliberately narrow — "we
-# have identified the issue" announces progress, not a cause; reporting it as one invents content.
+# Phrases where a provider actually NAMES a cause.
 _CAUSE_MARKERS = (
     "caused by", "root cause", "due to", "as a result of",
     "identified the source of", "identified the cause of",
     "stemmed from", "triggered by", "resulted from",
 )
-# Sentences mentioning a cause without giving one — each below is a real
-# string that was misread as a "cause" before these filters existed (e.g. "a
-# detailed root cause analysis will be shared", "identified the root cause
-# and reverted the impacted change").
+# Sentences that mention a cause without giving one.
 _PROMISSORY = re.compile(
     r"will be (shared|provided|published|available)|will (follow|share|provide)"
     r"|as soon as it is available|analysis will|postmortem will"
-    # e.g. "updates will continue to be provided" — reports progress, names nothing
     r"|updates will|will continue", re.I)
 _FOUND_BUT_UNNAMED = re.compile(
-    # "identified the root cause and reverted..." — found it, never said what
     r"identified the (?:root cause|cause)(?!\s+of\s)"
-    # Names the SYMPTOM traced, not the cause found ("source of load", "cause of
-    # packet loss"). Requiring "of THE|THIS" let every symptom noun through —
-    # measured 13/243 hits.
     r"|identified the (?:root cause|source|cause) (?:of|for)\s"
-    # Announces the remedy, not the cause. Distinct from _UNRESOLVED ("not yet known").
     r"|(?:root )?cause (?:has been|had been|was|is) "
     r"(?:fixed|addressed|resolved|mitigated|remediated|corrected|repaired)",
     re.I)
-# Names the cause noun but says it's not yet known — distinct from _PROMISSORY
-# (future write-up) and _FOUND_BUT_UNNAMED (found, unnamed). Narrow: must
-# attach to the cause itself, so "caused by X; still investigating impact" is untouched.
+# Names the cause noun but says it's not yet known.
 _UNRESOLVED = re.compile(
     r"(?:still|currently|actively) (?:investigating|determining"
     r"|working to (?:identify|determine))[^.]{0,30}?(?:root cause|cause)"
-    # Same in-progress report as above, reached for with different words
-    # ("in the process of investigating...", "continue looking into...").
     r"|(?:in the process of|continues? to|continuing to|continue) "
     r"(?:investigat\w*|look\w*|determin\w*)[^.]{0,30}?(?:root cause|cause)"
     r"|(?:root )?cause (?:is|remains) (?:still )?(?:unknown|unclear"
     r"|under investigation|being investigated"
     r"|not (?:yet )?(?:known|determined|identified))",
     re.I)
-# ...UNLESS the sentence goes on to name a suspect: "actively investigating,
-# which appears related to a database infrastructure issue" is worth quoting.
+# Overrides _FOUND_BUT_UNNAMED / _UNRESOLVED when the sentence does name a suspect.
 _NAMES_A_SUSPECT = re.compile(
     r"which (?:appears|seems|is believed|is thought) to be"
     r"|appears to (?:be|have been) (?:related to|caused by|due to)"
     r"|(?:related|traced|linked|attributed) to (?:a|an|the)\s"
-    # "...identified the cause of the outage AS a misconfigured load balancer"
     r"|(?:identified|traced|attributed|determined)[^.]{0,80}?\bas (?:a|an|the)\s"
-    # The colon attaches directly to the cause noun, so the "<title>: <text>"
-    # prefix Flink prepends can't be mistaken for it.
     r"|(?:root cause|cause|source)\s*:\s*\S",
     re.I)
 
@@ -105,8 +84,6 @@ def _cause_sentence(text: str) -> str | None:
             continue
         if _PROMISSORY.search(sentence):
             continue          # a promise of an RCA is not an RCA
-        # One rescue for both rejections: what separates a cause from an
-        # announcement is whether the provider names it, not the phrasing.
         names_one = _NAMES_A_SUSPECT.search(sentence)
         if _FOUND_BUT_UNNAMED.search(sentence) and not names_one:
             continue          # "we found the cause" does not say what it was
@@ -175,8 +152,6 @@ def update_lines(hits) -> list[str]:
 def render_brief(f: Findings) -> str:
     title = "POSTMORTEM" if f.status == "resolved" else "INCIDENT BRIEF"
     lines = [f"=== {title} — {f.service} ({f.status}) ==="]
-    # Summary is generated prose; cause is a verbatim provider quote — both
-    # render now, since the narrative no longer replaces the cause line.
     if f.narrative:
         lines.append("")
         lines.append(f.narrative)
