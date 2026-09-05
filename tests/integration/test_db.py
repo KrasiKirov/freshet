@@ -61,15 +61,8 @@ def test_schema_applied():
 
 # These exercise the namespacing migration on rows the test itself owns.
 #
-# They used to assert a GLOBAL invariant — "no bare incident_id exists anywhere" —
-# over a database every other integration test writes to. test_purge_amplified.py
-# seeds 'INC1'/'INC2' by design, so the assertion failed or passed on execution
-# order and measured nothing about the migration.
-#
-# The seeds below also follow the shared-database rule: fixture-specific service
-# names and a ts four years back, so no recency window or service filter in another
-# test can reach them. The service value is arbitrary here — the migration only uses
-# it as the namespace prefix — so it costs nothing to make it unmistakable.
+# Fixture-specific service names and a ts four years back, so no recency
+# window or service filter in another test can reach them.
 _SCHEMA = Path("db/init.sql").read_text()
 _VEC = "(SELECT array_fill(0.1::real, ARRAY[768])::vector)"
 _TS = "now() - interval '1460 days'"

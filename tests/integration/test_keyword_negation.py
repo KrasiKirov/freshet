@@ -11,19 +11,14 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-# Seeded rows must be INVISIBLE to every other test in this shared database.
-# They carry their own service name and a timestamp four years old, so no
-# recency window ("what happened today?") and no service filter can ever pull
-# them into another test's result set. Seeding 40 rows as service="acme" at
-# ts=now() — which this fixture originally did — puts 40 competitors inside
-# test_filtered_retrieval's 24-hour window for its 6 result slots, and its
-# teardown only runs if the run is not interrupted.
+# seeded rows must be invisible to every other test in this shared database:
+# own service name, timestamp four years old, so no recency window or service
+# filter can ever pull them into another test's result set
 _SERVICE = "kwneg-fixture"
 
-# Three groups. The distinguishing rows are UNRELATED: they mention neither
-# word, so `'outag' & !'mainten'` correctly excludes them while the naive
-# `'outag' | !'mainten'` admits them purely for lacking "maintenance". That gap
-# is the bug — on the live index it grew to 88% of all rows.
+# the unrelated rows mention neither word, so `'outag' & !'mainten'` correctly
+# excludes them while the naive `'outag' | !'mainten'` admits them purely for
+# lacking "maintenance"
 _MAINTENANCE = 3
 _OUTAGE = 27
 _UNRELATED = 10
@@ -68,11 +63,9 @@ def test_negated_query_does_not_match_the_whole_corpus(seeded):
     q = "outage -maintenance"
 
     shipped = _rows(seeded, _OR_TSQUERY, q)
-    # the shipped expression agrees with plain websearch on a negated query:
-    # only the outage rows, none of which mention maintenance
+    # the shipped expression agrees with plain websearch on a negated query
     assert shipped == _rows(seeded, _WS_TSQUERY, q) == _OUTAGE
-    # ...while the naive swap also drags in every UNRELATED row, purely for
-    # lacking the negated word. On the live index that reached 88% of all rows.
+    # the naive swap drags in every unrelated row, purely for lacking the negated word
     assert _rows(seeded, naive, q) == _OUTAGE + _UNRELATED
 
 
