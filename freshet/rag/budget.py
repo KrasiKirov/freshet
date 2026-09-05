@@ -25,10 +25,7 @@ log = logging.getLogger(__name__)
 DEFAULT_HOURLY_CAP = 60          # ~10x normal load
 DEFAULT_DAILY_CAP = 500
 
-# The WHERE lives on the DO UPDATE branch, so the increment and the cap check
-# are ONE atomic statement (two workers must not race it). When the guard
-# fails, no row comes back and the counter is untouched — a refusal is free.
-# It used to cost a call, so a crash loop that never reached the API still exhausted the daily cap.
+# increment and cap check are one atomic statement; a failed guard returns no row and costs nothing
 _SPEND_SQL = (
     "INSERT INTO llm_budget (window_start, calls)"
     " VALUES (date_trunc('hour', now()), 1)"
@@ -65,19 +62,16 @@ class BudgetedComposer:
                  daily_cap: int | None = None) -> None:
         self._inner = inner
         self._conn = conn
-        # `or` would swallow an explicit 0: a caller asking for "spend nothing"
-        # silently got the 60/hour default, so the cap could not be turned off.
         self.hourly_cap = (_cap("FRESHET_LLM_HOURLY_CAP", DEFAULT_HOURLY_CAP)
                            if hourly_cap is None else hourly_cap)
         self.daily_cap = (_cap("FRESHET_LLM_DAILY_CAP", DEFAULT_DAILY_CAP)
                           if daily_cap is None else daily_cap)
 
     def _spend(self) -> None:
-        # A zero or negative cap means "disabled": the INSERT branch isn't
-        # gated by the WHERE, so the first call of an hour would slip through a cap of 0.
+        # cap <= 0 means disabled; the WHERE guard alone wouldn't block a cap of 0's first call
         if self.hourly_cap <= 0 or self.daily_cap <= 0:
             raise BudgetExhausted("LLM budget is disabled (cap is zero); deferring")
-        # Read the day BEFORE touching the hour, so a daily refusal is free too.
+        # check the day before the hour so a daily refusal is free too
         day_calls = self._conn.execute(_DAY_SQL).fetchone()[0]
         if day_calls >= self.daily_cap:
             raise BudgetExhausted(
