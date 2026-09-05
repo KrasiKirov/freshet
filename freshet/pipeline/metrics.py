@@ -24,8 +24,6 @@ DEADLETTER_EVENTS = Counter(
     "Messages routed to the dead-letter topic (normalizer + embedder)",
 )
 
-# Kafka messages handled. INDEXED_EVENTS counts CHUNKS, so a long update counted
-# several times and "events indexed" overstated throughput by the chunking ratio.
 EMBEDDER_MESSAGES = Counter(
     "freshet_embedder_messages",
     "Kafka messages successfully indexed (one per update, not per chunk)",
@@ -40,18 +38,12 @@ FRESHNESS = Histogram(
     "Event->queryable freshness: seconds from ts to indexed_at",
     buckets=LATENCY_BUCKETS,
 )
-# Freshness above is end-to-end (ts -> indexed_at), which on replayed or
-# status-feed corpora measures incident age, not pipeline speed. Pipeline
-# latency isolates what the system controls; both are exposed for dashboards.
 PIPELINE_LATENCY = Histogram(
     "freshet_pipeline_latency_seconds",
     "Pipeline latency: seconds from ingested_at to indexed_at",
     buckets=LATENCY_BUCKETS,
 )
 
-# The ingest metrics above answer "is the index fresh?" Nothing answered "is
-# the generator behaving?" — a dropped citation, the worst documented failure
-# mode, had only a log line and no way to alert on it.
 
 LLM_CALLS = Counter(
     "freshet_llm_calls_total",
@@ -62,8 +54,6 @@ LLM_SECONDS = Histogram(
     "Wall-clock seconds per LLM compose call",
     buckets=LATENCY_BUCKETS,
 )
-# A response cut off at max_tokens can end mid-citation, which the citation
-# regex cannot match and therefore cannot strip.
 LLM_TRUNCATED = Counter(
     "freshet_llm_truncated_total",
     "Responses that hit max_tokens instead of finishing",
@@ -78,10 +68,6 @@ ABSTENTIONS = Counter(
 )
 
 
-# The poller had no metrics: the stage that determines freshness and talks to
-# 42 third parties was invisible. `freshet_poll_updates_parsed` dropping to
-# zero or jumping an order of magnitude catches an adapter regression in an
-# hour, not months later — how the openai amplification was found.
 POLL_FETCH = Counter(
     "freshet_poll_fetch_total",
     "Feed fetches by provider and outcome (200 / 304 / error / skipped)",
