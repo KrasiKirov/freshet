@@ -56,9 +56,8 @@ def fire(conn, producer, pick: dict) -> None:
     """Emit the `opened` event this incident would have produced when it opened."""
     now = datetime.now(UTC)
     ensure_incident(conn, pick["incident_id"], pick["service"], now, pick["title"] or "")
-    # The autopilot refuses briefs older than MAX_BRIEF_AGE_S — a replayed
-    # topic must not page anyone about 2022. Stamped NOW since the brief is
-    # requested now; CITED evidence keeps the provider's original timestamps.
+    # stamped now (autopilot refuses briefs older than MAX_BRIEF_AGE_S);
+    # cited evidence keeps the provider's original timestamps
     ev = LifecycleEvent(type="opened", incident_id=pick["incident_id"],
                         service=pick["service"], ts=now.isoformat().replace("+00:00", "Z"),
                         title=pick["title"] or "")

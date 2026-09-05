@@ -187,9 +187,7 @@ def main() -> None:
     conn = connect()
     try:
         if args.since_minutes is None:
-            # Only the CURRENT continuous run: `ts >= min(indexed_at)` excluded
-            # backfill but not downtime catch-up — after a 14h outage the late
-            # burst scored 9.8h staleness, reporting streaming as 14x slower than batch.
+            # only the current continuous run: excludes backfill and downtime catch-up
             run_start = continuous_run_start(conn)
             if run_start is None:
                 rows = []
