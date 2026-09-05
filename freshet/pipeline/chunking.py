@@ -23,9 +23,8 @@ import re
 
 DEFAULT_MAX_CHARS = 400
 
-# End of sentence: . ! or ? followed by whitespace. Guarded against the common
-# false positives in status-feed prose — "v1.2", "23:39 UTC.", "etc.", initials —
-# by requiring the next character to open a new sentence.
+# End of sentence: . ! or ? followed by whitespace, guarded against false
+# positives ("v1.2", "23:39 UTC.", "etc.") by requiring the next char to open a new sentence.
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'\[(])")
 
 

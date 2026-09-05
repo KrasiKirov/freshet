@@ -40,35 +40,29 @@ _TAG = re.compile(r"<[^>]+>")
 _UPDATE = re.compile(
     r"<small>(?P<when>.*?)</small>\s*<br\s*/?>\s*<strong>(?P<status>.*?)</strong>\s*-\s*"
     r"(?P<body>.*?)(?=<small>|\Z)", re.I | re.S)
-# A second markup shape, served by providers not on Atlassian Statuspage
-# (openai, hashicorp). One block per entry holding the CURRENT state — these
-# feeds carry no per-update history, so one entry really is one update.
+# A second markup shape from providers not on Atlassian Statuspage (openai,
+# hashicorp): one block per entry holding CURRENT state, so one entry = one update.
 _STATUS_LINE = re.compile(r"<b>\s*Status:\s*(?P<status>[^<]+?)\s*</b>(?P<body>.*)",
                           re.I | re.S)
-# The trailing component list reflects LIVE component state, not the incident. It
-# changes whenever any component flips, so digesting it into the identity minted a
-# new update on every flip: 24.9 records per incident against a 2.8-7.5 baseline.
+# Trailing component list reflects LIVE state, not the incident — digesting it
+# into identity minted a new update on every flip: 24.9 records/incident vs 2.8-7.5 baseline.
 _COMPONENTS = re.compile(r"<b>\s*Affected components\s*</b>.*\Z", re.I | re.S)
-# A provider using neither known markup shape gets one record per revision. Cap it:
-# the content is whole-page markup flattened to prose, and an unbounded blob becomes
-# a dozen retrievable chunks that answer nothing.
+# A provider matching neither shape gets one record per revision, capped: the
+# content is whole-page markup flattened to prose, unbounded becomes noise.
 FALLBACK_MAX_CHARS = 2000
 _WHEN = re.compile(r"([A-Z][a-z]{2})\s+(\d{1,2})\s*,\s*(\d{1,2}):(\d{2})\s*([A-Z]{2,5})")
 _MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], start=1)}
-# Only offsets that are UNAMBIGUOUS worldwide. An abbreviation with two readings is
-# deliberately absent: CST is US-6 and China+8, IST is India+5:30 and Ireland+1, BST
-# is Britain+1 and Brazil-3. Resolving one is a guess dressed as a fact, and this
-# module's contract is that a timestamp is never guessed — an unresolvable stamp
-# falls back to the entry's exact ISO `updated` and increments TIMESTAMP_FALLBACK.
-# (CST and BST were previously resolved to their US/UK readings; that was the guess
-# this comment now forbids.)
+# Only offsets UNAMBIGUOUS worldwide: CST is US-6 and China+8, IST is India+5:30
+# and Ireland+1, BST is Britain+1 and Brazil-3 — resolving one is a guess dressed
+# as fact. An unresolvable stamp falls back to the entry's ISO `updated` and
+# increments TIMESTAMP_FALLBACK. (CST/BST were previously resolved to US/UK
+# readings — the guess this now forbids.)
 #
-# Measured across all 42 live feeds, 3,557 HTML timestamps: UTC 2394, PDT 572,
-# EDT 423, EST 92, PST 76 — and nothing else. So dropping the ambiguous entries
-# costs zero fallbacks today, and the Asia-Pacific entries below are insurance
-# against a provider that has not appeared yet rather than a fix for one that has.
+# Measured across 42 live feeds, 3,557 timestamps: UTC 2394, PDT 572, EDT 423,
+# EST 92, PST 76 — nothing else. Dropping ambiguous entries costs zero fallbacks
+# today; Asia-Pacific entries are insurance against a provider not yet seen.
 _OFFSETS = {"UTC": 0, "GMT": 0, "UT": 0, "Z": 0,
             "EST": -5, "EDT": -4, "CDT": -5,
             "MST": -7, "MDT": -6, "PST": -8, "PDT": -7,
@@ -130,10 +124,8 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
     Malformed entries are skipped rather than raised: one bad record from a third
     party must not stall ingestion of the other providers.
     """
-    # No status feed declares a DTD. Internal entity definitions are what turn a
-    # small body into an unbounded one, and ElementTree's expat parser will expand
-    # them. Refusing the construct is cheaper and more honest than adding a parser
-    # dependency to this deliberately stdlib-only ingest path.
+    # No status feed declares a DTD; internal entity definitions could expand a
+    # small body unboundedly via expat. Refusing this is cheaper than a new parser dep.
     if "<!DOCTYPE" in feed[:2048].upper():
         return []
     try:
@@ -156,19 +148,16 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
             for block in blocks:
                 body = _plain(block.group("body"))
                 marker = _plain(block.group("when"))
-                # The <small> stamp has minute resolution, so two updates can share
-                # it. The ordinal disambiguates WITHIN one marker only — it counts
-                # repeats of that exact timestamp text, not the update's position in
-                # the entry — so an update keeps its key when newer ones are
-                # prepended. Identity deliberately excludes the body: a provider
-                # editing a typo must correct the indexed row, not mint a new update
-                # and leave the stale one retrievable forever.
+                # The <small> stamp has minute resolution, so updates can share it.
+                # The ordinal disambiguates WITHIN one marker only (repeats of that
+                # timestamp text, not position), so an update keeps its key when
+                # newer ones are prepended. Identity excludes the body: a typo fix
+                # corrects the indexed row instead of minting a new one.
                 ordinal = seen_markers[marker] = seen_markers.get(marker, -1) + 1
                 stamp = _parse_when(block.group("when"), revised)
                 if stamp is None:
                     # Every update in this entry then shares the revision time,
-                    # which collapses their order. Counted so a provider whose
-                    # format we do not resolve is visible rather than degraded.
+                    # collapsing order. Counted so it's visible, not silently degraded.
                     TIMESTAMP_FALLBACK.inc()
                     stamp = revised
                 out.append(_make(provider, incident_id, name, stamp,
@@ -200,10 +189,8 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
 
 def _make(provider: str, incident_id: str, name: str, stamp: datetime,
           status: str, body: str, identity: str) -> IncidentUpdate:
-    # `identity` is what the update IS, chosen per markup shape and deliberately
-    # independent of anything that can change without the update changing. It must
-    # never include the position of the update in the feed (a newer update pushes
-    # it down) nor live component state (which flips on its own).
+    # `identity` is what the update IS, chosen per markup shape — must never
+    # include feed position (shifts on new updates) or live component state.
     digest = hashlib.blake2s(identity.encode(), digest_size=6).hexdigest()
     return IncidentUpdate(
         provider=provider, incident_id=incident_id, update_id=digest,

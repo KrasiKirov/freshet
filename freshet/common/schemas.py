@@ -69,13 +69,11 @@ class Severity(str, Enum):
     SEV4 = "SEV4"
 
 
-# Open vocabulary — `Event.type` is a plain `str`, so this enum names what THIS
-# pipeline emits rather than constraining what it accepts. The two dozen other
-# members (error_spike, deploy_started, rollback, cert_expired, ...) were v1's
-# synthetic-generator vocabulary: no producer in this codebase ever wrote one, and
-# nothing outside this module referenced the enum at all. CHANGE_TYPES and
-# REMEDIATION_TYPES went with them — they classified those same synthetic types as
-# causes and fixes, for a correlator that no longer exists.
+# Open vocabulary — Event.type is a plain str, so this enum names what THIS
+# pipeline emits, not what it accepts. The two dozen other v1 members
+# (error_spike, deploy_started, rollback, ...) were the synthetic-generator's
+# vocabulary — no producer here ever wrote one. CHANGE_TYPES/REMEDIATION_TYPES
+# went with them (they classified those types for a correlator that's gone).
 class EventType(str, Enum):
     STATUS_UPDATE = "status_update"   # every live status-feed update
     RCA = "rca"                       # root-cause analysis / postmortem
@@ -87,11 +85,10 @@ class Event(BaseModel):
     event_id: str = Field(default_factory=lambda: _new_id("evt"))
 
     # Wire-format version, carried from raw.incidents through the Flink projection.
-    # Defaults to 1 for the unversioned messages still on the topic, so a replay of
-    # retained history parses rather than dead-lettering on its first record.
+    # Defaults to 1 for unversioned messages still on the topic, so replay
+    # parses instead of dead-lettering.
     v: int = 1
 
-    # --- the three timestamps freshness is computed from ---
     ts: datetime = Field(default_factory=_utcnow, description="When the event occurred")
     ingested_at: datetime | None = Field(
         default=None, description="When the pipeline received it"
@@ -106,8 +103,7 @@ class Event(BaseModel):
     severity: Severity | None = None
     incident_id: str | None = None
     # The incident's name, carried from the source feed. Optional: messages
-    # produced before the field existed are still on the topic, and the embedder
-    # falls back to deriving it from `text` for those.
+    # before the field existed fall back to the embedder deriving it from `text`.
     title: str | None = None
 
     text: str = ""
@@ -119,7 +115,6 @@ class Event(BaseModel):
     def _utc_event(cls, v: datetime | None) -> datetime | None:
         return _as_utc(v)
 
-    # --- freshness helpers ---
     def end_to_end_latency_s(self) -> float | None:
         """Seconds from the event happening to becoming queryable."""
         if self.indexed_at is None:
@@ -136,9 +131,8 @@ class Event(BaseModel):
 class VectorRecord(BaseModel):
     """A retrievable chunk + its metadata (embedding stored in pgvector column)."""
 
-    # No default: the id is always "chk_<event_id>_<chunk_index>", and a factory
-    # producing any other shape is what let the two ordinal-parsing queries drift
-    # from the writer without anything failing.
+    # No default: the id is always "chk_<event_id>_<chunk_index>" — a factory
+    # producing any other shape let the ordinal-parsing queries drift from the writer.
     chunk_id: str
     chunk_index: int = 0
     event_id: str
@@ -147,11 +141,10 @@ class VectorRecord(BaseModel):
     ts: datetime
     indexed_at: datetime = Field(default_factory=_utcnow)
     text: str
-    # The incident's own title, held separately from the chunk. Flink emits
-    # "<incident_name>: <update text>" as one string, so only the FIRST chunk of a
-    # long update carries the title — every later chunk is a mid-sentence fragment.
-    # Labelling a citation (or building a question) from such a chunk produced
-    # "what is happening with the are monitoring for continued stability.?".
+    # Held separately from the chunk: Flink emits "<name>: <text>" as one
+    # string, so only the FIRST chunk carries the title — later chunks are
+    # mid-sentence fragments (once produced "what is happening with the are
+    # monitoring for continued stability.?").
     title: str | None = None
     source: EventSource
     severity: Severity | None = None

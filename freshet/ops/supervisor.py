@@ -55,9 +55,9 @@ class Child:
 
 
 def _spawn(child: Child) -> subprocess.Popen:
-    # Deliberately not a context manager (ruff SIM115): the handle has to outlive
-    # this function for as long as the child writes to it. The previous handle is
-    # closed here instead, so a night of restarts does not leak descriptors.
+    # Deliberately not a context manager (SIM115): the handle must outlive this
+    # function for as long as the child writes to it. Closed here first so a
+    # night of restarts doesn't leak descriptors.
     handle = open(child.log_path, "a", buffering=1)  # noqa: SIM115
     if child.log_handle is not None:
         child.log_handle.close()
@@ -96,9 +96,8 @@ def supervise(children: list[Child], *,
         for child in children:
             if child.proc.poll() is None:
                 continue
-            # Throttle from the START of the dead run, not from its death: a child
-            # that ran for hours restarts immediately, one that died on start-up
-            # waits out the backoff.
+            # Throttle from the START of the dead run, not its death: a child
+            # that ran for hours restarts immediately; one dead on start-up waits out the backoff.
             waited = clock() - child.started_at
             if waited < backoff_s:
                 log(f"supervisor: {child.name} died after {waited:.0f}s; "
@@ -137,9 +136,8 @@ def _shutdown(children: list[Child], log: Callable[[str], None]) -> None:
             log(f"supervisor: {child.name} did not exit within 20s; sending SIGKILL")
             child.proc.kill()
             try:
-                # Confirm the kill landed rather than merely issuing it: an orphan
-                # here means the next run starts with two of this child producing
-                # into the same topic.
+                # Confirm the kill landed, not just issued: an orphan here means
+                # the next run starts with two of this child producing into the same topic.
                 child.proc.wait(timeout=5)
             except Exception:
                 log(f"supervisor: {child.name} did not exit after SIGKILL")

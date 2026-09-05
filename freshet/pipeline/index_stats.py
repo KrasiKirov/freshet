@@ -32,8 +32,7 @@ _UPSERT_SQL = (
 _READ_SQL = "SELECT centroid::text FROM index_stats WHERE model = %s"
 
 # The centroid is an average over the whole index; a few minutes of drift is
-# immaterial, and re-reading it on every query would add a round trip to the
-# hot path for a value that barely moves.
+# immaterial, and re-reading it every query would add a hot-path round trip.
 CENTROID_TTL_S = 300.0
 
 _CACHE: dict[str, tuple[float, str | None]] = {}

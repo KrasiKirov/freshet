@@ -1,10 +1,9 @@
 #!/bin/sh
 # Everything a measurement run needs, under one supervisor.
 #
-# `caffeinate -i` is not a nicety. Freshness scores only the current continuous
-# run, and a display/idle sleep longer than 300s (heartbeat GAP_TOLERANCE_S) ends
-# that run and discards every live arrival scored so far. -i prevents idle sleep
-# without preventing the lid closing from sleeping the machine deliberately.
+# `caffeinate -i` is not a nicety: freshness scores only the current
+# continuous run, and an idle sleep longer than 300s (GAP_TOLERANCE_S) ends it.
+# -i blocks idle sleep without blocking a deliberate lid-close sleep.
 #
 # Absolute paths throughout: this is also the launchd entry point, and launchd
 # provides no profile, no PATH beyond the basics, and no getcwd it can read.

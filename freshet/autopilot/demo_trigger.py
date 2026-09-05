@@ -23,9 +23,8 @@ from freshet.common.incidents import ensure_incident
 from freshet.common.kafka_io import make_producer, produce_sync
 from freshet.pipeline.lifecycle import LIFECYCLE_TOPIC, LifecycleEvent
 
-# A screenshot wants an incident with several updates (so the timeline is not one
-# line), ideally one whose provider stated a cause, and ideally one with earlier
-# siblings so the recurrence line appears.
+# A screenshot wants an incident with several updates (not one line), ideally
+# one whose provider stated a cause, and earlier siblings for the recurrence line.
 _CANDIDATES_SQL = """
 SELECT v.incident_id,
        v.service,
@@ -57,10 +56,9 @@ def fire(conn, producer, pick: dict) -> None:
     """Emit the `opened` event this incident would have produced when it opened."""
     now = datetime.now(UTC)
     ensure_incident(conn, pick["incident_id"], pick["service"], now, pick["title"] or "")
-    # The autopilot refuses briefs for incidents older than MAX_BRIEF_AGE_S, and
-    # rightly so — a replayed topic must not page anyone about 2022. The demo
-    # event is stamped NOW because the brief is being requested now; the CITED
-    # evidence keeps the provider's own original timestamps.
+    # The autopilot refuses briefs older than MAX_BRIEF_AGE_S — a replayed
+    # topic must not page anyone about 2022. Stamped NOW since the brief is
+    # requested now; CITED evidence keeps the provider's original timestamps.
     ev = LifecycleEvent(type="opened", incident_id=pick["incident_id"],
                         service=pick["service"], ts=now.isoformat().replace("+00:00", "Z"),
                         title=pick["title"] or "")

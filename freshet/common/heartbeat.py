@@ -19,9 +19,9 @@ BEAT_INTERVAL_S = 30.0
 GAP_TOLERANCE_S = 300.0          # 10x the beat: tolerates a slow batch, not an outage
 
 # One row per minute per component. Nothing removed them, so the table grew
-# without bound — and `continuous_run_start` reads it in full. Retention bounds
-# both: at 30 days the log holds ~43k rows per component, so the gap-walk below
-# stays cheap AND stays unit-testable, which a window function would not.
+# unbounded, and continuous_run_start reads it in full. At 30 days that's ~43k
+# rows per component, keeping the Python gap-walk cheap and unit-testable —
+# a SQL window function would not.
 HEARTBEAT_RETENTION_DAYS = 30
 
 _PRUNE_LOG = ("DELETE FROM pipeline_heartbeat_log"

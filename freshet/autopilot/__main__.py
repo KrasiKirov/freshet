@@ -69,10 +69,9 @@ def main() -> None:
     sink = make_sink(args.sink)
     drain = DrainThrottle()
     maintain = Maintenance()
-    # Refuse to run against an index built by a different embedder. Vectors from
-    # two models are not comparable, so every query collapses toward zero and
-    # abstains — indistinguishable from "no relevant evidence" unless something
-    # checks. This guard lost its only caller when the query API was deleted.
+    # Refuse to run against an index built by a different embedder — vectors
+    # from two models collapse toward zero and abstain, indistinguishable from
+    # "no relevant evidence" unless checked.
     warning = check_index_model(conn, embedder)
     if warning:
         log.warning("[autopilot] %s", warning)

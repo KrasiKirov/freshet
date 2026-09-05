@@ -14,9 +14,8 @@ from freshet.pipeline.embedding import Embedder, vec_literal
 from freshet.pipeline.index_stats import get_centroid
 from freshet.pipeline.metrics import ABSTENTIONS
 
-# Row columns are addressed by POSITION, so the shared prefix and the per-arm
-# score columns that follow it are declared together here. Adding a column
-# without moving these indices silently mislabels every field after it.
+# Columns are addressed by POSITION; adding one without shifting these
+# indices silently mislabels every field after it.
 _COLS = "chunk_id, event_id, service, ts, indexed_at, source, text, type, title"
 TITLE_IDX = 8
 _VEC_SIM_IDX = 9         # vector arm:  ..., title, similarity, centered_similarity
@@ -25,11 +24,9 @@ _KW_SIM_IDX = 10         # keyword arm: ..., title, rank, similarity, centered_s
 _KW_CSIM_IDX = 11
 
 
-# Cosine in the MEAN-CENTERED space. `<=>` normalizes its operands, so
-# subtracting the centroid from both sides is the whole transform — no
-# client-side maths and no second round trip. Emitted as a constant-width
-# column (NULL when no centroid is stored) so the positional indices above
-# never depend on runtime state.
+# Mean-centered cosine: `<=>` normalizes operands, so subtracting the centroid
+# from both sides is the whole transform. Always emitted (NULL if no centroid)
+# so the positional indices above stay constant-width.
 def _centered_expr(centered: bool) -> str:
     if not centered:
         return " NULL::double precision AS centered_similarity"
@@ -44,10 +41,8 @@ def _where(service: str | None, since: datetime | None,
         clauses.append("service = %(service)s")
     if since is not None:
         clauses.append("ts >= %(since)s")
-    # Drops the query's OWN document. When the query is text lifted from an
-    # indexed update, that update is trivially its own top hit — and because
-    # abstention keys off the top similarity, leaving it in makes the
-    # abstention metric structurally incapable of firing.
+    # Drops the query's own document — otherwise it's trivially its own top
+    # hit, making the abstention metric structurally unable to fire.
     if exclude_event_id is not None:
         clauses.append("event_id <> %(exclude_event_id)s")
     return (" WHERE " + " AND ".join(clauses)) if clauses else ""
@@ -55,9 +50,8 @@ def _where(service: str | None, since: datetime | None,
 
 def vector_sql(service: str | None, since: datetime | None,
                exclude_event_id: str | None = None, centered: bool = False) -> str:
-    # chunk_id breaks distance ties deterministically: without it, tied rows come
-    # back in physical heap order, which shifts run-to-run (the eval DELETEs and
-    # re-INSERTs every run) and makes the benchmark non-reproducible.
+    # chunk_id breaks distance ties deterministically — without it, tied rows
+    # come back in heap order, which shifts run-to-run since the eval re-INSERTs.
     return (
         f"SELECT {_COLS}, 1 - (embedding <=> %(qvec)s::vector) AS similarity,"
         + _centered_expr(centered) +
@@ -66,24 +60,15 @@ def vector_sql(service: str | None, since: datetime | None,
     )
 
 
-# OR semantics for the keyword arm. websearch_to_tsquery ANDs its terms, which
-# zeroes recall when a verbose natural-language question is matched against terse
-# operational events (no single event contains every query word). As a
-# candidate-generation arm feeding fusion, keyword search should be high-recall:
-# swap the &-operators in the (already-sanitized) tsquery for |, so any matching
-# term retrieves and ts_rank + RRF do the ranking. Safe against injection —
-# websearch_to_tsquery has already parsed user input into a valid tsquery before
-# the textual operator swap.
+# websearch_to_tsquery ANDs terms, killing recall for verbose questions against
+# terse events. Swap & for | so any term matches and ts_rank/RRF do the
+# ranking — safe, since the swap runs on an already-parsed tsquery.
 #
-# EXCEPT when the query negates. websearch renders `outage -maintenance` as
-# `'outag' & !'mainten'`; swapping the operator yields `'outag' | !'mainten'`,
-# which matches every row that merely LACKS "maintenance" — measured on the live
-# index, 10,708 of 12,155 rows (88%), and `database errors -scheduled` reached
-# 97%. The arm degenerates to near-everything, ts_rank ties out, and 20
-# effectively arbitrary candidates enter RRF at full weight. A `-term` is the one
-# case where the swap changes meaning rather than just breadth, so those queries
-# keep websearch's AND form. `position('!' in ...)` rather than a LIKE pattern
-# because a literal % would have to be escaped in this %(name)s format string.
+# EXCEPT negated queries: `outage -maintenance` -> `'outag' & !'mainten'`; the
+# swap to `|` matches every row merely lacking "maintenance" (measured 88% and
+# 97% of the index on two live queries), degenerating the arm to near-everything.
+# So a `-term` keeps websearch's AND form. `position('!' in ...)` avoids
+# escaping a literal % in this %(name)s format string.
 _WS_TSQUERY = "websearch_to_tsquery('english', %(q)s)"
 _OR_TSQUERY = (
     f"CASE WHEN position('!' in {_WS_TSQUERY}::text) > 0"
@@ -97,20 +82,13 @@ def keyword_sql(service: str | None, since: datetime | None,
     where = _where(service, since, exclude_event_id)
     match = f"text_tsv @@ {_OR_TSQUERY}"
     where = (where + " AND " + match) if where else (" WHERE " + match)
-    # ts_rank counts term frequency, which ties heavily across terse operational
-    # events — and with OR semantics the candidate set is large, so which 20 rows
-    # survived the LIMIT was effectively decided by the chunk_id tiebreak
-    # (deterministic, but an id hash). ts_rank_cd scores COVER DENSITY: how close
-    # the matched terms sit, which is the signal that survives in one- and
-    # two-sentence updates. Normalization flag 32 divides by rank+1 so a long
-    # chunk cannot win on term count alone. Measured on 55 live labels:
-    # keyword_only recall@5 0.309 -> 0.364, mrr 0.232 -> 0.251; hybrid recall@5
-    # 0.455 -> 0.473 with mrr 0.328 -> 0.313. chunk_id remains the tiebreak that
-    # keeps the benchmark byte-stable.
-    # Cosine is computed here too, so a hit found ONLY by the lexical arm still
-    # carries a real similarity. It used to default to 0.0 — a missing value, not
-    # a measured one — and since abstention keys off cosine, an exact lexical
-    # match with no vector match was discarded as "no evidence".
+    # ts_rank ties heavily on terse events, leaving the chunk_id hash to decide
+    # LIMIT survivors. ts_rank_cd scores cover density instead (flag 32
+    # normalizes by rank+1). Measured on 55 live labels: keyword_only recall@5
+    # 0.309->0.364, mrr 0.232->0.251; hybrid recall@5 0.455->0.473, mrr
+    # 0.328->0.313.
+    # Cosine computed here too so a lexical-only hit isn't discarded by
+    # abstention (used to default to 0.0, wrongly reading as "no evidence").
     return (
         f"SELECT {_COLS},"
         f" ts_rank_cd(text_tsv, {_OR_TSQUERY}, 32) AS rank,"
@@ -149,9 +127,8 @@ def should_abstain(similarities: list[float], min_similarity: float) -> bool:
 
 
 
-# Fallback abstention floor (MiniLM-calibrated). When the embedder carries a
-# per-model `min_similarity` attribute (see pipeline.embedding), that wins —
-# bge's compressed cosine distribution makes 0.3 effectively "never abstain".
+# Fallback floor (MiniLM-calibrated); a per-model `min_similarity` attribute
+# wins when set — bge's compressed cosine makes 0.3 effectively never-abstain.
 DEFAULT_MIN_SIMILARITY = 0.3
 
 
@@ -162,12 +139,10 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-# Per-arm candidate depth before fusion. Measured on the live index, the vector
-# arm's recall@5 is 0.436 while its recall@20 is 0.655 and recall@50 0.764 — so
-# a third of the answers the system finds are sitting below this cut, where
-# fusion cannot see them. Raising it costs one larger LIMIT per arm and no LLM
-# tokens; the delivered k is a separate, cost-bearing decision. Sweep with
-# FRESHET_ARM_K.
+# Per-arm depth before fusion. Vector-arm recall@5 0.436, recall@20 0.655,
+# recall@50 0.764 — a third of found answers sit below this cut. Raising costs
+# one larger LIMIT, no LLM tokens (delivered k is a separate decision). Sweep
+# via FRESHET_ARM_K.
 ARM_K = _int_env("FRESHET_ARM_K", 20)
 
 
@@ -223,7 +198,6 @@ def hybrid_search(
     min_similarity: float | None = None,
     exclude_event_id: str | None = None,
 ) -> HybridResult:
-    # None -> abstention floor from the embedder's per-model attribute.
     if min_similarity is None:
         min_similarity = _default_min_similarity(embedder)
     centered_floor = _default_min_similarity_centered(embedder)
@@ -275,14 +249,11 @@ def hybrid_search(
 
     hits.sort(key=lambda h: h.score, reverse=True)
     retrieval_topk = hits[:k]
-    # An explicit filter changes the relevance contract. The cosine floor was
-    # calibrated for "is this specific thing in the corpus?", where a strong match
-    # should exist. A filtered query ("what happened today?") is a BROWSE: it
-    # resembles no single incident, and a real outage scored 0.549 against it —
-    # correct evidence the floor would veto. When the caller narrowed the candidate
-    # set by time or service, that filter IS the relevance signal, so abstention
-    # means "the window is empty", not "no strong semantic match". The unfiltered
-    # path keeps the calibrated floor exactly as it was.
+    # An explicit filter changes the relevance contract: the calibrated cosine
+    # floor assumes "is this specific thing in the corpus?", but a filtered
+    # browse query resembles no single incident (a real outage scored 0.549,
+    # which the floor would veto). So a time/service filter IS the relevance
+    # signal — abstention there just means "the window is empty".
     if service is not None or since is not None:
         if not retrieval_topk:
             ABSTENTIONS.inc()
