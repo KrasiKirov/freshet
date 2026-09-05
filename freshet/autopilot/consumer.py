@@ -210,6 +210,8 @@ def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
             pm = gather_postmortem(conn, ev.service, ev.incident_id, composer=composer)
             sink.deliver(pm, thread=slack_ts)
             mark_postmortem_delivered(conn, ev.incident_id)
+            print(f"[autopilot] {ev.incident_id}: postmortem delivered"
+                  + (f" (slack_ts={slack_ts})" if slack_ts else ""))
         except Exception:
             release_postmortem(conn, ev.incident_id)
             raise
@@ -252,6 +254,8 @@ def drain_due_briefs(conn, *, sink: Sink, limit: int = 10,
             raise
         mark_brief_delivered(conn, incident_id, ts,
                              getattr(sink, "last_channel_id", None))
+        print(f"[autopilot] {incident_id}: brief delivered"
+              + (f" (slack_ts={ts})" if ts else ""))
         delivered += 1
         # The brief has landed, so a postmortem deferred during the debounce
         # window can finally be posted — threaded under the brief we just sent.

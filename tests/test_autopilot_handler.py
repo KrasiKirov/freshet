@@ -379,3 +379,34 @@ def test_a_lifecycle_ts_without_an_offset_is_read_as_utc():
     ev = consumer.LifecycleEvent(type="resolved", incident_id="INC_1",
                                  service="api", ts="2026-07-01T00:00:00")
     assert consumer._event_ts(ev).tzinfo is not None
+
+
+# --- the successful-delivery path must be visible in the log ----------------
+
+def test_a_delivered_brief_is_logged_by_incident_id(monkeypatch, capsys):
+    """A nine-hour live run delivered 8 cited briefs to Slack and
+    logs/autopilot.log recorded none of them — lsof showed the live process
+    wrote zero bytes to that file. Only the database knew delivery happened.
+    The module already logs every path where it DECLINES to brief; it must
+    also log the one where it actually posts the flagship action."""
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: Findings("api", "open", "bad deploy",
+                                                 "[ev1 @ 2026-07-01 00:00:00]",
+                                                 None, None, None, None))
+    conn, sink = _FakeConn(), _RecordingSink(handle="9.9")
+    assert consumer.drain_due_briefs(conn, sink=sink) == 1
+    out = capsys.readouterr().out
+    assert "INC_1" in out and "brief" in out.lower(), \
+        f"a delivered brief must name the incident in the log, got: {out!r}"
+
+
+def test_a_delivered_postmortem_is_logged_by_incident_id(monkeypatch, capsys):
+    """The postmortem success path is the same silent gap as the brief path:
+    the sink accepts it, the row is marked delivered, and nothing is printed."""
+    monkeypatch.setattr(consumer, "gather_postmortem", lambda *a, **k: _pm())
+    sink = _RecordingSink()
+    consumer.handle_lifecycle(_FakeConn(slack_ts="9.9"), _resolved_json(),
+                              window_s=0, sink=sink, sleep=lambda s: None)
+    out = capsys.readouterr().out
+    assert "INC_1" in out and "postmortem" in out.lower(), \
+        f"a delivered postmortem must name the incident in the log, got: {out!r}"
