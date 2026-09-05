@@ -61,17 +61,12 @@ def main() -> None:
     args = p.parse_args()
 
     conn = connect()
-    # Retrieval is needed for two things now: recurrence in the brief, and
-    # answering follow-up questions in the Slack thread.
     embedder = make_embedder(os.environ.get("FRESHET_EMBEDDER", "bge"))
-    # Hard cap on spend, counted in Postgres so a restart loop cannot reset it.
+    # hard cap on spend, counted in Postgres so a restart loop cannot reset it
     composer = BudgetedComposer(make_composer(), conn)
     sink = make_sink(args.sink)
     drain = DrainThrottle()
     maintain = Maintenance()
-    # Refuse to run against an index built by a different embedder — vectors
-    # from two models collapse toward zero and abstain, indistinguishable from
-    # "no relevant evidence" unless checked.
     warning = check_index_model(conn, embedder)
     if warning:
         log.warning("[autopilot] %s", warning)
@@ -83,8 +78,6 @@ def main() -> None:
         raise SystemExit(
             "[autopilot] ANTHROPIC_API_KEY is required: briefs are LLM-composed. "
             "Set it in .env.local (make autopilot sources it).")
-    # Thread replies are POLLED with the bot token already in use: no app-level
-    # token, no public endpoint, and the project is already a polled pipeline.
     threads = None
     if args.sink == "slack" and os.environ.get("SLACK_BOT_TOKEN"):
         from slack_sdk import WebClient
@@ -103,12 +96,8 @@ def main() -> None:
     try:
         consume_loop(
             args.brokers, args.group, [LIFECYCLE_TOPIC],
-            # handle_and_drain, not handle_lifecycle: a due brief must not wait
-            # for an idle poll that a busy partition never produces.
             lambda v: _handle(conn, v, args.window_s, sink, embedder, composer),
             max_messages=args.max_messages, auto_commit=False, stop=stop,
-            # Briefs are delivered here, not on the message path: the debounce is
-            # a due-time in Postgres, so offsets commit while it elapses.
             idle_hook=lambda: _idle(conn, sink, embedder, threads, drain, composer, maintain),
         )
     finally:

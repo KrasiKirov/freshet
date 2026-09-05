@@ -9,10 +9,7 @@ import time
 
 from freshet.autopilot.brief import Findings, render_brief
 
-# A transient Slack error must not take autopilot down, but an undeliverable
-# brief must NOT be reported delivered — the consumer marks it delivered on
-# return, permanently suppressing retry. So: retry a few times, then RAISE, so
-# the consumer releases its claim and the offset stays uncommitted.
+# retry a few times, then raise, so the consumer's offset stays uncommitted and it retries
 MAX_ATTEMPTS = 3
 RETRY_BASE_S = 2.0
 
@@ -66,8 +63,7 @@ class SlackSink:
         self._channel = channel
         self._dry_run = dry_run
         self._client = client  # injection seam for tests; None in production
-        # Slack returns the channel ID on every post. conversations.replies needs
-        # that ID, and resolving a #name would need a scope we do not have.
+        # populated from Slack's response so conversations.replies can use the id, not a #name
         self.last_channel_id: str | None = None
         self._sleep = sleep    # injection seam: tests must not actually back off
 
@@ -79,8 +75,7 @@ class SlackSink:
         blocks = slack_blocks(findings)
         text = render_brief(findings)  # plain-text notification fallback
         if self._dry_run:
-            # text on its own line: it starts with "=== ... ===", so an inline
-            # "text=" prefix renders as "text====" and is hard to read
+            # text on its own line to avoid a misleading "text====" prefix
             print(f"[slack-dry-run] channel={self._channel} thread={thread}\n"
                   f"{text}\nblocks={blocks}")
             return None
