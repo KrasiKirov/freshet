@@ -159,10 +159,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS incidents_one_open_auto_per_service
     ON incidents (primary_service) WHERE resolved_at IS NULL AND auto_opened;
 
 
--- For volumes created before a change landed. A FRESH database makes every
--- statement below a no-op — asserted by
+-- Legacy migrations: for volumes created before a change landed. A FRESH
+-- database makes every statement below a no-op — asserted by
 -- test_a_fresh_database_and_an_evolved_one_reach_the_same_schema. Each is
 -- guarded to stay idempotent.
+--
+-- tests/integration/test_schema_bootstraps.py parses the exact string
+-- "-- Legacy migrations" above to split this file in two — keep that string
+-- intact even if the rest of this comment gets reworded.
 
 -- Columns added to vector_records after its CREATE TABLE existed.
 ALTER TABLE vector_records ADD COLUMN IF NOT EXISTS model text;
