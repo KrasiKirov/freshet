@@ -123,7 +123,10 @@ counted above).
 
 - 4% of incidents state a cause. The brief quotes the provider's sentence
   when one exists, or stays silent — it never infers a cause.
-- Freshness is bounded by the 60s poll cadence, not the pipeline.
+- The 60s poll cadence is ~31s of the 99.78s measured mean, so it is not the
+  binding term — most of the delay is downstream of the poll. A further ~30s
+  mean is source-timestamp rounding: 93% of providers stamp to the whole
+  minute, and t0 is their stamp, so the measurement is conservative.
 - Briefs are non-deterministic (LLM-written). Citations are verified against
   retrieved evidence on both id and timestamp, so a fabricated one is
   stripped, not shipped.
