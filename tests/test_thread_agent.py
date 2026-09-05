@@ -150,9 +150,6 @@ def test_a_very_long_question_is_capped(monkeypatch):
 
 
 # --- temporal questions must reach recent evidence ---------------------------
-# This moved here from the query endpoint. Without it, "what broke today?" asked
-# in a Slack thread competes on semantics alone and returns boilerplate from
-# months ago — the exact bug the window inference was built to fix.
 
 def _capture_search(monkeypatch, abstained=False):
     seen = {}
@@ -198,8 +195,6 @@ def test_the_window_is_inferred_from_the_capped_question(monkeypatch):
 
 
 # --- call volume ------------------------------------------------------------
-# Measured against real Slack: polling every thread on every idle tick made 493
-# conversations.replies calls in three minutes and earned a 429.
 
 class _Clock:
     def __init__(self):
@@ -272,10 +267,9 @@ def test_other_errors_still_skip_just_that_thread(monkeypatch):
 
 
 # --- deictic follow-ups ------------------------------------------------------
-# Observed in real Slack: "give me more details on this event" scored 0.661
-# against a 0.700 floor and abstained. "this event" is a pointer, not a
-# description — there is nothing semantic to match, so the thread's own incident
-# has to be evidence regardless of what retrieval finds.
+# "this event" is a pointer, not a description: there is nothing semantic to
+# match, so the thread's own incident has to be evidence regardless of what
+# retrieval finds.
 
 class _ConnWithUpdates:
     """Returns thread rows AND incident updates, like the real schema."""

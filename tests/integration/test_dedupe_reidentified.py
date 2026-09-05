@@ -13,16 +13,13 @@ MIGRATION = Path("db/migrations/2026-08-22-dedupe-reidentified-updates.sql")
 _VEC = "(SELECT array_fill(0.1::real, ARRAY[768])::vector)"
 
 
-# A fixture in a shared database must be invisible to every test but its own: its
+# a fixture in a shared database must be invisible to every test but its own: its
 # own service name, and a ts far outside any recency window a retrieval test can
-# ask for. Seeding at now() under a real provider name once cost another session a
-# debugging session, its rows having taken every slot in a filtered top-k.
-# `indexed_at` still varies — that is what this migration keys on.
+# ask for. `indexed_at` still varies — that is what this migration keys on.
 _SERVICE = "dedupe-fixture"
-# A LITERAL, not `now() - interval`. Each conn.execute is its own transaction, so
-# now() differs between inserts by microseconds — which silently split rows that
-# are supposed to represent the same update once the migration started keying on
-# ts. Still four years back, so no recency window in another test can reach it.
+# a literal, not `now() - interval`: each conn.execute is its own transaction, so
+# now() would differ between inserts by microseconds, splitting rows meant to
+# represent the same update. Still four years back, so no recency window reaches it.
 _TS = "timestamptz '2022-09-03 00:00:00+00'"
 
 
