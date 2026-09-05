@@ -126,7 +126,7 @@ run-forever: ##run
 # Install/remove the launchd agent that keeps `run-forever` alive across reboots.
 service-install: ##run
 	@mkdir -p $(HOME)/Library/LaunchAgents logs
-	@chmod +x deploy/run-autopilot.sh
+	@chmod +x deploy/run-live.sh
 	@sed 's|__REPO__|$(CURDIR)|g' deploy/com.freshet.autopilot.plist \
 	  > $(HOME)/Library/LaunchAgents/com.freshet.autopilot.plist
 	@launchctl unload $(HOME)/Library/LaunchAgents/com.freshet.autopilot.plist 2>/dev/null || true
