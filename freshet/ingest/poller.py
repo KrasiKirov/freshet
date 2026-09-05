@@ -47,18 +47,12 @@ log = logging.getLogger(__name__)
 RAW_TOPIC = "raw.incidents"
 USER_AGENT = "freshet/2.0 (+https://github.com/KrasiKirov/freshet)"
 MAX_WORKERS = 12
-# Wire-format version on raw.incidents. Bump when a field changes meaning —
-# two renames have already shipped without one and needed a shim after the fact.
 WIRE_VERSION = 1
 TIMEOUT_S = 15.0
-# A feed larger than this is pathological (biggest real one is a few hundred
-# KB); bodies come from 42 third parties and were previously read unbounded.
 MAX_BODY_BYTES = 8 * 1024 * 1024
 POLL_INTERVAL_S = 60.0
 
-# Persistence is opt-OUT (FRESHET_POLL_CACHE="" disables), not opt-in — it was
-# opt-in via an env var nothing in the repo set, so every restart re-downloaded
-# all 42 feeds and re-emitted months of history.
+# Persistence is opt-OUT: FRESHET_POLL_CACHE="" disables it.
 DEFAULT_CACHE_PATH = os.path.join(
     os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
     "freshet", "poll-cache.json")
@@ -74,8 +68,6 @@ class ConditionalCache:
     def __init__(self, path: str | None = None) -> None:
         self._etag: dict[str, str] = {}
         self._modified: dict[str, str] = {}
-        # Persisted so a restart resumes with 304s instead of re-downloading all
-        # 42 feeds — losing the validators on every restart threw away the lever.
         env = os.environ.get("FRESHET_POLL_CACHE")
         self._path = path if path is not None else (
             DEFAULT_CACHE_PATH if env is None else env)
@@ -120,10 +112,6 @@ class ConditionalCache:
             log.warning("could not persist poll cache: %s", exc)
 
     def headers_for(self, url: str) -> dict[str, str]:
-        # urllib adds no Accept-Encoding by default. Measured on 14/42 feeds:
-        # ZERO Atlassian-hosted Statuspage feeds honour it; only non-Statuspage
-        # providers compress (status.openai.com: ~8KB gzipped). Costs nothing,
-        # pays off if that changes.
         headers = {"User-Agent": USER_AGENT, "Accept-Encoding": "gzip"}
         if etag := self._etag.get(url):
             headers["If-None-Match"] = etag
@@ -220,8 +208,6 @@ class HostBackoff:
         self._until: dict[str, float] = {}
         self._failures: dict[str, int] = {}
         self._now = now
-        # monotonic time doesn't survive a restart, so the deadline is ALSO kept
-        # in wall-clock terms — otherwise a mid-backoff host gets hammered again on restart.
         self._wall = wall
 
     def snapshot(self) -> dict:
@@ -249,8 +235,6 @@ class HostBackoff:
         if retry_after is not None and retry_after > 0:
             delay = min(MAX_BACKOFF_S, retry_after)
         else:
-            # Clamp the EXPONENT, not just the result: the failure count persists
-            # across restarts, and 2.0 ** 1024 raises OverflowError.
             delay = min(MAX_BACKOFF_S, 2.0 ** min(n, 10))
         self._until[host] = self._now() + delay
         return delay
@@ -296,16 +280,10 @@ def poll_once(pages: list[Page], fetch: FetchFn,
         try:
             found = parse_atom(page.provider, body)
         except Exception as exc:                  # noqa: BLE001 - third-party markup
-            # Deliberately NOT backoff.failed(): the host is fine, our adapter
-            # isn't, and backing it off would hide an adapter bug behind a feed
-            # that merely looks quiet. parse_atom swallows ParseError itself; this
-            # used to propagate out of pool.map and kill the whole sweep instead.
             POLL_FETCH.labels(provider=page.provider, status="error").inc()
             log.warning("poll parse failed provider=%s err=%s", page.provider, exc)
             return []
         if not found:
-            # Do NOT store the validator: parse_atom swallows ParseError, so a
-            # truncated body looks empty — a stored ETag would 304 it away permanently.
             log.warning("poll parsed 0 updates provider=%s bytes=%d "
                         "(validator not stored; will refetch)", page.provider, len(body))
             return []
@@ -330,11 +308,7 @@ def to_message(update: IncidentUpdate) -> dict:
         "provider": update.provider,
         "incident_id": update.incident_id,
         "update_id": update.update_id,
-        # Not part of event_id: it exists so the dedup tuple can notice an edit
-        # while the emitted identity stays stable enough to overwrite in place.
         "body_digest": update.body_digest,
-        # RFC3339 with a literal Z, not "+00:00": Flink's ISO-8601 JSON parser
-        # yields NULL for the offset form, and a NULL rowtime kills the job.
         "created_at": update.created_at.isoformat().replace("+00:00", "Z"),
         "status": update.status,
         "text": update.text,
@@ -354,17 +328,12 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
     producer = BufferedProducer(brokers)
     log.info("polling %d feeds every %.0fs", len(pages), interval_s)
 
-    # Stagger the first sweep so a restart does not hit every host at once.
     time.sleep(random.uniform(0, min(5.0, interval_s)))
 
     produced = sweeps = 0
     while max_sweeps is None or sweeps < max_sweeps:
         started = time.monotonic()
-        # `swept` is THIS sweep; `produced` is the run total. Logging the running
-        # total as though it were the sweep's count made a backfill drain unreadable.
         swept = 0
-        # One buffered batch per sweep: a synchronous produce per update paid a
-        # round trip 3,600 times a sweep. flush_checked raises on any failed delivery.
         for update in poll_once(pages, http_fetch, cache, backoff):
             producer.produce(RAW_TOPIC, json.dumps(to_message(update)),
                              key=update.partition_key)
@@ -379,8 +348,6 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
         log.info("sweep %d done in %.1fs (%d this sweep, %d total)",
                  sweeps, elapsed, swept, produced)
         if max_sweeps is None or sweeps < max_sweeps:
-            # Jitter EVERY sweep — staggering only the first left the cadence
-            # fixed at 60s, hitting each host at the same second every minute.
             jitter = random.uniform(0, min(5.0, interval_s * 0.1))
             time.sleep(max(0.0, interval_s - elapsed) + jitter)
     return produced
@@ -392,8 +359,6 @@ def main() -> None:
     parser.add_argument("--interval", type=float, default=POLL_INTERVAL_S)
     parser.add_argument("--sweeps", type=int, default=None,
                         help="stop after N sweeps (default: run forever)")
-    # 8001-8004 are taken by the normalizer and the embedder scaling demo; a
-    # collision would only log a warning and silently export nothing.
     parser.add_argument("--metrics-port", type=int, default=8005,
                         help="Prometheus /metrics port (0 disables)")
     args = parser.parse_args()
