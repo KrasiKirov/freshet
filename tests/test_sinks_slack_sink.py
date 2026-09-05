@@ -68,9 +68,8 @@ class _BoomClient:
 
 
 def test_persistent_post_failure_raises():
-    # Regression: this used to be swallowed and return None, so the consumer marked
-    # the brief delivered and no retry could ever fire again. Delivery failures MUST
-    # propagate — the consumer releases its claim and the Kafka offset is not committed.
+    # delivery failures must propagate: the consumer releases its claim and
+    # the Kafka offset is not committed
     client = _BoomClient()
     sink = SlackSink(token="x", channel="#c", client=client, sleep=lambda s: None)
     with pytest.raises(RuntimeError, match="boom"):

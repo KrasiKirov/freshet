@@ -370,9 +370,8 @@ def test_an_incident_update_satisfies_the_composer_protocol():
     assert isinstance(u, Cited)
 
 
-# Real strings from the live 42-provider index. Each was surfaced as a "Cause"
-# by the detector, and none of them names one — they announce that the cause was
-# found or fixed, or they name the SYMPTOM that was traced.
+# each was surfaced as a "Cause" by the detector, and none of them names one —
+# they announce that the cause was found or fixed, or name the symptom traced
 _ANNOUNCEMENTS_NOT_CAUSES = [
     "The root cause has been fixed, and we are monitoring recovery.",
     "The root cause has been addressed, and some sessions are starting to see recovery.",

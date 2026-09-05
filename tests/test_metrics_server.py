@@ -24,9 +24,7 @@ def _http_status(port: int) -> bytes:
 
 
 def test_second_bind_on_the_same_port_is_logged_and_ignored(caplog):
-    # Reproduces the real collision: two workers, same metrics port. Binding a
-    # loopback-only socket would NOT collide, since prometheus_client listens on
-    # 0.0.0.0 — the first server has to be a real one.
+    # prometheus_client listens on 0.0.0.0, so the first server has to be a real one
     port = _free_port()
     metrics.start_metrics_server(port)
     assert b"200" in _http_status(port), "first server should be serving"
