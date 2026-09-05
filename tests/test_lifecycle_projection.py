@@ -15,8 +15,8 @@ SQL = (Path(__file__).resolve().parents[1] / "freshet/stream/dedup_job.sql").rea
 CODE = re.sub(r"--[^\n]*", "", SQL)
 
 OPEN_STATUSES = {"investigating", "identified", "monitoring"}
-# 'complete' (no 'd') is what hashicorp posts — measured on the live feed. Without
-# it those incidents resolve silently and never get a postmortem.
+# 'complete' (no 'd') is what hashicorp posts; without it those incidents
+# resolve silently and never get a postmortem
 RESOLVE_STATUSES = {"resolved", "completed", "complete"}
 
 

@@ -8,13 +8,11 @@ pytestmark = pytest.mark.integration
 
 MIGRATION = Path("db/migrations/2026-08-22-purge-amplified-updates.sql")
 _VEC = "(SELECT array_fill(0.1::real, ARRAY[768])::vector)"
-# A fixture in a shared database must be invisible to every test but its own.
-# `service` has to stay a real provider name here, because the migration is scoped
-# by service — so `ts` carries the isolation instead: four years back puts these
-# rows outside any recency window a retrieval test can ask for. Seeding at now()
-# once cost another session a debugging session, its rows having taken every slot
-# in a filtered top-k. `indexed_at` still varies, because that is what this
-# migration keys on and therefore what these tests actually exercise.
+# a fixture in a shared database must be invisible to every test but its own.
+# `service` has to stay a real provider name (the migration is scoped by
+# service), so `ts` carries the isolation instead: four years back puts these
+# rows outside any recency window a retrieval test can ask for. `indexed_at`
+# still varies — that is what this migration keys on.
 _TS = "now() - interval '1460 days'"
 
 
