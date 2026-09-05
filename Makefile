@@ -112,8 +112,10 @@ poller: ##run
 	$(PYTHON) -m freshet.ingest.poller
 
 # One long-running process: poller + embedder + autopilot are separate
-# targets, but this is the one launchd keeps alive. CPU bounded by
-# FRESHET_TORCH_THREADS (bge otherwise takes every core), spend by the LLM budget in Postgres.
+# targets, but this runs autopilot alone, unsupervised. launchd instead execs
+# deploy/run-live.sh, which runs all three under freshet.ops.supervisor. CPU
+# bounded by FRESHET_TORCH_THREADS (bge otherwise takes every core), spend by
+# the LLM budget in Postgres.
 run-forever: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
 	mkdir -p logs; \

@@ -42,7 +42,7 @@ shutdown, 2026-09-04T19:57:01Z – 2026-09-05T05:03:56Z (**9:06:55**, basis:
 `logs/supervisor.log`'s matched start/stop lines), zero child restarts.
 
 **The alignment sensitivity, disclosed rather than buried:** sweeping the same
-39 rows across all 3,600 possible boundary phases gives a mean of 1800.46s
+35 updates across all 3,600 possible boundary phases gives a mean of 1800.46s
 (ratio 18.04×), a median of 1652.05s (16.56×), and a range from 1298.34s
 (13.01×) to 2565.91s (25.72×). The phase this run's workload is *least*
 favorable to happens to be almost exactly HH:00:00 — an hourly batch aligned

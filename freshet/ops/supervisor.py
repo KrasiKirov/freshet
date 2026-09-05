@@ -29,12 +29,16 @@ POLL_INTERVAL_S = 1.0
 # A child that dies this fast did not fail on its own work -- it failed to reach
 # something. Postgres and Redpanda both refuse a connection in milliseconds.
 FAST_DEATH_S = 15.0
-# Restarts are sequential and each dead child sleeps out its own backoff, so with
-# all three children failing against a stopped dependency -- the exact scenario
-# this guards -- a pass over all three costs ~90s (3 x 30s backoff), and six
-# passes to trip the halt is ~9 minutes, not the ~3 a naive read suggests. The
-# first real run spent THREE HOURS in this state emitting nothing a reader could
-# distinguish from healthy operation.
+# Restarts are sequential, but only the FIRST dead child in a pass pays the
+# backoff sleep -- that sleep advances the clock for everyone, so every other
+# child already dead this pass finds waited >= backoff_s (no sleep) and also
+# >= FAST_DEATH_S, which resets its own streak to zero. Only one child ever
+# accumulates a run of fast deaths, a pass costs ~30s (one backoff) rather than
+# 3 x 30s, and six passes to trip the halt is ~3 minutes -- the same whether one
+# child is failing or all three are, with all three failing against a stopped
+# dependency being the exact scenario this guards. The first real run spent
+# THREE HOURS in this state emitting nothing a reader could distinguish from
+# healthy operation.
 MAX_FAST_DEATHS = 6
 
 
