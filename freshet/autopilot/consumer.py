@@ -17,20 +17,11 @@ from freshet.common.incidents import ensure_incident
 from freshet.pipeline.lifecycle import LifecycleEvent
 from freshet.rag.budget import BudgetExhausted
 
-# The claim is a LEASE, not a tombstone: brief_due_at is what a crashed brief
-# retries from, so a permanent claim would make the redelivered event skip it
-# forever (at-least-once becomes at-most-once). A lease expires, so a hard kill
-# self-heals with no reaper; `brief_delivered_at` stops an expired lease reposting.
 log = logging.getLogger(__name__)
 
-# The idle tick fires ~once/second; draining every tick ran a due-briefs query
-# per second for nothing, since the debounce is measured in tens of seconds.
 DRAIN_INTERVAL_S = 5.0
 
 LEASE_MINUTES = 15   # must exceed the debounce window plus worst-case LLM latency
-# An alert about a days-old incident is noise, and the topic is replayable
-# (poller re-emits from earliest). SQL filters historical opens too; this is
-# the last line of defence, since the topic can always be replayed past it.
 MAX_BRIEF_AGE_S = 24 * 3600
 _CLAIM_SQL = (
     "UPDATE incidents SET briefed_at = now()"
@@ -38,9 +29,6 @@ _CLAIM_SQL = (
     "   AND brief_delivered_at IS NULL"
     f"  AND (briefed_at IS NULL OR briefed_at < now() - interval '{LEASE_MINUTES} minutes')"
     " RETURNING incident_id")
-# Only for an incident we actually briefed (briefed_at set) — without this
-# guard, the first live-demo poll (replaying every resolved status-feed
-# incident) would flood the sink with postmortems for briefs that never happened.
 _POSTMORTEM_CLAIM_SQL = (
     "UPDATE incidents SET postmortem_at = now()"
     " WHERE incident_id = %s"
@@ -48,8 +36,6 @@ _POSTMORTEM_CLAIM_SQL = (
     "   AND brief_delivered_at IS NOT NULL"     # only postmortem what we briefed
     f"  AND (postmortem_at IS NULL OR postmortem_at < now() - interval '{LEASE_MINUTES} minutes')"
     " RETURNING incident_id")
-# Delivery and slack_ts recorded in ONE statement (autocommit = one commit
-# each): a crash between them would post the postmortem unthreaded.
 _MARK_BRIEF_SQL = ("UPDATE incidents SET brief_delivered_at = now(),"
                    " brief_due_at = NULL,"
                    " slack_ts = coalesce(%s, slack_ts),"
@@ -58,11 +44,7 @@ _MARK_BRIEF_SQL = ("UPDATE incidents SET brief_delivered_at = now(),"
 _MARK_POSTMORTEM_SQL = ("UPDATE incidents SET postmortem_delivered_at = now()"
                         " WHERE incident_id = %s")
 _GET_SLACK_TS_SQL = "SELECT slack_ts FROM incidents WHERE incident_id = %s"
-# A claim is a promise to deliver, not proof we did. Failed work after it MUST
-# release the claim, or a transient Slack/LLM error suppresses that brief permanently.
 _RELEASE_SQL = "UPDATE incidents SET briefed_at = NULL WHERE incident_id = %s"
-# Scheduled, not slept. Only set when nothing is delivered/scheduled yet, so a
-# redelivered event can't keep pushing the due time out and starving the incident.
 _SCHEDULE_SQL = (
     "UPDATE incidents SET brief_due_at = now() + (%s * interval '1 second')"
     " WHERE incident_id = %s AND brief_delivered_at IS NULL AND brief_due_at IS NULL")
@@ -71,16 +53,11 @@ _DUE_SQL = (
     " WHERE brief_due_at IS NOT NULL AND brief_due_at <= now()"
     "   AND brief_delivered_at IS NULL"
     " ORDER BY brief_due_at LIMIT %s")
-# Cleared only on delivery. A failed attempt leaves it set so the next idle tick
-# retries; the lease predicate is what stops two workers racing on it.
 _CLEAR_DUE_SQL = "UPDATE incidents SET brief_due_at = NULL WHERE incident_id = %s"
-# A resolve before the brief can't claim the postmortem slot, and Kafka has
-# already committed the offset — defer it instead of losing it permanently.
 _DEFER_POSTMORTEM_SQL = (
     "UPDATE incidents SET postmortem_needed = true"
     " WHERE incident_id = %s AND postmortem_delivered_at IS NULL"
     " RETURNING incident_id")
-# Claim a DEFERRED postmortem: only once its brief has actually been delivered.
 _CLAIM_DEFERRED_POSTMORTEM_SQL = (
     "UPDATE incidents SET postmortem_at = now(), postmortem_needed = false"
     " WHERE incident_id = %s AND postmortem_needed"
@@ -90,9 +67,6 @@ _INDEXED_COUNT_SQL = (
     "SELECT count(*) FROM vector_records WHERE incident_id = %s")
 _RELEASE_POSTMORTEM_SQL = "UPDATE incidents SET postmortem_at = NULL WHERE incident_id = %s"
 
-# Written by nothing until now, so every postmortem reported a just-resolved
-# incident as "ongoing" with no duration. `coalesce` keeps the FIRST resolution
-# so at-least-once redelivery can't move it.
 _MARK_RESOLVED_SQL = ("UPDATE incidents SET resolved_at = coalesce(resolved_at, %s)"
                       " WHERE incident_id = %s")
 
@@ -184,23 +158,13 @@ def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
             print(f"[autopilot] {ev.incident_id} opened {age / 3600:.0f}h ago — "
                   f"too old to brief")
             return
-        # Both writers create the row: the embedder as it indexes, and here, so a
-        # lifecycle event that beats the embedder can still brief.
         ensure_incident(conn, ev.incident_id, ev.service, _event_ts(ev), ev.title)
-        # Sleeping here held the Kafka partition for the whole debounce window;
-        # drain_due_briefs delivers on an idle tick so the offset commits now.
         schedule_brief(conn, ev.incident_id, window_s)
         return
 
     if ev.type == "resolved":
-        # Recorded BEFORE the claim, independent of it: resolving is a FACT,
-        # posting a postmortem is our ACTION, and the claim can legitimately
-        # fail. Recording only on the happy path is how resolved_at stayed
-        # NULL for every indexed incident.
         conn.execute(_MARK_RESOLVED_SQL, (_event_ts(ev), ev.incident_id))
         if not claim_postmortem(conn, ev.incident_id):
-            # Not claimable yet: if a brief is still pending, remember that this
-            # incident owes a postmortem rather than dropping it on the floor.
             conn.execute(_DEFER_POSTMORTEM_SQL, (ev.incident_id,))
             print(f"[autopilot] {ev.incident_id} postmortem already posted or never briefed — skipping")
             return
@@ -243,13 +207,10 @@ def drain_due_briefs(conn, *, sink: Sink, limit: int = 10,
                                        composer=composer, embedder=embedder)
             ts = sink.deliver(findings)
         except BudgetExhausted as exc:
-            # Not a failure — a deliberate pause. due_at stays set, so this brief
-            # posts on the next window instead of being dropped or degraded.
             release_incident(conn, incident_id)
             log.warning("%s: %s", incident_id, exc)
             break
         except Exception:
-            # due_at stays set: the next idle tick retries this incident.
             release_incident(conn, incident_id)
             raise
         mark_brief_delivered(conn, incident_id, ts,
@@ -257,8 +218,6 @@ def drain_due_briefs(conn, *, sink: Sink, limit: int = 10,
         print(f"[autopilot] {incident_id}: brief delivered"
               + (f" (slack_ts={ts})" if ts else ""), flush=True)
         delivered += 1
-        # The brief has landed, so a postmortem deferred during the debounce
-        # window can finally be posted — threaded under the brief we just sent.
         deliver_deferred_postmortem(conn, incident_id, sink=sink, composer=composer)
     return delivered
 
