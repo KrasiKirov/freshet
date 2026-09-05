@@ -62,12 +62,16 @@ make freshness   # the one measurement
 ```
 
 For a measurement run, one supervisor replaces the four `make` targets — it
-restarts any process that dies and holds the machine awake, because freshness
-scores only an unbroken run:
+restarts any process that dies and blocks idle sleep (not a lid close), because
+freshness scores only an unbroken run:
 
 ```
-./deploy/run-live.sh     # poller + embedder + autopilot, under caffeinate
+./deploy/run-live.sh > logs/supervisor.log 2>&1   # poller + embedder + autopilot, under caffeinate
 ```
+
+The supervisor's own stdout — restarts, `HALTING -- dependency gone` — goes
+nowhere but the terminal unless redirected; the children's logs already land in
+`logs/`.
 
 Conditional-request validators persist to `~/.local/state/freshet/poll-cache.json`,
 so a restart resumes with 304s instead of re-downloading all 42 feeds. Override the
