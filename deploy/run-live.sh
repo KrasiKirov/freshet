@@ -1,12 +1,10 @@
 #!/bin/sh
 # Everything a measurement run needs, under one supervisor.
 #
-# `caffeinate -i` is not a nicety: freshness scores only the current
-# continuous run, and an idle sleep longer than 300s (GAP_TOLERANCE_S) ends it.
-# -i blocks idle sleep without blocking a deliberate lid-close sleep.
+# caffeinate -i keeps the run alive without blocking a deliberate lid-close sleep.
 #
-# Absolute paths throughout: this is also the launchd entry point, and launchd
-# provides no profile, no PATH beyond the basics, and no getcwd it can read.
+# Absolute paths: this is also the launchd entry point, which has no profile,
+# no PATH beyond the basics, and no getcwd it can read.
 set -eu
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
