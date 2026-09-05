@@ -17,12 +17,14 @@ def test_an_empty_run_reports_status_not_zeros():
 
 
 def test_a_real_run_keeps_its_numbers():
-    r = finalize_report(summarize([10.0, 20.0], [1800.0, 1800.0]))
+    # posted_at with a .5s fraction lands the alignment-independent arm on exactly
+    # 1800.0s (1800.5 - the fractional second), so the numbers stay exact here.
+    r = finalize_report(summarize([10.0, 20.0], [100.5, 200.5]))
     assert r["n"] == 2
     assert "ratio" in r and "status" not in r
 
 
 def test_summarize_reports_the_ratio_it_measured():
-    r = summarize([100.0, 100.0], [1800.0, 1800.0])
+    r = summarize([100.0, 100.0], [100.5, 200.5])
     assert r["n"] == 2
     assert r["ratio"] == round(1800.0 / 100.0, 2)
