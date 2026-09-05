@@ -37,7 +37,10 @@ pgvector  ───────────────────────�
 ```
 
 Feeds are polled, not pushed: this is a streaming pipeline over a polled
-source, and freshness is bounded by the 60s poll cadence, not the pipeline.
+source. The 60s sweep accounts for roughly 31s of the 99.78s measured mean,
+so the poll wait is real but is not the binding term — most of the delay is
+downstream of it. Note also that 93% of providers stamp updates to the whole
+minute, which inflates any measurement taken from their own timestamps.
 
 ## Run it
 
