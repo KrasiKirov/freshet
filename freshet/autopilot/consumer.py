@@ -277,6 +277,8 @@ def deliver_deferred_postmortem(conn, incident_id: str, *, sink: Sink,
         release_postmortem(conn, incident_id)
         raise
     mark_postmortem_delivered(conn, incident_id)
+    print(f"[autopilot] {incident_id}: deferred postmortem delivered"
+          + (f" (slack_ts={slack_ts})" if slack_ts else ""))
     return True
 
 

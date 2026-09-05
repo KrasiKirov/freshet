@@ -410,3 +410,21 @@ def test_a_delivered_postmortem_is_logged_by_incident_id(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "INC_1" in out and "postmortem" in out.lower(), \
         f"a delivered postmortem must name the incident in the log, got: {out!r}"
+
+
+def test_a_delivered_deferred_postmortem_is_logged_by_incident_id(monkeypatch, capsys):
+    """A deferred postmortem is the harder case to debug than the direct one: it
+    posts late and out of band, from drain_due_briefs rather than the resolve
+    event that owed it, so silence here costs more than on the direct path. The
+    line must also read as "deferred" — distinguishable from an immediate
+    postmortem — since that distinction is the whole reason the debounce/defer
+    machinery exists."""
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: Findings("api", "open", None, None, None, None, None, "n"))
+    monkeypatch.setattr(consumer, "gather_postmortem", lambda *a, **k: _pm())
+    conn = _FakeConn(slack_ts="9.9", postmortem_needed=True)
+    sink = _RecordingSink(handle="9.9")
+    assert consumer.drain_due_briefs(conn, sink=sink) == 1
+    out = capsys.readouterr().out
+    assert "INC_1" in out and "deferred" in out.lower() and "postmortem" in out.lower(), \
+        f"a delivered deferred postmortem must name the incident and say deferred, got: {out!r}"
