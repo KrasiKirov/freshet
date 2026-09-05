@@ -12,16 +12,10 @@ def test_vector_sql_has_similarity_and_order():
 
 def test_keyword_sql_uses_or_tsquery_and_cover_density_rank():
     sql = keyword_sql(None, None)
-    # user input is still parsed by websearch_to_tsquery (sanitized), then the
-    # &-operators are swapped for | to make the candidate arm high-recall
     assert "websearch_to_tsquery('english', %(q)s)" in sql
     assert "replace(" in sql and "'&', '|'" in sql and "::tsquery" in sql
     assert "text_tsv @@" in sql
     assert "ORDER BY rank DESC" in sql
-    # ts_rank ties heavily across one-sentence operational updates, which left
-    # the LIMIT to a chunk_id hash. Cover density discriminates on how close the
-    # matched terms sit; flag 32 divides by rank+1 so long chunks do not win on
-    # term count alone.
     assert "ts_rank_cd(text_tsv," in sql and ", 32) AS rank" in sql
     assert "ts_rank(text_tsv," not in sql
 
@@ -40,11 +34,8 @@ def test_rrf_rewards_agreement_across_arms():
     vec = ["a", "b", "c"]
     kw = ["b", "d"]
     fused = reciprocal_rank_fusion([vec, kw])
-    # b appears high in both arms -> should rank first
     assert fused[0][0] == "b"
-    # every id from both arms is present
     assert {cid for cid, _ in fused} == {"a", "b", "c", "d"}
-    # scores are descending
     scores = [s for _, s in fused]
     assert scores == sorted(scores, reverse=True)
 
@@ -132,10 +123,8 @@ def test_hybrid_search_uses_embedder_min_similarity():
 
             return _Cur()
 
-    # 0.81 clears StubEmbedder's default floor (0.3) but not the 0.9 attribute
     assert hybrid_search(FakeConn(), StubEmbedder(), "q", k=5).abstained is False
     assert hybrid_search(FakeConn(), HighFloorEmbedder(), "q", k=5).abstained is True
-    # an explicit argument still wins over the embedder attribute
     assert hybrid_search(FakeConn(), HighFloorEmbedder(), "q", k=5,
                          min_similarity=0.0).abstained is False
 
