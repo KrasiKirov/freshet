@@ -14,17 +14,8 @@ import time
 from collections.abc import Callable
 
 # librdkafka ejects a consumer that hasn't called poll() within this window
-# (default 300_000). The embedder's per-message work is unbounded (chunking,
-# EMBED_ATTEMPTS retries, DB reconnects) — one production fetch stalled 566s
-# and the consumer left the group.
-#
-# Ejection is strictly worse than slow: the rebalance halts progress, and the
-# heartbeat gap it opens RESETS the freshness run window — a slow embedder
-# destroys the evidence that it was slow.
-#
-# Raising this does NOT hide a wedged worker: liveness is proven independently
-# by the Postgres heartbeat (heartbeat.py), which stops within GAP_TOLERANCE_S
-# regardless of what Kafka believes about group membership.
+# (default 300_000). Liveness is proven independently by the Postgres
+# heartbeat (heartbeat.py), regardless of what Kafka believes group membership is.
 DEFAULT_MAX_POLL_INTERVAL_MS = 900_000     # 15 min
 
 
@@ -144,8 +135,8 @@ def consume_loop(
     """
     c = make_consumer(brokers, group_id, topics, auto_commit=auto_commit)
     n = 0
-    # newest handled-but-uncommitted message per (topic, partition) — committing
-    # only the single newest message would starve other partitions in the batch
+    # newest uncommitted message per (topic, partition); committing only one
+    # would starve the rest
     pending: dict[tuple[str, int], object] = {}
     since_commit = 0
     last_msg = time.monotonic()
@@ -167,8 +158,6 @@ def consume_loop(
                 break
             msg = c.poll(1.0)
             if msg is None:
-                # Idle time is when deferred work runs (autopilot drains due
-                # briefs) — keeps offsets moving while a debounce window elapses.
                 if idle_hook is not None:
                     idle_hook()
                 if idle_timeout_s is not None and time.monotonic() - last_msg >= idle_timeout_s:
@@ -180,8 +169,6 @@ def consume_loop(
                 continue
             last_msg = time.monotonic()
             handler(msg.value().decode("utf-8"))
-            # Runs on the message path, BEFORE the offset commits: work left to
-            # idle_hook alone never happens while poll() keeps returning messages.
             if after_handler is not None:
                 after_handler()
             if not auto_commit:

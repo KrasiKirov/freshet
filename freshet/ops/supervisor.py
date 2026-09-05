@@ -26,19 +26,9 @@ from typing import Any
 RESTART_BACKOFF_S = 30.0
 POLL_INTERVAL_S = 1.0
 
-# A child that dies this fast did not fail on its own work -- it failed to reach
-# something. Postgres and Redpanda both refuse a connection in milliseconds.
+# A child dying this fast failed to reach a dependency, not its own work.
 FAST_DEATH_S = 15.0
-# Restarts are sequential, but only the FIRST dead child in a pass pays the
-# backoff sleep -- that sleep advances the clock for everyone, so every other
-# child already dead this pass finds waited >= backoff_s (no sleep) and also
-# >= FAST_DEATH_S, which resets its own streak to zero. Only one child ever
-# accumulates a run of fast deaths, a pass costs ~30s (one backoff) rather than
-# 3 x 30s, and six passes to trip the halt is ~3 minutes -- the same whether one
-# child is failing or all three are, with all three failing against a stopped
-# dependency being the exact scenario this guards. The first real run spent
-# THREE HOURS in this state emitting nothing a reader could distinguish from
-# healthy operation.
+# Consecutive fast deaths (within FAST_DEATH_S) before halting as a dependency outage.
 MAX_FAST_DEATHS = 6
 
 
@@ -62,9 +52,6 @@ class Child:
 
 
 def _spawn(child: Child) -> subprocess.Popen:
-    # Deliberately not a context manager (SIM115): the handle must outlive this
-    # function for as long as the child writes to it. Closed here first so a
-    # night of restarts doesn't leak descriptors.
     handle = open(child.log_path, "a", buffering=1)  # noqa: SIM115
     if child.log_handle is not None:
         child.log_handle.close()
@@ -103,8 +90,7 @@ def supervise(children: list[Child], *,
         for child in children:
             if child.proc.poll() is None:
                 continue
-            # Throttle from the START of the dead run, not its death: a child
-            # that ran for hours restarts immediately; one dead on start-up waits out the backoff.
+            # waited is measured from the child's start, not its death
             waited = clock() - child.started_at
             if waited < backoff_s:
                 log(f"supervisor: {child.name} died after {waited:.0f}s; "
@@ -143,8 +129,7 @@ def _shutdown(children: list[Child], log: Callable[[str], None]) -> None:
             log(f"supervisor: {child.name} did not exit within 20s; sending SIGKILL")
             child.proc.kill()
             try:
-                # Confirm the kill landed, not just issued: an orphan here means
-                # the next run starts with two of this child producing into the same topic.
+                # confirm the kill landed, not just issued
                 child.proc.wait(timeout=5)
             except Exception:
                 log(f"supervisor: {child.name} did not exit after SIGKILL")
