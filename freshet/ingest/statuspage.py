@@ -44,25 +44,17 @@ _UPDATE = re.compile(
 # hashicorp): one block per entry holding CURRENT state, so one entry = one update.
 _STATUS_LINE = re.compile(r"<b>\s*Status:\s*(?P<status>[^<]+?)\s*</b>(?P<body>.*)",
                           re.I | re.S)
-# Trailing component list reflects LIVE state, not the incident — digesting it
-# into identity minted a new update on every flip: 24.9 records/incident vs 2.8-7.5 baseline.
+# Trailing component list reflects LIVE state, not the incident — excluded from identity.
 _COMPONENTS = re.compile(r"<b>\s*Affected components\s*</b>.*\Z", re.I | re.S)
-# A provider matching neither shape gets one record per revision, capped: the
-# content is whole-page markup flattened to prose, unbounded becomes noise.
+# A provider matching neither shape gets one record per revision, capped.
 FALLBACK_MAX_CHARS = 2000
 _WHEN = re.compile(r"([A-Z][a-z]{2})\s+(\d{1,2})\s*,\s*(\d{1,2}):(\d{2})\s*([A-Z]{2,5})")
 _MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], start=1)}
-# Only offsets UNAMBIGUOUS worldwide: CST is US-6 and China+8, IST is India+5:30
-# and Ireland+1, BST is Britain+1 and Brazil-3 — resolving one is a guess dressed
-# as fact. An unresolvable stamp falls back to the entry's ISO `updated` and
-# increments TIMESTAMP_FALLBACK. (CST/BST were previously resolved to US/UK
-# readings — the guess this now forbids.)
-#
-# Measured across 42 live feeds, 3,557 timestamps: UTC 2394, PDT 572, EDT 423,
-# EST 92, PST 76 — nothing else. Dropping ambiguous entries costs zero fallbacks
-# today; Asia-Pacific entries are insurance against a provider not yet seen.
+# Only offsets UNAMBIGUOUS worldwide (e.g. CST is US-6 and China+8, so it's excluded).
+# An unresolvable stamp falls back to the entry's ISO `updated` and increments
+# TIMESTAMP_FALLBACK rather than guessing.
 _OFFSETS = {"UTC": 0, "GMT": 0, "UT": 0, "Z": 0,
             "EST": -5, "EDT": -4, "CDT": -5,
             "MST": -7, "MDT": -6, "PST": -8, "PDT": -7,
@@ -105,14 +97,12 @@ def _parse_when(raw: str, anchor: datetime) -> datetime | None:
     except ValueError:                      # e.g. Feb 30
         return None
     stamp = local.astimezone(UTC)
-    # An update cannot post after the revision that contains it. If it appears to,
-    # the year rolled over (a December update on a January revision).
+    # A stamp after its own revision means the year rolled over (Dec update, Jan revision).
     if stamp > anchor + timedelta(minutes=1):
         try:
             stamp = local.replace(year=anchor.year - 1).astimezone(UTC)
         except ValueError:
             return None
-    # Statuspage keeps ~months of history; anything older is a misparse.
     if stamp < anchor - timedelta(days=400):
         return None
     return stamp
@@ -124,8 +114,7 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
     Malformed entries are skipped rather than raised: one bad record from a third
     party must not stall ingestion of the other providers.
     """
-    # No status feed declares a DTD; internal entity definitions could expand a
-    # small body unboundedly via expat. Refusing this is cheaper than a new parser dep.
+    # No status feed declares a DTD; refuse one rather than let expat expand entities.
     if "<!DOCTYPE" in feed[:2048].upper():
         return []
     try:
@@ -148,16 +137,11 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
             for block in blocks:
                 body = _plain(block.group("body"))
                 marker = _plain(block.group("when"))
-                # The <small> stamp has minute resolution, so updates can share it.
-                # The ordinal disambiguates WITHIN one marker only (repeats of that
-                # timestamp text, not position), so an update keeps its key when
-                # newer ones are prepended. Identity excludes the body: a typo fix
-                # corrects the indexed row instead of minting a new one.
+                # Ordinal disambiguates repeats of the same minute-resolution stamp,
+                # not position, so an update keeps its key as newer ones are prepended.
                 ordinal = seen_markers[marker] = seen_markers.get(marker, -1) + 1
                 stamp = _parse_when(block.group("when"), revised)
                 if stamp is None:
-                    # Every update in this entry then shares the revision time,
-                    # collapsing order. Counted so it's visible, not silently degraded.
                     TIMESTAMP_FALLBACK.inc()
                     stamp = revised
                 out.append(_make(provider, incident_id, name, stamp,
@@ -169,14 +153,10 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
         if single is not None:
             status = _plain(single.group("status")).lower()
             body = _plain(_COMPONENTS.sub("", single.group("body")))
-            # One update per distinct status per incident. These feeds hold only
-            # the current state, so the entry's `updated` IS this update's time.
             out.append(_make(provider, incident_id, name, revised, status, body,
                              identity=f"status:{status}"))
             continue
 
-        # Provider uses neither shape. Degrade to one record per revision rather
-        # than dropping the incident entirely.
         prose = _plain(markup)[:FALLBACK_MAX_CHARS].strip()
         if not prose:
             continue        # markup that flattens to nothing is not an update
@@ -189,8 +169,6 @@ def parse_atom(provider: str, feed: str) -> list[IncidentUpdate]:
 
 def _make(provider: str, incident_id: str, name: str, stamp: datetime,
           status: str, body: str, identity: str) -> IncidentUpdate:
-    # `identity` is what the update IS, chosen per markup shape — must never
-    # include feed position (shifts on new updates) or live component state.
     digest = hashlib.blake2s(identity.encode(), digest_size=6).hexdigest()
     return IncidentUpdate(
         provider=provider, incident_id=incident_id, update_id=digest,
