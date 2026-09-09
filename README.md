@@ -102,6 +102,6 @@ Full method, derivations, and what was built and then deleted: [RESULTS.md](RESU
 - Ingestion uses Statuspage's Atom feeds, not its `/api/`, which `robots.txt`
   disallows.
 
-v1 (an LLM root-cause agent, a synthetic benchmark, a 225-incident retrieval
-eval) is archived on [`v1-incident-agent`](https://github.com/KrasiKirov/freshet/tree/v1-incident-agent);
-its numbers describe that branch, not this one.
+An earlier version (an LLM root-cause agent, a synthetic benchmark, a
+225-incident retrieval eval) was replaced by this one. Its numbers described
+that code, not this, and are not reproducible here.

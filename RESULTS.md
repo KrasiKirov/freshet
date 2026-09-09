@@ -1,8 +1,7 @@
 # Results
 
-Method and derivations behind the README's numbers. v1's numbers live on
-[`v1-incident-agent`](https://github.com/KrasiKirov/freshet/tree/v1-incident-agent)
-and do not describe this code.
+Method and derivations behind the README's numbers. Figures from the earlier
+version of this project are not reproducible here and are not cited as current.
 
 ## Staleness — `make freshness` → `results/freshness.json`
 
