@@ -1,0 +1,26 @@
+=== INCIDENT BRIEF — bitbucket (open) ===
+
+Bitbucket is part of Atlassian Cloud Services, which experienced a major incident caused by an AWS outage [bitbucket:26813808:b63dc8d823ee @ 2025-10-20 17:43:00]. Recovery is substantially complete across most products, though some ongoing issues remain with specific components like migrations and JSM virtual service agents, and backlogged items continue to be processed [bitbucket:26813808:a67ae7669e07 @ 2025-10-21 05:24:00].
+
+Cause: Atlassian Cloud Services impacted: We are experiencing an outage due to some issue at the end of our public cloud provider. — [bitbucket:26813808:71d01a3040a8 @ 2025-10-20 09:23:00]
+Updates:
+  05:24 — Atlassian Cloud Services impacted: Our team is now able to see full recovery across the vast majority of Atlassian products.... [bitbucket:26813808:a67ae7669e07 @ 2025-10-21 05:24:00]
+  03:24 — Atlassian Cloud Services impacted: The issue relating to the Atlassian Support portal displaying a message to customers to use our temporary support channel has now been resolved.... [bitbucket:26813808:75f27735f12d @ 2025-10-21 03:24:00]
+  01:07 — Atlassian Cloud Services impacted: We continue to see recovery progressing across all impacted products as backlogged items continue to be processed.... [bitbucket:26813808:f0aa8374b0df @ 2025-10-21 01:07:00]
+  00:03 — Atlassian Cloud Services impacted: Our team is now seeing recovery across all impacted Atlassian products.... [bitbucket:26813808:8b5d29ef69c2 @ 2025-10-21 00:03:00]
+Runbook: none found
+Impact: Medium — 1 service, ongoing
+
+=== POSTMORTEM — bitbucket (resolved) ===
+
+The Bitbucket incident was caused by an AWS outage affecting Atlassian Cloud services [bitbucket:26813808:fc6a37a51d9d @ 2025-10-20 18:38:00]. Recovery progressed across all impacted products with most services restored, though some specific components like migrations and JSM virtual service agents continued to experience ongoing issues [bitbucket:26813808:a67ae7669e07 @ 2025-10-21 05:24:00].
+
+Cause: Atlassian Cloud Services impacted: We are experiencing an outage due to some issue at the end of our public cloud provider. — [bitbucket:26813808:71d01a3040a8 @ 2025-10-20 09:23:00]
+Updates:
+  05:24 — Atlassian Cloud Services impacted: Our team is now able to see full recovery across the vast majority of Atlassian products.... [bitbucket:26813808:a67ae7669e07 @ 2025-10-21 05:24:00]
+  03:24 — Atlassian Cloud Services impacted: The issue relating to the Atlassian Support portal displaying a message to customers to use our temporary support channel has now been resolved.... [bitbucket:26813808:75f27735f12d @ 2025-10-21 03:24:00]
+  01:07 — Atlassian Cloud Services impacted: We continue to see recovery progressing across all impacted products as backlogged items continue to be processed.... [bitbucket:26813808:f0aa8374b0df @ 2025-10-21 01:07:00]
+  00:03 — Atlassian Cloud Services impacted: Our team is now seeing recovery across all impacted Atlassian products.... [bitbucket:26813808:8b5d29ef69c2 @ 2025-10-21 00:03:00]
+Runbook: none found
+resolved
+Impact: Medium — 1 service, ongoing

@@ -10,6 +10,10 @@ the eval below measures, citing what it used.
 
 ![`make demo-brief` firing a real GitHub incident: opened event, cited brief, threaded postmortem](docs/autopilot-loop.gif)
 
+Real, unedited output from the same code path, briefing a real indexed
+incident (Bitbucket's Oct 2025 outage, part of Atlassian's AWS-caused Cloud
+disruption): [docs/example-brief.txt](docs/example-brief.txt).
+
 ## How it works
 
 ```
