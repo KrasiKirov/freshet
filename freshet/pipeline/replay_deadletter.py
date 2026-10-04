@@ -46,7 +46,7 @@ def main() -> None:
     from freshet.common.kafka_io import BufferedProducer, consume_loop
 
     p = argparse.ArgumentParser(description="Replay dead-lettered messages")
-    p.add_argument("--brokers", default="localhost:9092")
+    p.add_argument("--brokers", default="127.0.0.1:9092")
     p.add_argument("--group", default="deadletter-replay")
     p.add_argument("--max", type=int, default=None)
     p.add_argument("--idle-timeout", type=float, default=10.0)

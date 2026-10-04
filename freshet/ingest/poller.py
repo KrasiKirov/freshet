@@ -355,7 +355,7 @@ def run(brokers: str, interval_s: float = POLL_INTERVAL_S,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--brokers", default="localhost:9092")
+    parser.add_argument("--brokers", default="127.0.0.1:9092")
     parser.add_argument("--interval", type=float, default=POLL_INTERVAL_S)
     parser.add_argument("--sweeps", type=int, default=None,
                         help="stop after N sweeps (default: run forever)")

@@ -42,7 +42,8 @@ def max_stated_pct(hit_texts: list[str]) -> float | None:
 def _duration_min(opened_at, resolved_at) -> float | None:
     if not opened_at or not resolved_at:
         return None
-    return (resolved_at - opened_at).total_seconds() / 60.0
+    mins = (resolved_at - opened_at).total_seconds() / 60.0
+    return mins if mins >= 0 else None
 
 
 def _duration_display(mins: float | None) -> str:

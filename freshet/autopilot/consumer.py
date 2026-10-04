@@ -1,9 +1,9 @@
-"""Autopilot consumer: read incident.lifecycle, and on 'opened' debounce → claim
-→ brief exactly once. On 'resolved', claim the postmortem slot and post a threaded
-postmortem under the original brief's Slack message.
+"""Persist lifecycle work and deliver it under retryable leases.
 
-Handling is sequential; the blocking debounce wait is acceptable at demo incident
-volumes and keeps offset handling trivial (no timer bookkeeping)."""
+Opening briefs use a durable debounce deadline. Progress and postmortem work
+stays pending until delivery succeeds, including across crashes and restarts.
+Delivery is at-least-once: a crash after posting can duplicate a message.
+"""
 
 from __future__ import annotations
 
@@ -36,14 +36,25 @@ _POSTMORTEM_CLAIM_SQL = (
     "   AND brief_delivered_at IS NOT NULL"     # only postmortem what we briefed
     f"  AND (postmortem_at IS NULL OR postmortem_at < now() - interval '{LEASE_MINUTES} minutes')"
     " RETURNING incident_id")
+_PROGRESS_CLAIM_SQL = (
+    "UPDATE incidents SET progress_at = now()"
+    " WHERE incident_id = %s"
+    "   AND progress_delivered_at IS NULL"
+    "   AND brief_delivered_at IS NOT NULL"
+    f"  AND (progress_at IS NULL OR progress_at < now() - interval '{LEASE_MINUTES} minutes')"
+    " RETURNING incident_id")
 _MARK_BRIEF_SQL = ("UPDATE incidents SET brief_delivered_at = now(),"
                    " brief_due_at = NULL,"
                    " slack_ts = coalesce(%s, slack_ts),"
                    " slack_channel_id = coalesce(%s, slack_channel_id)"
                    " WHERE incident_id = %s")
-_MARK_POSTMORTEM_SQL = ("UPDATE incidents SET postmortem_delivered_at = now()"
+_MARK_POSTMORTEM_SQL = ("UPDATE incidents SET postmortem_delivered_at = now(),"
+                        " postmortem_needed = false"
                         " WHERE incident_id = %s")
+_MARK_PROGRESS_SQL = ("UPDATE incidents SET progress_delivered_at = now(),"
+                      " progress_needed = false WHERE incident_id = %s")
 _GET_SLACK_TS_SQL = "SELECT slack_ts FROM incidents WHERE incident_id = %s"
+_GET_OPENED_AT_SQL = "SELECT opened_at FROM incidents WHERE incident_id = %s"
 _RELEASE_SQL = "UPDATE incidents SET briefed_at = NULL WHERE incident_id = %s"
 _SCHEDULE_SQL = (
     "UPDATE incidents SET brief_due_at = now() + (%s * interval '1 second')"
@@ -58,14 +69,33 @@ _DEFER_POSTMORTEM_SQL = (
     "UPDATE incidents SET postmortem_needed = true"
     " WHERE incident_id = %s AND postmortem_delivered_at IS NULL"
     " RETURNING incident_id")
+_DEFER_PROGRESS_SQL = (
+    "UPDATE incidents SET progress_needed = true"
+    " WHERE incident_id = %s AND progress_delivered_at IS NULL"
+    " RETURNING incident_id")
 _CLAIM_DEFERRED_POSTMORTEM_SQL = (
-    "UPDATE incidents SET postmortem_at = now(), postmortem_needed = false"
+    "UPDATE incidents SET postmortem_at = now()"
     " WHERE incident_id = %s AND postmortem_needed"
     "   AND postmortem_delivered_at IS NULL AND brief_delivered_at IS NOT NULL"
+    f" AND (postmortem_at IS NULL OR postmortem_at < now() - interval '{LEASE_MINUTES} minutes')"
     " RETURNING incident_id, coalesce(primary_service, ''), slack_ts")
+_CLAIM_DEFERRED_PROGRESS_SQL = (
+    "UPDATE incidents SET progress_at = now()"
+    " WHERE incident_id = %s AND progress_needed"
+    "   AND progress_delivered_at IS NULL AND brief_delivered_at IS NOT NULL"
+    f" AND (progress_at IS NULL OR progress_at < now() - interval '{LEASE_MINUTES} minutes')"
+    " RETURNING incident_id, coalesce(primary_service, ''), slack_ts")
+_PENDING_FOLLOWUPS_SQL = (
+    "SELECT incident_id FROM incidents WHERE brief_delivered_at IS NOT NULL AND ("
+    " (progress_needed AND progress_delivered_at IS NULL"
+    f"  AND (progress_at IS NULL OR progress_at < now() - interval '{LEASE_MINUTES} minutes'))"
+    " OR (postmortem_needed AND postmortem_delivered_at IS NULL"
+    f"  AND (postmortem_at IS NULL OR postmortem_at < now() - interval '{LEASE_MINUTES} minutes'))"
+    ") ORDER BY brief_delivered_at, incident_id LIMIT %s")
 _INDEXED_COUNT_SQL = (
     "SELECT count(*) FROM vector_records WHERE incident_id = %s")
 _RELEASE_POSTMORTEM_SQL = "UPDATE incidents SET postmortem_at = NULL WHERE incident_id = %s"
+_RELEASE_PROGRESS_SQL = "UPDATE incidents SET progress_at = NULL WHERE incident_id = %s"
 
 _MARK_RESOLVED_SQL = ("UPDATE incidents SET resolved_at = coalesce(resolved_at, %s)"
                       " WHERE incident_id = %s")
@@ -119,6 +149,14 @@ def mark_postmortem_delivered(conn, incident_id: str) -> None:
     conn.execute(_MARK_POSTMORTEM_SQL, (incident_id,))
 
 
+def claim_progress(conn, incident_id: str) -> bool:
+    return conn.execute(_PROGRESS_CLAIM_SQL, (incident_id,)).fetchone() is not None
+
+
+def mark_progress_delivered(conn, incident_id: str) -> None:
+    conn.execute(_MARK_PROGRESS_SQL, (incident_id,))
+
+
 def release_incident(conn, incident_id: str) -> None:
     """Undo a brief claim so a redelivery can retry it."""
     conn.execute(_RELEASE_SQL, (incident_id,))
@@ -127,6 +165,10 @@ def release_incident(conn, incident_id: str) -> None:
 def release_postmortem(conn, incident_id: str) -> None:
     """Undo a postmortem claim so a redelivery can retry it."""
     conn.execute(_RELEASE_POSTMORTEM_SQL, (incident_id,))
+
+
+def release_progress(conn, incident_id: str) -> None:
+    conn.execute(_RELEASE_PROGRESS_SQL, (incident_id,))
 
 
 def _event_ts(ev: LifecycleEvent) -> datetime:
@@ -145,7 +187,7 @@ def _event_ts(ev: LifecycleEvent) -> datetime:
 
 def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
                      sleep=time.sleep, composer=None) -> None:
-    """Record what a lifecycle event implies; deliver nothing on this path.
+    """Schedule opening briefs; persist follow-up intent before trying delivery.
 
     `sleep` is retained only for callers that still pass it — the debounce is a
     due-time in Postgres now, not a blocking wait.
@@ -162,10 +204,43 @@ def handle_lifecycle(conn, raw_json: str, *, window_s: float, sink: Sink,
         schedule_brief(conn, ev.incident_id, window_s)
         return
 
+    if ev.type == "in_progress":
+        opened = conn.execute(_GET_OPENED_AT_SQL, (ev.incident_id,)).fetchone()
+        if opened and opened[0] and _event_ts(ev) < opened[0]:
+            print(f"[autopilot] {ev.incident_id} stale in-progress event — skipping")
+            return
+        # A provider may expose a monitoring update without an earlier
+        # investigating update in the same replay window. Keep the transition
+        # useful: ensure the row and schedule the opening brief if needed.
+        ensure_incident(conn, ev.incident_id, ev.service, _event_ts(ev), ev.title)
+        schedule_brief(conn, ev.incident_id, window_s)
+        conn.execute(_DEFER_PROGRESS_SQL, (ev.incident_id,))
+        if not claim_progress(conn, ev.incident_id):
+            print(f"[autopilot] {ev.incident_id} progress deferred until the brief is posted")
+            return
+        try:
+            row = conn.execute(_GET_SLACK_TS_SQL, (ev.incident_id,)).fetchone()
+            slack_ts = row[0] if row else None
+            findings = gather_findings(conn, ev.service, ev.incident_id,
+                                       "in_progress", composer=composer)
+            sink.deliver(findings, thread=slack_ts)
+            mark_progress_delivered(conn, ev.incident_id)
+            print(f"[autopilot] {ev.incident_id}: progress update delivered"
+                  + (f" (slack_ts={slack_ts})" if slack_ts else ""), flush=True)
+        except Exception:
+            release_progress(conn, ev.incident_id)
+            raise
+        return
+
     if ev.type == "resolved":
-        conn.execute(_MARK_RESOLVED_SQL, (_event_ts(ev), ev.incident_id))
+        event_ts = _event_ts(ev)
+        opened = conn.execute(_GET_OPENED_AT_SQL, (ev.incident_id,)).fetchone()
+        if opened and opened[0] and event_ts < opened[0]:
+            print(f"[autopilot] {ev.incident_id} stale resolved event — skipping")
+            return
+        conn.execute(_MARK_RESOLVED_SQL, (event_ts, ev.incident_id))
+        conn.execute(_DEFER_POSTMORTEM_SQL, (ev.incident_id,))
         if not claim_postmortem(conn, ev.incident_id):
-            conn.execute(_DEFER_POSTMORTEM_SQL, (ev.incident_id,))
             print(f"[autopilot] {ev.incident_id} postmortem already posted or never briefed — skipping")
             return
         try:
@@ -218,8 +293,41 @@ def drain_due_briefs(conn, *, sink: Sink, limit: int = 10,
         print(f"[autopilot] {incident_id}: brief delivered"
               + (f" (slack_ts={ts})" if ts else ""), flush=True)
         delivered += 1
-        deliver_deferred_postmortem(conn, incident_id, sink=sink, composer=composer)
+    drain_pending_followups(conn, sink=sink, composer=composer, limit=limit)
     return delivered
+
+
+def drain_pending_followups(conn, *, sink: Sink, composer=None, limit: int = 10) -> int:
+    """Retry owed follow-ups even when no opening briefs remain due."""
+    delivered = 0
+    for (incident_id,) in conn.execute(_PENDING_FOLLOWUPS_SQL, (limit,)).fetchall():
+        try:
+            delivered += deliver_deferred_progress(conn, incident_id, sink=sink, composer=composer)
+            delivered += deliver_deferred_postmortem(conn, incident_id, sink=sink, composer=composer)
+        except BudgetExhausted as exc:
+            log.warning("%s: %s", incident_id, exc)
+            break
+    return delivered
+
+
+def deliver_deferred_progress(conn, incident_id: str, *, sink: Sink,
+                              composer=None) -> bool:
+    """Post an in-progress update that arrived before the opening brief."""
+    row = conn.execute(_CLAIM_DEFERRED_PROGRESS_SQL, (incident_id,)).fetchone()
+    if row is None:
+        return False
+    _, service, slack_ts = row
+    try:
+        findings = gather_findings(conn, service, incident_id,
+                                   "in_progress", composer=composer)
+        sink.deliver(findings, thread=slack_ts)
+    except Exception:
+        release_progress(conn, incident_id)
+        raise
+    mark_progress_delivered(conn, incident_id)
+    print(f"[autopilot] {incident_id}: deferred progress update delivered"
+          + (f" (slack_ts={slack_ts})" if slack_ts else ""), flush=True)
+    return True
 
 
 def deliver_deferred_postmortem(conn, incident_id: str, *, sink: Sink,

@@ -18,6 +18,12 @@ def test_from_json_reads_fields():
     assert ev.type == "resolved" and ev.incident_id == "INC_2" and ev.service == "api"
 
 
+def test_in_progress_is_a_supported_lifecycle_type():
+    ev = LifecycleEvent(type="in_progress", incident_id="INC_3", service="api",
+                        ts="2026-07-01T00:00:00+00:00")
+    assert ev.type == "in_progress"
+
+
 def test_a_lifecycle_event_is_a_validated_model():
     """Everything else in the contract layer is pydantic; this was a hand-rolled
     dataclass plus json, so a missing field surfaced as a bare KeyError."""

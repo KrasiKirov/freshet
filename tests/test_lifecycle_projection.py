@@ -14,7 +14,8 @@ SQL = (Path(__file__).resolve().parents[1] / "freshet/stream/dedup_job.sql").rea
 # prose semicolon inside a `--` line truncated a statement mid-match.
 CODE = re.sub(r"--[^\n]*", "", SQL)
 
-OPEN_STATUSES = {"investigating", "identified", "monitoring"}
+OPEN_STATUSES = {"investigating", "identified"}
+IN_PROGRESS_STATUSES = {"monitoring"}
 # 'complete' (no 'd') is what hashicorp posts; without it those incidents
 # resolve silently and never get a postmortem
 RESOLVE_STATUSES = {"resolved", "completed", "complete"}
@@ -45,7 +46,7 @@ def _statuses(block: str) -> set[str]:
 
 
 def test_the_view_admits_exactly_the_open_and_resolve_statuses():
-    assert _statuses(_view()) == OPEN_STATUSES | RESOLVE_STATUSES
+    assert _statuses(_view()) == OPEN_STATUSES | IN_PROGRESS_STATUSES | RESOLVE_STATUSES
 
 
 def test_a_status_is_classified_as_resolved_only_if_it_is_a_resolve_status():
@@ -56,6 +57,10 @@ def test_a_status_is_classified_as_resolved_only_if_it_is_a_resolve_status():
                      _view())
     assert case, "the view must classify the transition with a CASE"
     assert set(re.findall(r"'([a-z]+)'", case.group(1))) == RESOLVE_STATUSES
+
+
+def test_monitoring_is_classified_as_in_progress():
+    assert "WHEN LOWER(status) = 'monitoring' THEN 'in_progress'" in _view()
 
 
 def test_neither_transition_can_fire_twice_for_one_incident():
@@ -77,7 +82,7 @@ def test_the_first_row_is_chosen_by_a_single_time_attribute():
 
 
 def test_open_and_resolve_statuses_do_not_overlap():
-    assert not (OPEN_STATUSES & RESOLVE_STATUSES), (
+    assert not ((OPEN_STATUSES | IN_PROGRESS_STATUSES) & RESOLVE_STATUSES), (
         "an overlapping status would emit both an open and a resolve")
 
 

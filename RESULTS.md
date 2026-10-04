@@ -3,42 +3,52 @@
 Method and derivations behind the README's numbers. Figures from the earlier
 version of this project are not reproducible here and are not cited as current.
 
+The latest refresh on 2026-10-03 reindexed the current public-feed snapshot:
+5,763 events, 6,904 chunks, and 42 providers. Retrieval was rerun over all
+1,312 eligible incidents. Freshness was also rerun, but correctly produced no
+score because the continuous run began after the newest feed updates had been
+posted.
+
 ## Staleness — `make freshness` → `results/freshness.json`
 
-- **t0** = the provider's own `created_at`, so the poll wait is included — it's
-  the delay a user actually experiences.
-- **t1** = the moment the update is queryable in pgvector.
-- **Batch arm** = an hourly index's mean wait, averaged over all 3,600
-  possible refresh-boundary phases — not the single top-of-hour alignment,
-  which a workload's own arrival clustering can flatter or punish.
-- Only **live** arrivals are scored (posted after indexing began); backfilled
-  history is excluded so the metric reflects pipeline speed, not when
-  indexing was switched on.
+**A live-arrival score with corrected instrumentation is still pending.** The
+saved October 3 snapshot had n = 0: its updates were posted before the observed
+run began. Its index snapshot (5,763 events, 24 posted in the prior 24 hours)
+is a corpus-currentness signal, not a streaming-latency measurement.
 
-**n = 35 updates (39 rows), mean 99.78s (p50 90.19s, p95 197.65s), ratio
-18.04×** against the 1800.46s batch arm. Scored across the run's unbroken
-span, 2026-09-04T19:57:01Z – 2026-09-05T05:03:56Z (9:06:55), zero restarts.
-`n` counts distinct `event_id`s; `n_rows` is chunk rows — two Cloudflare
-maintenance notices produced 3 rows each for 1 update.
+Version 2 records `event_indexing.first_queryable_at` only after all of an
+update's chunk writes have been acknowledged by Postgres in autocommit mode.
+This is a conservative upper bound on the time the full event became searchable:
+it includes embedding and writes, plus the small completion-receipt overhead.
+Replays preserve the first completion and advance `last_queryable_at`. Existing
+rows without first-index observations stay in the corpus but are excluded from
+the benchmark. A crash before completion leaves the receipt unfinished so a
+retry can complete it; no partial write is scored as completed indexing.
 
-**Alignment sensitivity, disclosed rather than buried:** sweeping all 3,600
-boundary phases gives mean 1800.46s (18.04×), median 1652.05s (16.56×), range
-1298.34s (13.01×) – 2565.91s (25.72×). This run's arrivals cluster right
-after the hour, so a batch aligned exactly at HH:00:00 would score **25.72×**
-— not because that alignment is realistic, but because it's the one phase
-this run's own clustering is least favorable to. The published 18.04× holds
-regardless of which alignment a batch system actually uses.
+- **t0:** the provider's timestamp, including its rounding uncertainty.
+- **t1:** the first acknowledged-completion receipt for the event.
+- **Window:** by default, events posted within the current embedder-heartbeat
+  span; catch-up history is excluded. This heartbeat does not prove every
+  upstream component was continuously available. `--since-minutes` explicitly
+  replaces this window with a provider-timestamp window.
+- **Batch arm:** a modeled hourly refresh, averaged over all 3,600 boundary
+  phases, with the alignment range disclosed. There is no separately deployed
+  batch system in this experiment.
+- **Counting:** one observation per event; `n_rows` also reports chunk count.
 
-Up to 60s of source-side timestamp rounding (93% of the corpus, 37 of the 39
-scored rows, is truncated to the minute) inflates the measured streaming
-wait, which *depresses* the ratio — correcting it would raise 18.04×, not
-lower it.
+The September 4–5 historical run reported n = 35 updates (39 chunks), mean
+99.78s, p50 90.19s, p95 197.65s, and 18.04× against a modeled 1800.46s hourly
+batch wait. **Those figures used the old timestamp captured before embedding
+and persistence. They undercounted completion latency and must not be quoted
+as validated current performance.** Reindexing also overwrote the old timestamp.
+The historical alignment range was 13.01×–25.72×; 18.04× was an average across
+phases, not a guarantee for every batch schedule. Source timestamp rounding and
+omitted embedding/write time introduce different biases, so no corrected ratio
+can be inferred from those aggregates.
 
-An earlier version of this measurement, scored without the live-arrival
-filter, reported a ratio of 0.06 (streaming losing to batch) — an artifact of
-a 14-hour outage whose catch-up burst got scored as pipeline staleness.
-Uptime is now proven by an embedder heartbeat, and only the current unbroken
-run is scored.
+Run `make db-init`, restart the embedder with this code, and collect new live
+arrivals before reporting a replacement score. `FRESHNESS_MIN_N=20 make freshness`
+rejects an undersized sample. A zero-sample report is explicitly “not yet measured”.
 
 ## Retrieval — `make live-eval` → `results/live_retrieval.json`
 
@@ -49,29 +59,33 @@ query is an incident's first update, ground truth is any other update of the
 same incident, and it regenerates against however much the live index has
 accumulated.
 
-**Measures within-incident linking, not causal identification.** A high
-score says retrieval can find "more of this incident," not that what it
-finds explains the cause.
+**Measures within-incident ranking before abstention.** The scorer uses the
+retriever's hits even when it would abstain. It does not measure end-to-end Slack
+answers, cause identification, or whether generated prose follows its citations.
+`recall@5` is the retained field name for a hit rate: the fraction of queries with
+at least one other update from the incident among the top five distinct returned
+events. It is not the fraction of all relevant updates retrieved. `top1_cite`
+means the first result belongs to that incident, not an LLM citation audit.
 
-Over 1,144 eligible incidents against a 5,802-chunk / 4,882-event /
-42-provider live index:
+The current run covered 1,312 eligible incidents against a 6,904-chunk /
+5,763-event / 42-provider live index:
 
 | arm | recall@5 | mrr | top1_cite |
 |---|---|---|---|
-| hybrid | 0.708 | 0.513 | 0.392 |
-| vector_only | 0.851 | 0.717 | 0.632 |
-| keyword_only | 0.332 | 0.240 | 0.183 |
-| blind_recent | 0.003 | 0.001 | 0.001 |
+| hybrid | 0.699 | 0.510 | 0.391 |
+| vector_only | 0.838 | 0.707 | 0.625 |
+| keyword_only | 0.330 | 0.242 | 0.189 |
+| blind_recent | 0.002 | 0.001 | 0.001 |
 
 `blind_recent` returns the most recent chunks regardless of the query and
-scores near zero — hybrid minus blind is 0.705, so the task isn't solvable by
+scores near zero — hybrid minus blind is 0.697, so the task isn't solvable by
 recency alone.
 
-**`vector_only` (0.851) beats `hybrid` (0.708)** on this task, contradicting
+**`vector_only` (0.838) beats `hybrid` (0.699)** on this task, contradicting
 this project's own framing of hybrid as the better default. RRF fusion with
-the weak keyword arm (0.332) drags hybrid down. Reported as measured; the
-production default is unchanged pending a live eval of the fuller
-cause-finding task this one doesn't cover.
+the weak keyword arm (0.330) drags hybrid down. Reported as measured; the
+production default is unchanged pending an evaluation of real follow-up
+questions and abstention, which this incident-linking task does not cover.
 
 ## Autonomous delivery
 
@@ -87,9 +101,10 @@ All three completed open → brief → resolve → threaded postmortem. Timestam
 are `incidents.brief_delivered_at` / `postmortem_delivered_at`, written when
 the sink actually posts, not when the consumer claims the lease. `slack_ts`
 is written only from a real Slack API response — the dry-run sink returns
-`None` — so a non-null value on all three confirms real delivery. The demo
-tool couldn't have produced them either: it requires ≥3 indexed updates
-before listing a candidate, and these incidents had as few as 1 when briefed.
+`None` — so a non-null value on all three confirms real delivery. The historical
+run was recorded as autonomous. The current demo trigger can reset delivery
+state, so demo runs must be kept separate from this evidence;
+non-null Slack timestamps alone establish posting, not its trigger provenance.
 
 **3 of 3, not 3 of 13**: 10 more incidents opened in the run window, all
 scheduled maintenance (Twilio, Cloudflare ×2). The lifecycle projection
@@ -120,16 +135,17 @@ counted above).
 
 ## Honest limits
 
-- 4% of incidents state a cause. The brief quotes the provider's sentence
-  when one exists, or stays silent — it never infers a cause.
-- The 60s poll cadence is ~31s of the 99.78s measured mean, so it is not the
-  binding term — most of the delay is downstream of the poll. A further ~30s
-  mean is source-timestamp rounding: 93% of providers stamp to the whole
-  minute, and t0 is their stamp, so the measurement is conservative.
-- Briefs are non-deterministic (LLM-written). Citations are verified against
-  retrieved evidence on both id and timestamp, so a fabricated one is
-  stripped, not shipped.
-- Delivery is at-least-once: a failed Slack post now raises and retries
-  instead of being recorded as delivered, so a crash after posting but
-  before the database write can duplicate an alert instead. Exactly-once
-  needs an outbox; a duplicate is the cheaper failure.
+- An earlier sample found explicit cause text in about 4% of incidents. The
+  extractive cause field quotes provider text. It is separate from the LLM's
+  narrative and is not a current whole-corpus prevalence measurement.
+- Citation provenance checks validate an ID against the supplied evidence and
+  substitute that evidence's timestamp. Unknown IDs are stripped; the prose
+  remains. This does not establish semantic support or rule out hallucination.
+- Delivery is at-least-once. Pending progress/postmortem flags survive failures
+  and lease expiry, and an independent drain retries them after the root brief.
+  Posting successfully and crashing before recording delivery can still duplicate
+  a message. A durable outbox alone would not remove that external-side-effect
+  ambiguity; the sink would also need an idempotency/reconciliation mechanism.
+- The repeatable `make demo` uses captured evidence and temporary tables. Its
+  default composer is extractive and its vectors are stubbed; `--llm` exercises
+  the real composer. Neither mode measures Kafka/Flink or retrieval quality.

@@ -12,12 +12,13 @@ class _FakeConn:
     """Routes by SQL: RETURNING → claim; slack_ts → stored ts; due → scheduled
     briefs; vector_records count → how much evidence is indexed."""
     def __init__(self, *, claim_ok=True, slack_ts=None, due=(("INC_1", "api"),),
-                 indexed=3, postmortem_needed=False):
+                 indexed=3, postmortem_needed=False, opened_at=None):
         self.claim_ok = claim_ok
         self.slack_ts = slack_ts
         self.due = list(due)
         self.indexed = indexed
         self.postmortem_needed = postmortem_needed
+        self.opened_at = opened_at
         self.executed = []
 
     def execute(self, sql, params=None):
@@ -25,12 +26,18 @@ class _FakeConn:
         row, rows = None, []
         if "slack_ts IS NOT NULL" in sql:
             rows = []                       # thread polling is not under test here
+        elif sql == consumer._PENDING_FOLLOWUPS_SQL:
+            rows = [("INC_1",)] if self.postmortem_needed else []
         elif "postmortem_needed" in sql and "RETURNING" in sql:
             row = ("INC_1", "api", self.slack_ts) if self.postmortem_needed else None
+        elif "progress_needed" in sql and "RETURNING" in sql:
+            row = None                       # no deferred progress in old fixtures
         elif "RETURNING" in sql:
             row = ("INC_1",) if self.claim_ok else None
         elif "SELECT slack_ts" in sql:
             row = (self.slack_ts,)
+        elif "SELECT opened_at FROM incidents" in sql:
+            row = (self.opened_at,) if self.opened_at else None
         elif "count(*) FROM vector_records" in sql:
             row = (self.indexed,)
         elif "brief_due_at IS NOT NULL" in sql:
@@ -70,6 +77,23 @@ def _resolved_json():
                           ts="2026-07-01T00:00:00+00:00").to_json()
 
 
+def _progress_json():
+    return LifecycleEvent(type="in_progress", incident_id="INC_1", service="api",
+                          ts="2026-07-01T00:00:00+00:00").to_json()
+
+
+def test_in_progress_posts_amber_update_threaded_under_slack_ts(monkeypatch):
+    monkeypatch.setattr(consumer, "gather_findings",
+                        lambda *a, **k: Findings("api", "in_progress", None, None,
+                                                 None, None, None, "working on it"))
+    sink = _RecordingSink()
+    consumer.handle_lifecycle(_FakeConn(slack_ts="9.9"), _progress_json(),
+                              window_s=0, sink=sink, sleep=lambda s: None)
+    assert len(sink.calls) == 1
+    findings, thread = sink.calls[0]
+    assert findings.status == "in_progress" and thread == "9.9"
+
+
 def test_resolved_posts_postmortem_threaded_under_slack_ts(monkeypatch):
     monkeypatch.setattr(consumer, "gather_postmortem", lambda *a, **k: _pm())
     sink = _RecordingSink()
@@ -88,6 +112,15 @@ def test_resolved_skips_on_redelivery(capsys, monkeypatch):
                               window_s=0, sink=sink, sleep=lambda s: None)
     assert not sink.calls
     assert "already" in capsys.readouterr().out.lower()
+
+
+def test_stale_resolved_event_cannot_close_a_new_demo(capsys):
+    opened = datetime(2026, 7, 2, tzinfo=UTC)
+    conn = _FakeConn(opened_at=opened)
+    consumer.handle_lifecycle(conn, _resolved_json(), window_s=0,
+                              sink=_RecordingSink(), sleep=lambda s: None)
+    assert not any("resolved_at" in q for q, _ in conn.executed)
+    assert "stale resolved" in capsys.readouterr().out.lower()
 
 
 def _lifecycle(kind="opened", iid="INC-1"):

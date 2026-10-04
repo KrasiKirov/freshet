@@ -107,3 +107,51 @@ def test_a_junk_override_falls_back_to_the_default(monkeypatch):
     monkeypatch.setenv("FRESHET_MAX_POLL_INTERVAL_MS", "not-a-number")
     kafka_io.make_consumer("localhost:9092", "g", ["t"])
     assert captured["max.poll.interval.ms"] == kafka_io.DEFAULT_MAX_POLL_INTERVAL_MS
+
+
+def test_idle_commits_partial_batches_before_idle_work(monkeypatch):
+    from threading import Event
+    from types import SimpleNamespace
+
+    from freshet.common import kafka_io
+
+    stop = Event()
+    order = []
+    msgs = [SimpleNamespace(error=lambda: None, value=lambda: b"event",
+                            topic=lambda: "t", partition=lambda p=p: p) for p in (0, 1)]
+    polls = iter([*msgs, None])
+    client = SimpleNamespace(poll=lambda _: next(polls), close=lambda: None,
+                             commit=lambda **kw: order.append(kw["message"].partition()))
+    monkeypatch.setattr(kafka_io, "make_consumer", lambda *a, **kw: client)
+
+    def idle():
+        assert order == ["flush", 0, 1]
+        stop.set()
+
+    kafka_io.consume_loop("b", "g", ["t"], lambda _: None, auto_commit=False,
+                          commit_every=50, pre_commit=lambda: order.append("flush"),
+                          stop=stop, idle_hook=idle)
+
+
+def test_idle_flush_failure_never_commits_offsets(monkeypatch):
+    from types import SimpleNamespace
+
+    import pytest
+
+    from freshet.common import kafka_io
+
+    msg = SimpleNamespace(error=lambda: None, value=lambda: b"event",
+                          topic=lambda: "t", partition=lambda: 0)
+    polls = iter([msg, None])
+    commits = []
+    client = SimpleNamespace(poll=lambda _: next(polls), close=lambda: None,
+                             commit=lambda **kw: commits.append(kw))
+    monkeypatch.setattr(kafka_io, "make_consumer", lambda *a, **kw: client)
+
+    def fail():
+        raise RuntimeError("delivery not acknowledged")
+
+    with pytest.raises(RuntimeError, match="not acknowledged"):
+        kafka_io.consume_loop("b", "g", ["t"], lambda _: None, auto_commit=False,
+                              commit_every=50, pre_commit=fail)
+    assert not commits

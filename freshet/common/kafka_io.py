@@ -158,6 +158,10 @@ def consume_loop(
                 break
             msg = c.poll(1.0)
             if msg is None:
+                # Sparse streams may never fill a commit batch. Flush only
+                # successfully handled records before running unrelated idle work.
+                if not auto_commit:
+                    _commit_pending()
                 if idle_hook is not None:
                     idle_hook()
                 if idle_timeout_s is not None and time.monotonic() - last_msg >= idle_timeout_s:

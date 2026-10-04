@@ -2,7 +2,9 @@ COMPOSE := docker compose
 # Prefer the repo's own virtualenv; `make PYTHON=...` overrides.
 PYTHON := $(if $(wildcard $(CURDIR)/.venv/bin/python),$(CURDIR)/.venv/bin/python,$(shell command -v python3 2>/dev/null || command -v python))
 
-.PHONY: help up down db-init test test-integration poller api autopilot
+.PHONY: help up down db-init db-migrate test test-integration check poller autopilot \
+	flink-dist stream stream-stop stream-health embedder run-forever service-install \
+	service-stop demo demo-brief index-stats index-ready live-eval freshness
 
 .DEFAULT_GOAL := help
 
@@ -55,6 +57,11 @@ test: ##dev
 test-integration: ##dev
 	$(PYTHON) -m pytest -q -m integration
 
+check: ##dev
+	$(PYTHON) -m ruff check freshet tests
+	$(PYTHON) -m mypy
+	$(PYTHON) -m pytest -q
+
 
 # Load-bearing: if undefined, $(FLINK_HOME) expands to empty and flink-dist
 # silently downloads a bogus URL.
@@ -103,7 +110,7 @@ run-forever: ##run
 	FRESHET_LLM_HOURLY_CAP=$${FRESHET_LLM_HOURLY_CAP:-60} \
 	FRESHET_LLM_DAILY_CAP=$${FRESHET_LLM_DAILY_CAP:-500} \
 	FRESHET_SINK=slack \
-	exec $(PYTHON) -m freshet.autopilot --brokers localhost:9092 --sink slack
+	exec $(PYTHON) -m freshet.autopilot --brokers 127.0.0.1:9092 --sink slack
 
 service-install: ##run
 	@mkdir -p $(HOME)/Library/LaunchAgents logs
@@ -120,7 +127,11 @@ service-stop: ##run
 
 autopilot: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
-	$(PYTHON) -m freshet.autopilot --brokers localhost:9092
+	$(PYTHON) -m freshet.autopilot --brokers 127.0.0.1:9092
+
+demo: ##demo
+	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
+	$(PYTHON) -m freshet.autopilot.replay_demo $(ARGS)
 
 demo-brief: ##run
 	@if [ -f .env.local ]; then set -a; . ./.env.local; set +a; fi; \
@@ -129,9 +140,12 @@ demo-brief: ##run
 index-stats: ##eval
 	$(PYTHON) -m freshet.pipeline.index_stats $(ARGS)
 
-live-eval: ##eval
+index-ready: ##eval
+	$(PYTHON) -m freshet.ops.index_ready
+
+live-eval: index-ready ##eval
 	$(PYTHON) -m freshet.eval.live_retrieval
 
 # FRESHNESS_MIN_N=20 make freshness -> fails instead of reporting a thin sample.
-freshness: ##eval
+freshness: index-ready ##eval
 	$(PYTHON) -m freshet.eval.freshness

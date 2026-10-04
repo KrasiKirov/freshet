@@ -40,7 +40,7 @@ class _RecordingConn:
 
         class _R:
             def fetchone(self_inner):
-                return None
+                return (datetime.now(UTC),) if "RETURNING last_queryable_at" in sql else None
         return _R()
 
 

@@ -118,6 +118,9 @@ class _FakeConn:
 
     def execute(self, sql, params=None):
         self.executed.append((sql, params))
+        if "RETURNING last_queryable_at" in sql:
+            from types import SimpleNamespace
+            return SimpleNamespace(fetchone=lambda: (datetime.now(UTC),))
 
     def transaction(self):
         import contextlib

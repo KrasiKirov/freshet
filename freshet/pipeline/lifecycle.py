@@ -12,7 +12,7 @@ from pydantic import BaseModel
 LIFECYCLE_TOPIC = "incident.lifecycle"
 
 # type isn't a Literal: an unfamiliar value must print "no action", not crash a replay
-KNOWN_TYPES = frozenset({"opened", "resolved"})
+KNOWN_TYPES = frozenset({"opened", "in_progress", "resolved"})
 
 
 class LifecycleEvent(BaseModel):

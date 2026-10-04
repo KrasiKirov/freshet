@@ -1,37 +1,17 @@
-"""The single Freshet measurement: end-to-end data staleness.
+"""Measure provider timestamp to acknowledged index completion.
 
-t0 is the provider's own posting time, NOT the moment we fetched the update. That
-deliberately includes the poll wait we do not control, because it is the delay a
-user actually experiences. Reporting fetch->queryable instead would flatter the
-number by excluding its dominant term.
+Version 2 uses event_indexing.first_queryable_at, recorded after all chunk
+writes have completed in autocommit mode. This is a conservative upper bound
+on first visibility. Replays preserve it and update last_queryable_at instead.
+Legacy rows have no first-index receipt and are excluded from the benchmark.
 
-**Only live arrivals count.** An update posted three years ago and indexed during
-a backfill has a staleness of three years, which says nothing about the pipeline.
-The filter is self-calibrating: an update is LIVE if it was posted after we
-started indexing, i.e. `ts >= min(indexed_at)`. Anything earlier was history we
-caught up on, and scoring it measures when the pipeline was switched on rather
-than how fast it is. Measured without this guard, a 24h window reported a mean
-staleness of 41,995s and a ratio of 0.06 — streaming apparently LOSING to hourly
-batch, purely from backfill.
+By default, score only provider updates posted in the current embedder-heartbeat
+span. --since-minutes explicitly overrides that live-arrival window. This is an
+embedder liveness signal, not proof of uptime for every upstream component.
+n counts distinct events; n_rows counts their chunks. The hourly batch arm is
+modeled over every boundary phase; it is not an independently deployed system.
 
-Real status feeds are slow (~50 updates/day across 42 providers), so `n` grows
-by roughly 2/hour and is reported alongside every figure. `n` counts distinct
-UPDATES (event_id); `n_rows` is the underlying chunk-row count, reported
-separately because `vector_records` holds one row per chunk and a multi-chunk
-update must not be counted once per chunk.
-
-**The batch arm has no natural alignment.** `batch_staleness` models an hourly
-refresh whose boundary sits at some phase within the interval — HH:00:00 is only
-one of `interval_s` possible second-offsets, and real arrivals cluster at the
-top of the hour (scheduled maintenance windows start on the hour by nature), so
-scoring phase 0 alone rewards or punishes whichever alignment this run's
-workload happens to cluster against. The reported arm is therefore the mean over
-EVERY possible phase (`batch_alignment_sweep`), with the min/median/max also
-reported so the sensitivity to alignment stays visible instead of hidden behind
-one number.
-
-Run (stack up, poller + stream + embedder running):
-    python -m freshet.eval.freshness --since-minutes 120
+Run: make freshness
 """
 from __future__ import annotations
 
@@ -39,6 +19,7 @@ import argparse
 import json
 import math
 import os
+from datetime import UTC, datetime
 
 RESULTS = "results/freshness.json"
 BATCH_INTERVAL_S = 3600.0     # the hourly-batch index we compare against
@@ -134,10 +115,9 @@ def distinct_updates(rows: list[tuple[float, float, str]]) -> list[tuple[float, 
     """Collapse chunk rows to one (posted_at, queryable_at) per update.
 
     `vector_records` holds one row per CHUNK, so a multi-chunk update would
-    otherwise be scored — and counted in `n` — once per chunk. Chunks belonging
-    to the same event_id carry identical ts/indexed_at (verified against the
-    live table: 0 of 581 multi-chunk events there disagree), so keeping any one
-    row per event_id is exact, not an approximation."""
+    otherwise be scored — and counted in `n` — once per chunk. Each chunk is
+    joined to the same event-level first_queryable_at receipt, so keeping one
+    row per event_id counts completion once."""
     seen: dict[str, tuple[float, float]] = {}
     for posted, queryable, event_id in rows:
         seen.setdefault(event_id, (posted, queryable))
@@ -162,12 +142,45 @@ def finalize_report(report: dict) -> dict:
         return report
     report["status"] = "not yet measured"
     report["explanation"] = (
-        "No live arrivals scored: every indexed update was posted before indexing "
-        "began. Run the poller, stream and embedder together for several hours, "
+        "No eligible first-index completion receipts in the selected window. "
+        "Run the poller, stream and embedder together for several hours, "
         "then re-run.")
     for key in _EMPTY_RUN_KEYS:
         report.pop(key, None)
     return report
+
+
+def index_snapshot(conn, now: datetime | None = None) -> dict:
+    """Describe index currentness without calling it pipeline latency.
+
+    A provider timestamp tells us how recent the newest searchable event is. It
+    does not tell us when the provider published it, so this is a corpus-health
+    signal, not a replacement for the live-arrival benchmark below.
+    """
+    now = now or datetime.now(UTC)
+    row = conn.execute(
+        """
+        SELECT count(DISTINCT event_id),
+               count(DISTINCT event_id) FILTER (
+                   WHERE ts >= %(now)s - interval '24 hours'),
+               count(DISTINCT event_id) FILTER (
+                   WHERE indexed_at >= %(now)s - interval '24 hours'),
+               max(ts), max(indexed_at)
+        FROM vector_records
+        """, {"now": now}).fetchone()
+    n_events, posted_24h, indexed_24h, newest_ts, newest_indexed = row
+    age_s = ((now - newest_ts).total_seconds() if newest_ts is not None else None)
+    return {
+        "measured_at": now.isoformat(),
+        "n_events": int(n_events),
+        "n_events_posted_last_24h": int(posted_24h),
+        "n_events_indexed_last_24h": int(indexed_24h),
+        "newest_provider_timestamp": (
+            newest_ts.isoformat() if newest_ts is not None else None),
+        "newest_provider_age_s": round(age_s, 2) if age_s is not None else None,
+        "newest_indexed_at": (
+            newest_indexed.isoformat() if newest_indexed is not None else None),
+    }
 
 
 def main() -> None:
@@ -184,8 +197,10 @@ def main() -> None:
     from freshet.common.db import connect
     from freshet.common.heartbeat import continuous_run_start
 
+    measured_at = datetime.now(UTC)
     conn = connect()
     try:
+        snapshot = index_snapshot(conn, measured_at)
         if args.since_minutes is None:
             # only the current continuous run: excludes backfill and downtime catch-up
             run_start = continuous_run_start(conn)
@@ -195,21 +210,22 @@ def main() -> None:
             else:
                 rows = conn.execute(
                     """
-                    SELECT EXTRACT(EPOCH FROM ts)::float8,
-                           EXTRACT(EPOCH FROM indexed_at)::float8,
-                           event_id
-                    FROM vector_records
-                    WHERE ts >= %(start)s AND indexed_at >= %(start)s
+                    SELECT EXTRACT(EPOCH FROM v.ts)::float8,
+                           EXTRACT(EPOCH FROM i.first_queryable_at)::float8,
+                           v.event_id
+                    FROM vector_records v JOIN event_indexing i USING (event_id)
+                    WHERE v.ts >= %(start)s AND i.first_queryable_at >= %(start)s
                     """, {"start": run_start}).fetchall()
                 filter_desc = (f"current continuous run (since {run_start.isoformat()})")
         else:
             rows = conn.execute(
                 """
-                SELECT EXTRACT(EPOCH FROM ts)::float8,
-                       EXTRACT(EPOCH FROM indexed_at)::float8,
-                       event_id
-                FROM vector_records
-                WHERE ts >= now() - (%(mins)s * interval '1 minute')
+                SELECT EXTRACT(EPOCH FROM v.ts)::float8,
+                       EXTRACT(EPOCH FROM i.first_queryable_at)::float8,
+                       v.event_id
+                FROM vector_records v JOIN event_indexing i USING (event_id)
+                WHERE v.ts >= now() - (%(mins)s * interval '1 minute')
+                  AND i.first_queryable_at IS NOT NULL
                 """,
                 {"mins": args.since_minutes},
             ).fetchall()
@@ -226,24 +242,14 @@ def main() -> None:
     report["filter"] = (filter_desc if args.since_minutes is None
                         else f"posted within {args.since_minutes} minutes")
     report["note"] = (
-        "t0 = the provider's own posting time, so the poll wait we do not control "
-        "is included. Only LIVE arrivals are scored (posted after indexing began); "
-        "backfilled history would otherwise report the moment the pipeline was "
-        "switched on rather than its speed. `n` counts distinct updates "
-        "(event_id); `n_rows` is the underlying chunk-row count, since "
-        "vector_records holds one row per chunk. The batch arm is the mean "
-        "batch wait over EVERY possible refresh-boundary phase, not one "
-        "alignment: a single phase (e.g. HH:00:00 exactly) can be inflated or "
-        "flattered by which offset this run's arrivals happen to cluster "
-        "against, and real arrivals cluster at the top of the hour because "
-        "scheduled maintenance windows start on the hour. "
-        "batch_mean_s_top_of_hour and ratio_top_of_hour report that single "
-        "aligned figure for comparison; batch_mean_s_min/_median/_max show the "
-        "spread across all alignments. Only the pipeline's CURRENT continuous "
-        "run is scored, proven by heartbeat: a restart or an outage starts a "
-        "new run rather than charging the catch-up burst to the pipeline's "
-        "speed."
+        "Freshness uses first_queryable_at, recorded after acknowledged chunk writes. "
+        "Replays preserve it; last_queryable_at records reindexing separately. "
+        "Legacy rows without first-index receipts are excluded. The default window "
+        "excludes catch-up history; index_snapshot reports corpus currentness separately. "
+        "The hourly batch arm is modeled, not a deployed comparison system."
     )
+    report["measurement_version"] = 2
+    report["index_snapshot"] = snapshot
 
     report = finalize_report(report)
 

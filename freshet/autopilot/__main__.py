@@ -1,6 +1,6 @@
 """Autopilot: watch incident.lifecycle and print a cited brief per new incident.
 
-    python -m freshet.autopilot --brokers localhost:9092
+    python -m freshet.autopilot --brokers 127.0.0.1:9092
 
 Generation is not optional: ANTHROPIC_API_KEY is REQUIRED (make autopilot sources
 .env.local). Briefs and postmortems are LLM-composed over the incident's own
@@ -51,7 +51,7 @@ def _idle(conn, sink, embedder, threads, drain, composer, maintain) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Freshet autopilot (incident.lifecycle -> briefs)")
-    p.add_argument("--brokers", default="localhost:9092")
+    p.add_argument("--brokers", default="127.0.0.1:9092")
     p.add_argument("--group", default=os.environ.get("AUTOPILOT_GROUP", "autopilot"))
     p.add_argument("--window-s", type=float,
                    default=float(os.environ.get("AUTOPILOT_WINDOW_S", "45")))

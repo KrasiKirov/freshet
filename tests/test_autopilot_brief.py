@@ -21,6 +21,26 @@ def test_cite_hit_format():
     assert cite_hit(h) == "[ev1 @ 2026-07-01 12:00:00]"
 
 
+def test_render_omits_an_empty_runbook():
+    f = Findings(service="api", status="open", cause_text=None, cause_cite=None,
+                 fix_text=None, fix_cite=None, runbook=None, narrative="summary")
+    assert "Runbook" not in render_brief(f)
+
+
+def test_placeholder_runbooks_are_not_rendered():
+    from freshet.autopilot import investigate
+
+    class _Result:
+        def fetchone(self):
+            return ("none found",)
+
+    class _Conn:
+        def execute(self, sql, params):
+            return _Result()
+
+    assert investigate.fetch_runbook(_Conn(), "api") is None
+
+
 def test_render_includes_cause_runbook_and_status():
     f = Findings(service="scheduler-api", status="open",
                  cause_text="bad deploy", cause_cite="[ev1 @ 2026-07-01 12:00:00]",
@@ -30,6 +50,14 @@ def test_render_includes_cause_runbook_and_status():
     assert "bad deploy" in out and "[ev1 @ 2026-07-01 12:00:00]" in out
     assert "restart the worker" in out
     assert "estimation pending" not in out  # the ④ stub is gone
+
+
+def test_render_labels_in_progress_as_human_status():
+    f = Findings(service="api", status="in_progress", cause_text=None, cause_cite=None,
+                 fix_text=None, fix_cite=None, runbook=None, narrative="working on it")
+    out = render_brief(f)
+    assert "INCIDENT UPDATE" in out and "(in progress)" in out
+    assert "(in_progress)" not in out
 
 
 def test_render_shows_impact_when_set():

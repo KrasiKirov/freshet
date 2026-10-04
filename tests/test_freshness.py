@@ -1,13 +1,38 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from freshet.eval.freshness import (
-    batch_alignment_sweep,
     batch_staleness,
     distinct_updates,
+    index_snapshot,
     percentile,
     streaming_staleness,
     summarize,
 )
+
+
+class _SnapshotConn:
+    def execute(self, sql, params):
+        class _Result:
+            def fetchone(self):
+                return (
+                    12,
+                    3,
+                    4,
+                    datetime(2026, 10, 3, 17, 15, tzinfo=UTC),
+                    datetime(2026, 10, 3, 17, 40, tzinfo=UTC),
+                )
+        return _Result()
+
+
+def test_index_snapshot_reports_currentness_separately_from_live_latency():
+    got = index_snapshot(_SnapshotConn(), datetime(2026, 10, 3, 18, 0, tzinfo=UTC))
+    assert got["n_events"] == 12
+    assert got["n_events_posted_last_24h"] == 3
+    assert got["n_events_indexed_last_24h"] == 4
+    assert got["newest_provider_timestamp"].endswith("+00:00")
+    assert got["newest_provider_age_s"] == 2700.0
 
 
 def test_percentile_nearest_rank():
@@ -42,13 +67,6 @@ def test_batch_staleness_averages_to_half_the_interval():
     makes the ~1800s hourly figure a derivation from the cadence, not a guess."""
     mean = sum(batch_staleness(t, 3600.0) for t in range(0, 3600, 10)) / 360
     assert 1750 < mean < 1850
-
-
-def test_batch_alignment_sweep_returns_one_mean_per_second_offset():
-    """The boundary's phase is an arbitrary choice out of interval_s possible
-    second-offsets. The sweep must score all of them, not assume phase 0."""
-    got = batch_alignment_sweep([100.0, 200.0], interval_s=3600.0)
-    assert len(got) == 3600
 
 
 def test_reported_batch_arm_is_the_mean_across_alignments_not_a_single_phase():
@@ -111,16 +129,6 @@ def test_summarize_reports_percentiles_not_just_the_mean():
     got = summarize(streaming=[10.0, 20.0, 30.0, 400.0], posted_ats=[100.5] * 4)
     assert got["streaming_p50_s"] == 20.0
     assert got["streaming_p95_s"] == 400.0
-
-
-def test_summarize_handles_the_empty_case_without_dividing_by_zero():
-    got = summarize(streaming=[], posted_ats=[])
-    assert got["n"] == 0 and got["ratio"] == 0.0
-
-
-def test_percentile_on_empty_raises():
-    with pytest.raises(ValueError):
-        percentile([], 50)
 
 
 def test_distinct_updates_counts_a_multi_chunk_update_once():

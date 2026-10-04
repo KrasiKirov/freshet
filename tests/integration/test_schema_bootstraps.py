@@ -28,7 +28,9 @@ def test_the_schema_applies_to_an_empty_database():
             cols = {r[0] for r in c.execute(
                 "SELECT column_name FROM information_schema.columns"
                 " WHERE table_name = 'incidents'")}
-            assert {"brief_due_at", "brief_delivered_at", "primary_service"} <= cols
+            assert {"brief_due_at", "brief_delivered_at", "brief_as_of",
+                    "progress_delivered_at",
+                    "primary_service"} <= cols
             vcols = {r[0] for r in c.execute(
                 "SELECT column_name FROM information_schema.columns"
                 " WHERE table_name = 'vector_records'")}

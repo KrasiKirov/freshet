@@ -19,7 +19,7 @@ services:
       - --overprovisioned
       - --node-id=0
       - --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
+      - --advertise-kafka-addr=PLAINTEXT://127.0.0.1:9092
     ports:
       - "127.0.0.1:9092:9092"
     healthcheck:

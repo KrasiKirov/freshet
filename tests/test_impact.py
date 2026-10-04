@@ -85,6 +85,12 @@ def test_estimate_impact_line_ongoing_and_stated():
     assert "~40% errors" in line
 
 
+def test_negative_duration_is_treated_as_unknown():
+    line = estimate_impact(["a"], T0 + timedelta(minutes=10), T0,
+                           ["service degraded"])
+    assert "-10m" not in line and "ongoing" in line
+
+
 # --- a percentage only counts when its sentence is about failing --------------
 
 def test_a_percentage_with_no_error_context_is_ignored():

@@ -23,12 +23,22 @@ CREATE TABLE IF NOT EXISTS vector_records (
     text_tsv    tsvector GENERATED ALWAYS AS (to_tsvector('english', text)) STORED
 );
 
+-- Completion receipts are written AFTER acknowledged chunk writes. Legacy
+-- chunks have no trustworthy first-queryable timestamp and are not backfilled.
+CREATE TABLE IF NOT EXISTS event_indexing (
+    event_id text PRIMARY KEY,
+    first_index_observed boolean NOT NULL,
+    first_queryable_at timestamptz,
+    last_queryable_at timestamptz
+);
+
 CREATE TABLE IF NOT EXISTS incidents (
     incident_id             text PRIMARY KEY,
     title                   text NOT NULL DEFAULT '',
     opened_at               timestamptz NOT NULL,
     resolved_at             timestamptz,
     resolution_summary      text,
+    brief_as_of             timestamptz,
     primary_service         text,
     auto_opened             boolean NOT NULL DEFAULT false,
     briefed_at              timestamptz,
@@ -36,6 +46,9 @@ CREATE TABLE IF NOT EXISTS incidents (
     slack_ts                text,
     brief_delivered_at      timestamptz,
     postmortem_delivered_at timestamptz,
+    progress_at            timestamptz,
+    progress_delivered_at  timestamptz,
+    progress_needed        boolean NOT NULL DEFAULT false,
     brief_due_at            timestamptz,
     postmortem_needed       boolean NOT NULL DEFAULT false,
     thread_seen_ts          text,
@@ -111,12 +124,16 @@ ALTER TABLE vector_records
     GENERATED ALWAYS AS (to_tsvector('english', text)) STORED;
 
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS primary_service text;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS brief_as_of timestamptz;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS auto_opened boolean NOT NULL DEFAULT false;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS briefed_at    timestamptz;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_at timestamptz;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS slack_ts text;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS brief_delivered_at      timestamptz;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_delivered_at timestamptz;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS progress_at timestamptz;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS progress_delivered_at timestamptz;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS progress_needed boolean NOT NULL DEFAULT false;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS brief_due_at timestamptz;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS postmortem_needed boolean NOT NULL DEFAULT false;
 ALTER TABLE incidents ADD COLUMN IF NOT EXISTS thread_seen_ts text;
@@ -185,3 +202,4 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at timestamptz NOT NULL DEFAULT now()
 );
 INSERT INTO schema_version (version) VALUES (1) ON CONFLICT DO NOTHING;
+INSERT INTO schema_version (version) VALUES (2) ON CONFLICT DO NOTHING;

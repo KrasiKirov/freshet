@@ -18,7 +18,8 @@ log = logging.getLogger(__name__)
 
 _RUNBOOK_SQL = ("SELECT text FROM vector_records WHERE service = %s AND type = 'runbook'"
                 " ORDER BY ts LIMIT 1")
-_INCIDENT_META_SQL = "SELECT opened_at, resolved_at FROM incidents WHERE incident_id = %s"
+_INCIDENT_META_SQL = ("SELECT opened_at, resolved_at, brief_as_of"
+                      " FROM incidents WHERE incident_id = %s")
 _INCIDENT_SERVICES_SQL = "SELECT service FROM incident_services WHERE incident_id = %s"
 # concatenates chunk rows per event_id so a cause split across chunks isn't hidden
 _INCIDENT_UPDATES_SQL = (
@@ -27,9 +28,7 @@ _INCIDENT_UPDATES_SQL = (
     "       string_agg(text, ' ' ORDER BY chunk_index) AS text,"
     "       min(service) AS service, min(type) AS type, min(source) AS source"
     " FROM vector_records"
-    " WHERE incident_id = %s"
-    " GROUP BY event_id"
-    " ORDER BY max(ts) DESC")
+    " WHERE incident_id = %s")
 
 
 @dataclass(frozen=True)
@@ -47,22 +46,37 @@ class _Update:
     source: str = "alert"
 
 
-def fetch_incident_updates(conn, incident_id: str) -> list[_Update]:
+def fetch_incident_updates(conn, incident_id: str, as_of: datetime | None = None) -> list[_Update]:
     """Every indexed update belonging to one incident. Deduplicated by event_id
-    because a long update chunks into several rows."""
-    rows = conn.execute(_INCIDENT_UPDATES_SQL, (incident_id,)).fetchall()
+    because a long update chunks into several rows. ``as_of`` is used for a
+    delayed opening brief: if resolution arrived before the debounce drained,
+    the opening message must not summarize the later resolved history."""
+    sql = _INCIDENT_UPDATES_SQL
+    params: list[object] = [incident_id]
+    if as_of is not None:
+        sql += " AND ts <= %s"
+        params.append(as_of)
+    sql += " GROUP BY event_id ORDER BY max(ts) DESC"
+    rows = conn.execute(sql, params).fetchall()
     return [_Update(event_id=r[0], ts=r[1], text=r[2], service=r[3],
                     type=r[4], source=r[5]) for r in rows]
 
 
 def fetch_runbook(conn, service: str) -> str | None:
     row = conn.execute(_RUNBOOK_SQL, (service,)).fetchone()
-    return row[0] if row else None
+    if not row or not row[0]:
+        return None
+    value = row[0].strip()
+    # Some replay fixtures carry a literal placeholder as a runbook row. It
+    # is not useful context and should not leak into Slack as if it were one.
+    if value.lower() in {"none", "none found", "no runbook found", "n/a"}:
+        return None
+    return value
 
 
 def _impact_for(conn, incident_id: str, service: str, hits) -> str:
     row = conn.execute(_INCIDENT_META_SQL, (incident_id,)).fetchone()
-    opened_at, resolved_at = row if row else (None, None)
+    opened_at, resolved_at = row[:2] if row else (None, None)
     services = [r[0] for r in conn.execute(_INCIDENT_SERVICES_SQL, (incident_id,)).fetchall()]
     if not services:
         services = [service]
@@ -101,7 +115,8 @@ def _summarise(updates: Sequence[Cited], composer, question: str) -> str | None:
 
 
 def _gather(conn, service: str, incident_id: str, status: str, question: str,
-            *, composer, embedder=None, meta: str | None = None) -> Findings:
+            *, composer, embedder=None, meta: str | None = None,
+            as_of: datetime | None = None) -> Findings:
     """Everything a brief or a postmortem needs, from this incident alone.
 
     EVERY input is scoped to this incident. A service-wide similarity search
@@ -110,7 +125,7 @@ def _gather(conn, service: str, incident_id: str, status: str, question: str,
     folded into this one's impact line. An incident's events are a known set —
     look them up rather than search for them.
     """
-    own = fetch_incident_updates(conn, incident_id)
+    own = fetch_incident_updates(conn, incident_id, as_of=as_of)
     f = Findings(service=service, status=status, cause_text=None, cause_cite=None,
                  fix_text=None, fix_cite=None, runbook=fetch_runbook(conn, service),
                  narrative=None, meta=meta)
@@ -129,9 +144,25 @@ def _gather(conn, service: str, incident_id: str, status: str, question: str,
 
 def gather_findings(conn, service: str, incident_id: str, status: str,
                     *, composer=None, embedder=None) -> Findings:
+    # A replay can deliver an `opened` event after its matching `resolved`
+    # event. Keep the root brief truthful to the opening state; the postmortem
+    # path below intentionally reads the complete incident history.
+    row = conn.execute(_INCIDENT_META_SQL, (incident_id,)).fetchone()
+    # ``brief_as_of`` is set only by the on-demand demo trigger. In normal live
+    # operation an unresolved brief sees the current incident history; a replayed
+    # resolved incident is still cut off at its opening timestamp.
+    demo_cutoff = row[2] if row and len(row) > 2 else None
+    as_of = (demo_cutoff if status == "open" and demo_cutoff is not None
+             else row[0] if row and row[1] is not None else None)
     return _gather(conn, service, incident_id, status,
-                   f"What is happening with {service}? Summarise in two sentences.",
-                   composer=composer, embedder=embedder)
+                   "Summarise the incident described by these provider updates in two "
+                   "sentences. Name the affected product, region, and current state "
+                   "exactly as supported by the updates. Treat the provider label as "
+                   "metadata; do not reject the evidence because the product name "
+                   "differs from that label. Do not add meta-commentary about missing "
+                   "fields such as region unless it materially changes the incident "
+                   "summary.",
+                   composer=composer, embedder=embedder, as_of=as_of)
 
 
 def _recurrence_for(conn, embedder, service: str, incident_id: str, own) -> str | None:
@@ -152,6 +183,8 @@ def _format_duration(opened_at, resolved_at) -> str | None:
     if not opened_at or not resolved_at:
         return None
     secs = int((resolved_at - opened_at).total_seconds())
+    if secs < 0:
+        return None
     if secs < 60:
         return f"{secs}s"
     mins = secs // 60
@@ -167,6 +200,12 @@ def gather_postmortem(conn, service: str, incident_id: str,
     duration = _format_duration(opened_at, resolved_at)
     summary = resolution_summary or "resolved"
     return _gather(conn, service, incident_id, "resolved",
-                   f"Summarise the resolved {service} incident in two sentences.",
+                   "The incident lifecycle state is resolved. Summarise the resolved "
+                   "incident described by these provider updates in two sentences. "
+                   "Name the affected product and state exactly as supported by the "
+                   "updates, and do not invent resolution details. If the updates do "
+                   "not describe what completed, say that the incident was marked "
+                   "resolved without additional provider detail. Do not repeat the "
+                   "same citation for the same claim.",
                    composer=composer, embedder=embedder,
                    meta=f"Duration {duration} · {summary}" if duration else summary)

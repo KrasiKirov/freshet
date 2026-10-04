@@ -1,44 +1,44 @@
 {
-  "source": "live index",
-  "measures": "within-incident linking (NOT causal identification)",
+  "measures": "within-incident linking (not causal identification)",
   "provenance": {
-    "n_queries": 1144,
-    "n_eligible_incidents": 1144,
-    "max_queries_cap": null,
-    "n_chunks": 5802,
-    "n_events": 4882,
+    "n_queries": 1312,
+    "n_eligible_incidents": 1312,
+    "all_eligible_run": true,
+    "n_chunks": 6904,
+    "n_events": 5763,
     "n_providers": 42,
-    "measured_at": "2026-09-05T18:22:35+00:00"
+    "measured_at": "2026-10-03T18:08:46+00:00"
   },
   "arms": {
     "hybrid": {
-      "recall@5": 0.708,
-      "mrr": 0.513,
-      "top1_cite": 0.392,
-      "n": 1144
+      "recall@5": 0.699,
+      "mrr": 0.51,
+      "top1_cite": 0.391
     },
     "vector_only": {
-      "recall@5": 0.851,
-      "mrr": 0.717,
-      "top1_cite": 0.632,
-      "n": 1144
+      "recall@5": 0.838,
+      "mrr": 0.707,
+      "top1_cite": 0.625
     },
     "keyword_only": {
-      "recall@5": 0.332,
-      "mrr": 0.24,
-      "top1_cite": 0.183,
-      "n": 1144
+      "recall@5": 0.33,
+      "mrr": 0.242,
+      "top1_cite": 0.189
     },
     "blind_recent": {
-      "recall@5": 0.003,
+      "recall@5": 0.002,
       "mrr": 0.001,
-      "top1_cite": 0.001,
-      "n": 1144
+      "top1_cite": 0.001
     }
   },
   "gameability_guard": {
-    "blind_recall@5": 0.003,
-    "hybrid_minus_blind": 0.705,
+    "blind_recall@5": 0.002,
+    "hybrid_minus_blind": 0.697,
     "verdict": "meaningful"
+  },
+  "evaluation_scope": {
+    "stage": "retrieval ranking before abstention",
+    "recall@5": "query hit rate: any sibling update in top 5 distinct events",
+    "top1_cite": "first retrieved event belongs to the incident; no LLM evaluated"
   }
 }

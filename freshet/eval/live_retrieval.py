@@ -38,6 +38,11 @@ row order. A runtime cap (LIVE_RETRIEVAL_MAX_QUERIES) takes a deterministic
 PREFIX of that sorted list, never a random sample, and is recorded in the
 artifact so a reader knows whether every eligible incident ran.
 
+Scores RANKINGS BEFORE ABSTENTION: r.hits is intentionally used regardless of
+r.abstained. This isolates ranking quality; it is not end-to-end answer quality.
+The legacy recall@5 field is a hit rate (any sibling update in the top five),
+and top1_cite measures the first retrieved event, not generated citations.
+
 Read-only against the LIVE index: this eval must never write to it.
 
 Run: make live-eval
@@ -231,16 +236,24 @@ def main() -> None:
 
     scored = {name: aggregate(recs) for name, recs in arms.items()}
     gap = round(scored["hybrid"]["recall@5"] - scored["blind_recent"]["recall@5"], 3)
+    published_arms = {
+        name: {metric: value for metric, value in result.items() if metric != "n"}
+        for name, result in scored.items()
+    }
     out = {
-        "source": "live index",
-        "measures": "within-incident linking (NOT causal identification)",
+        "measures": "within-incident linking (not causal identification)",
+        "evaluation_scope": {
+            "stage": "retrieval ranking before abstention",
+            "recall@5": "query hit rate: any sibling update in top 5 distinct events",
+            "top1_cite": "first retrieved event belongs to the incident; no LLM evaluated",
+        },
         "provenance": {
             "n_queries": len(candidates),
             "n_eligible_incidents": len(all_candidates),
-            "max_queries_cap": cap,
+            "all_eligible_run": cap is None,
             **index_provenance(conn),
         },
-        "arms": scored,
+        "arms": published_arms,
         "gameability_guard": {
             "blind_recall@5": scored["blind_recent"]["recall@5"],
             "hybrid_minus_blind": gap,

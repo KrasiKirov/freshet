@@ -16,6 +16,11 @@ def test_blocks_are_header_section_context():
     assert "api" in b[0]["text"]["text"]
 
 
+def test_in_progress_uses_amber_human_label():
+    b = slack_blocks(_f(status="in_progress"))
+    assert b[0]["text"]["text"] == "🟠 api — in progress"
+
+
 def test_section_cites_cause():
     txt = slack_blocks(_f())[1]["text"]["text"]
     assert "bad deploy" in txt and "[ev1 @ 2026-07-01 00:00:00]" in txt

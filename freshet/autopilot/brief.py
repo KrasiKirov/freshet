@@ -150,8 +150,10 @@ def update_lines(hits) -> list[str]:
 
 
 def render_brief(f: Findings) -> str:
-    title = "POSTMORTEM" if f.status == "resolved" else "INCIDENT BRIEF"
-    lines = [f"=== {title} — {f.service} ({f.status}) ==="]
+    title = ("POSTMORTEM" if f.status == "resolved" else
+             "INCIDENT UPDATE" if f.status == "in_progress" else "INCIDENT BRIEF")
+    status = "in progress" if f.status == "in_progress" else f.status
+    lines = [f"=== {title} — {f.service} ({status}) ==="]
     if f.narrative:
         lines.append("")
         lines.append(f.narrative)
@@ -169,7 +171,8 @@ def render_brief(f: Findings) -> str:
     if f.updates:
         lines.append("Updates:")
         lines.extend(f"  {line}" for line in f.updates)
-    lines.append(f"Runbook: {f.runbook}" if f.runbook else "Runbook: none found")
+    if f.runbook:
+        lines.append(f"Runbook: {f.runbook}")
     if f.meta:
         lines.append(f.meta)
     if f.impact:

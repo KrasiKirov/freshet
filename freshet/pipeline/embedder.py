@@ -5,7 +5,7 @@ their own row instead of duplicating (at-least-once + idempotent = effectively
 once in the index). Long texts are chunked; each chunk is its own idempotent row.
 
 Run (stack up first):
-    python -m freshet.pipeline.embedder --brokers localhost:9092
+    python -m freshet.pipeline.embedder --brokers 127.0.0.1:9092
 """
 
 from __future__ import annotations
@@ -85,6 +85,20 @@ _DELETE_ORPHAN_CHUNKS_SQL = (
 _INCIDENT_EVENT_SQL = (
     "INSERT INTO incident_events (incident_id, event_id) VALUES (%s, %s)"
     " ON CONFLICT DO NOTHING")
+
+# Register before writing any chunks, so a crash partway through an event can
+# resume its first indexing. An old index without receipts has unknown timing.
+_REGISTER_INDEXING_SQL = (
+    "INSERT INTO event_indexing (event_id, first_index_observed)"
+    " SELECT %s, NOT EXISTS (SELECT 1 FROM vector_records WHERE event_id = %s)"
+    " ON CONFLICT DO NOTHING")
+_COMPLETE_INDEXING_SQL = (
+    "WITH stamp AS MATERIALIZED (SELECT clock_timestamp() AS at)"
+    " UPDATE event_indexing SET"
+    " first_queryable_at = CASE WHEN first_index_observed"
+    "   THEN coalesce(first_queryable_at, stamp.at) ELSE NULL END,"
+    " last_queryable_at = stamp.at FROM stamp WHERE event_id = %s"
+    " RETURNING last_queryable_at")
 
 UPSERT_SQL = """
 INSERT INTO vector_records
@@ -222,13 +236,23 @@ def make_handler(conn, emb: Embedder, producer, *,
                 f"embedder {getattr(emb, 'name', '?')!r} returned {wrong}-dim vectors, "
                 f"but the schema is vector({EMBEDDING_DIM}) — re-index with a "
                 f"{EMBEDDING_DIM}-dim model or fix FRESHET_EMBEDDER")
+        conn.execute(_REGISTER_INDEXING_SQL, (ev.event_id, ev.event_id))
         for rec, vector in zip(records, vectors, strict=True):
+            # Chunk metadata describes this write attempt, after encoding. The
+            # event receipt below is the benchmark's completion boundary.
+            rec.indexed_at = datetime.now(UTC)
             upsert_record(conn, rec, vector, getattr(emb, "name", None))
-            observe_indexed(rec, ingested_at=ev.ingested_at)
         conn.execute(_DELETE_ORPHAN_CHUNKS_SQL, (ev.event_id, len(records)))
         ensure_incident(conn, ev.incident_id, ev.service, ev.ts, ev.title or "")
         if ev.incident_id:
             conn.execute(_INCIDENT_EVENT_SQL, (ev.incident_id, ev.event_id))
+        # Workers use autocommit: all preceding writes are acknowledged and
+        # searchable before this receipt. It is a conservative completion time,
+        # not a guess at the database's internal commit instant.
+        completed = conn.execute(_COMPLETE_INDEXING_SQL, (ev.event_id,)).fetchone()[0]
+        for rec in records:
+            rec.indexed_at = completed
+            observe_indexed(rec, ingested_at=ev.ingested_at)
         streak["deadletters"] = 0    # a success proves the worker is healthy
         EMBEDDER_MESSAGES.inc()      # one per Kafka message, not per chunk
         heartbeat.beat(conn)
@@ -280,7 +304,7 @@ def run(
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Freshet embedding worker (normalized.updates -> pgvector)")
-    p.add_argument("--brokers", default="localhost:9092")
+    p.add_argument("--brokers", default="127.0.0.1:9092")
     p.add_argument("--group", default="embedder")
     p.add_argument("--max", type=int, default=None)
     p.add_argument("--embedder", choices=["bge"], default="bge")

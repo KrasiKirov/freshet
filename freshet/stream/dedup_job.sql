@@ -14,7 +14,7 @@ CREATE TABLE raw_incidents (
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'raw.incidents',
-  'properties.bootstrap.servers' = 'localhost:9092',
+  'properties.bootstrap.servers' = '127.0.0.1:9092',
   'properties.group.id' = 'freshet-stream',
   'scan.startup.mode' = 'earliest-offset',
   'format' = 'json',
@@ -36,7 +36,7 @@ CREATE TABLE normalized_updates (
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'normalized.updates',
-  'properties.bootstrap.servers' = 'localhost:9092',
+  'properties.bootstrap.servers' = '127.0.0.1:9092',
   'key.format' = 'json',
   'key.fields' = 'incident_id',
   'value.format' = 'json',
@@ -54,7 +54,7 @@ CREATE TABLE raw_deadletter (
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'deadletter.raw',
-  'properties.bootstrap.servers' = 'localhost:9092',
+  'properties.bootstrap.servers' = '127.0.0.1:9092',
   'format' = 'json',
   'json.timestamp-format.standard' = 'ISO-8601'
 );
@@ -68,7 +68,7 @@ CREATE TABLE incident_lifecycle (
 ) WITH (
   'connector' = 'kafka',
   'topic' = 'incident.lifecycle',
-  'properties.bootstrap.servers' = 'localhost:9092',
+  'properties.bootstrap.servers' = '127.0.0.1:9092',
   'key.format' = 'json',
   'key.fields' = 'incident_id',
   'value.format' = 'json',
@@ -86,7 +86,9 @@ SET 'execution.checkpointing.externalized-checkpoint-retention' =
 CREATE TEMPORARY VIEW recent_transitions AS
 SELECT provider, incident_id, incident_name, created_at, proc_time,
        CASE WHEN LOWER(status) IN ('resolved', 'completed', 'complete')
-            THEN 'resolved' ELSE 'opened' END AS transition
+            THEN 'resolved'
+            WHEN LOWER(status) = 'monitoring' THEN 'in_progress'
+            ELSE 'opened' END AS transition
 FROM raw_incidents
 WHERE created_at IS NOT NULL
   AND LOWER(status) IN ('investigating', 'identified', 'monitoring',

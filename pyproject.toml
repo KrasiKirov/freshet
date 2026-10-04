@@ -24,6 +24,9 @@ slack = ["slack_sdk>=3"]
 [tool.setuptools.packages.find]
 include = ["freshet*"]
 
+[tool.setuptools.package-data]
+"freshet.eval" = ["fixtures/*.jsonl"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Integration tests import helpers as `tests.integration.…`, which only resolves

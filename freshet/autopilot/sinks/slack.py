@@ -14,7 +14,9 @@ MAX_ATTEMPTS = 3
 RETRY_BASE_S = 2.0
 
 _EMOJI = {"open": "🔴", "investigating": "🔴", "identified": "🔴",
-          "monitoring": "🟠", "resolved": "🟢", "postmortem": "🟢"}
+          "monitoring": "🟠", "in_progress": "🟠", "in progress": "🟠",
+          "resolved": "🟢", "postmortem": "🟢"}
+_STATUS_LABELS = {"in_progress": "in progress"}
 
 # The LLM narrative is standard Markdown, but Slack section blocks use
 # *mrkdwn* — bold is single asterisks, no ATX headings — so convert first.
@@ -35,8 +37,9 @@ def _emoji(status: str) -> str:
 
 
 def slack_blocks(f: Findings) -> list[dict]:
+    status = _STATUS_LABELS.get(f.status, f.status)
     header = {"type": "header",
-              "text": {"type": "plain_text", "text": f"{_emoji(f.status)} {f.service} — {f.status}"}}
+              "text": {"type": "plain_text", "text": f"{_emoji(f.status)} {f.service} — {status}"}}
     if f.narrative:
         body = f.narrative
     else:
@@ -46,14 +49,18 @@ def slack_blocks(f: Findings) -> list[dict]:
                       else "*Resolution:* not identified from retrieved evidence")
         body = f"{cause}\n{resolution}"
     section = {"type": "section", "text": {"type": "mrkdwn", "text": _to_mrkdwn(body)}}
-    runbook = f"Runbook: {f.runbook}" if f.runbook else "Runbook: none found"
-    parts = [runbook]
+    parts: list[str] = []
+    if f.runbook:
+        parts.append(f"Runbook: {f.runbook}")
     if f.impact:
         parts.insert(0, f.impact)
     if f.meta:
         parts.insert(0, f.meta)
-    context = {"type": "context", "elements": [{"type": "mrkdwn", "text": "\n".join(parts)}]}
-    return [header, section, context]
+    blocks: list[dict] = [header, section]
+    if parts:
+        blocks.append({"type": "context",
+                       "elements": [{"type": "mrkdwn", "text": "\n".join(parts)}]})
+    return blocks
 
 
 class SlackSink:

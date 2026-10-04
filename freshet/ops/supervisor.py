@@ -155,7 +155,7 @@ def main() -> None:
         Child("poller", [python, "-m", "freshet.ingest.poller"], "logs/poller.log"),
         Child("embedder", [python, "-m", "freshet.pipeline.embedder"], "logs/embedder.log"),
         Child("autopilot", [python, "-m", "freshet.autopilot",
-                            "--brokers", "localhost:9092", "--sink", "slack"],
+                            "--brokers", "127.0.0.1:9092", "--sink", "slack"],
               "logs/autopilot.log"),
     ]
 

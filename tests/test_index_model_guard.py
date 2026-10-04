@@ -60,11 +60,20 @@ def test_embedder_without_a_name_is_skipped():
     assert check_index_model(_Conn([("bge", 1)]), object()) is None
 
 
-def test_real_embedders_expose_a_name():
+def test_real_embedders_expose_a_name(monkeypatch):
     """The guard is only as good as the provenance the embedders record."""
     from freshet.pipeline.embedding import StubEmbedder
     assert StubEmbedder().name == "stub"
-    st = pytest.importorskip("sentence_transformers")  # noqa: F841
+    st = pytest.importorskip("sentence_transformers")
+
+    # This is a provenance test, not a model-download test. Loading BGE here
+    # makes the unit suite depend on Hugging Face availability and hundreds of
+    # megabytes of weights.
+    class _Model:
+        def __init__(self, name):
+            self.name = name
+
+    monkeypatch.setattr(st, "SentenceTransformer", _Model)
     from freshet.pipeline.embedding import make_embedder
     assert make_embedder("bge").name == "BAAI/bge-base-en-v1.5"
 

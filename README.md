@@ -2,19 +2,24 @@
 
 [![CI](https://github.com/KrasiKirov/freshet/actions/workflows/ci.yml/badge.svg)](https://github.com/KrasiKirov/freshet/actions/workflows/ci.yml)
 
-An agent that watches **42 public status feeds** and posts a cited incident
-brief to Slack seconds after a provider updates — quoting a root cause when
-the provider states one. Reply in the thread and it answers from the whole
-corpus (42 providers, four years of updates) through the same retrieval path
-the eval below measures, citing what it used.
+Freshet monitors **42 public status feeds** and posts incident briefs to Slack.
+The terminal brief can quote a cause stated by the provider. You can also reply in the
+Slack thread and ask questions about the indexed incident history. Answers cite
+the updates used to produce them.
 
-![`make demo-brief` firing a real GitHub incident: opened event, cited brief, threaded postmortem](docs/autopilot-loop.gif)
+![Recorded terminal brief](docs/autopilot-loop.gif)
 
-Real, unedited output from the same code path, briefing a real indexed
-incident — Bitbucket's Oct 2025 outage, part of Atlassian's AWS-caused Cloud
-disruption: [docs/example-brief.txt](docs/example-brief.txt). Every bracketed
-citation is a real update id and timestamp, verified against the evidence
-before the brief shipped.
+The example in [docs/example-brief.txt](docs/example-brief.txt) is an unedited
+historical brief for a real Bitbucket incident. Citation IDs are checked against
+the supplied evidence and timestamps are filled from that evidence. This checks
+provenance, not whether every generated claim is supported.
+
+The Slack demo shows the lifecycle in one thread: an opening brief, an amber
+in-progress update, and the final resolved postmortem. It uses **real provider
+evidence with manually triggered demo transitions**; the resolved state and
+displayed demo duration are not a measurement of the provider's recovery.
+
+![Slack lifecycle demo](docs/slack-lifecycle-thread.png)
 
 ## How it works
 
@@ -25,7 +30,7 @@ before the brief shipped.
   ▼
 Kafka  raw.incidents
   │  Flink SQL — checkpointed dedup by (provider, incident, update),
-  │  plus a lifecycle projection (opened / resolved)
+  │  plus a lifecycle projection (opened / in progress / resolved)
   ▼
 Kafka  normalized.updates          Kafka  incident.lifecycle
   │  embedder — batches → bge → pgvector          │
@@ -38,76 +43,133 @@ pgvector  ───────────────────────�
                                                     │  dense (bge) + full-text,
                                                     │  RRF fusion, abstention
                                                     ▼
-                              LLM composer — every citation verified
-                              against the retrieved evidence
+                              LLM composer — citation IDs checked;
+                              timestamps supplied from evidence
 ```
 
-Feeds are polled, not pushed: this is a streaming pipeline over a polled
-source. The 60s sweep accounts for roughly 31s of the 99.78s measured mean,
-so the poll wait is real but is not the binding term — most of the delay is
-downstream of it. Note also that 93% of providers stamp updates to the whole
-minute, which inflates any measurement taken from their own timestamps.
+The feeds are polled, but everything after polling is streamed through Kafka.
+The poller runs a 60-second sweep with conditional requests and per-host
+backoff. Briefs read their incident's updates by key; follow-up questions use
+retrieval. Current latency instrumentation records completion after acknowledged
+index writes. A new live-arrival sample is still needed for that instrumentation.
 
 ## Run it
 
-Requires Docker, Java 21 (for Flink), and `ANTHROPIC_API_KEY` in `.env.local`.
+Requires Python 3.12+, Docker with Compose, and Java 21 for the live Flink path.
+From a fresh clone:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[embed,llm,slack,test]"
+make up && make db-init
+make check
+make demo
+```
+
+`make demo` replays a committed OpenAI incident through indexing, lifecycle
+handling, and rendering in **session-local temporary tables**, discarded on
+exit. It prints opening, in-progress, and resolved briefs to stdout. It requires
+Postgres with the schema applied, but no API key, model download, current feed
+activity, running workers, or Kafka/Flink job. Default output is deterministic:
+stub vectors and provider quotations are explicitly labeled. This is a lifecycle
+rehearsal, not a retrieval-quality or live-streaming demonstration.
+
+For live summaries, put `ANTHROPIC_API_KEY=...` in the gitignored `.env.local`.
+`make demo ARGS=--llm` uses the real composer and incurs API charges; vectors
+remain stubbed because this demo fetches evidence by incident key. Both replay
+modes are stdout-only and leave live delivery state untouched.
+
+For the live pipeline below, first use downloads the local BGE embedding model.
+Add `SLACK_BOT_TOKEN=...` and `SLACK_CHANNEL=...` to `.env.local` only for Slack
+delivery. Install the Slack app in the target channel with `chat:write` and the
+appropriate conversation-history scope for thread replies. The default sink is
+stdout. Choose one autopilot sink, rather than running both consumers together.
+
+Run the long-lived processes in separate terminals:
 
 ```
 make up && make db-init
 make stream      # submits the Flink dedup + lifecycle job
 make poller      # polls the 42 feeds
 make embedder    # indexes into pgvector
-make autopilot   # posts cited briefs to Slack
-make demo-brief  # fires a real opened event on demand
-make freshness   # the one measurement
+make autopilot   # live consumer, prints briefs to stdout
+FRESHET_SINK=slack make autopilot  # posts cited briefs to Slack
+make demo-brief ARGS=--dry-run  # inspect eligible current incidents
+make demo-brief  # manually triggers an opening event; needs an eligible incident
+make demo-brief ARGS='--repeat --service zoom'     # repeat a current open incident
+make demo-brief ARGS='--progress --service zoom'  # post an amber in-progress update
+make demo-brief ARGS='--resolve --service zoom'    # trigger its threaded postmortem
+make index-ready # waits for replay/catch-up to drain before evaluation
+make freshness   # live-arrival latency + index snapshot
+make live-eval   # retrieval evaluation against the current index
+make check       # lint, type-check, and run the unit suite
 ```
 
-For a measurement run, `./deploy/run-live.sh > logs/supervisor.log 2>&1`
+Use `make demo` for a repeatable interview rehearsal. `demo-brief` operates on
+live delivery state: `--repeat` resets the selected incident's demo state, and
+`--progress`/`--resolve` inject controlled transitions; they do not confirm a
+provider's actual progress or recovery. Do not use them as autonomous-delivery
+evidence. A current incident may not be eligible on the day of an interview.
+
+The first cold poll can replay the history exposed by a feed. That is expected
+when building the corpus, but it can take a while to reach pgvector. Keep the
+stream and embedder running until `make index-ready` reports zero lag; both
+`make live-eval` and `make freshness` run that guard automatically. The normal
+poll cache is persistent, so do not point `FRESHET_POLL_CACHE` at a temporary
+file unless you intentionally want another bootstrap replay.
+
+On macOS, `mkdir -p logs && ./deploy/run-live.sh > logs/supervisor.log 2>&1`
 replaces the poller/embedder/autopilot targets: it restarts any child that
-dies and blocks idle sleep, because freshness only scores an unbroken run.
+dies and blocks idle sleep. It enables real Slack delivery. Freshness uses the
+embedder heartbeat to choose its default observation window.
 
 `make test` runs the unit suite; `make test-integration` needs the stack up
 and uses a dedicated `freshet_test` database.
+
+## Project status
+
+This is a portfolio prototype with ingestion, streaming deduplication, lifecycle
+events, retrieval, Slack delivery, replay, and automated checks. The isolated
+replay is suitable for rehearsal. Production readiness and user-impact claims
+require validation beyond this local stack and its small observed workload.
 
 ## Measured
 
 | | |
 |---|---|
-| staleness | **18.04×** an hourly batch index — n=35 live updates, mean 99.78s (p50 90.19s, p95 197.65s) vs a 1800.46s batch arm, 9:06:55 unbroken run |
-| retrieval (recall@5) | hybrid **0.708**, vector_only **0.851**, keyword_only 0.332, blind-recent control 0.003 — 1,144 queries, no labels |
-| autonomous delivery | **3 of 3** real incidents briefed with no human trigger; all three completed open → brief → resolve → threaded postmortem |
+| staleness | live-arrival sample not yet measured; the index snapshot is reported separately in `results/freshness.json` |
+| retrieval ranking (reported recall@5) | hybrid **0.699**, vector_only **0.838**, keyword_only 0.330, blind-recent control 0.002 — 1,312 queries, before abstention |
+| autonomous delivery | **3 of 3** real incidents briefed with no human trigger in the September 4 run; all three completed open → brief → resolve → threaded postmortem |
 
-**Staleness is reported alignment-independent, not at the flattering
-alignment.** An hourly batch's refresh boundary sits at an arbitrary phase
-within the hour; scored only at the top of the hour — where real arrivals
-cluster, since maintenance windows start on the hour — this run's arm would
-score **25.72×**. The published 18.04× is the mean across all 3,600 possible
-phases, not the one this workload is least favorable to.
+The saved freshness report has no live-arrival score. Version 2 records an event
+completion receipt after all chunk writes are acknowledged, preserves the first
+completion across replays, and records reindexing separately. Legacy rows cannot
+be scored with this instrumentation. Historical timing figures in RESULTS.md
+used an earlier, flawed timestamp and are not current performance claims. The
+hourly batch comparison is modeled, not a second deployed system.
 
-**Retrieval measures within-incident linking, not causal identification**:
-given an incident's opening update, can retrieval find the rest of that
-incident's thread in the full index? It does not measure whether what it
-finds explains the cause. On this task **vector_only beats hybrid** — RRF
-fusion with the weak keyword arm (0.332) drags hybrid down.
+The retrieval test measures whether the rest of an incident can be found from
+its opening update, before the abstention decision. Here “recall@5” is the fraction
+of queries finding at least one other update in the top five distinct events.
+It does not measure Slack answer quality, citation entailment, or causal
+identification. On this task, vector search performs better than the hybrid arm
+because the keyword arm is weak.
 
 Full method, derivations, and what was built and then deleted: [RESULTS.md](RESULTS.md).
 
-## Honest limits
+The compact machine-readable results are [freshness.json](results/freshness.json)
+and [live_retrieval.json](results/live_retrieval.json).
 
-- **4% of incidents state a cause.** The brief quotes the provider's sentence
-  when one exists and stays silent otherwise — it never infers a cause.
-- **42 providers is a small corpus.** A correlated-degradation detector was
-  built and deleted after firing zero times against 3.1 years of real data.
-- **Briefs are non-deterministic** (LLM-written). Citations are verified
-  against retrieved evidence on both id and timestamp; a fabricated one is
-  stripped, not shipped.
-- **Delivery is at-least-once, not exactly-once.** A crash between posting to
-  Slack and recording it can replay a brief as a duplicate after the lease
-  expires. That is the deliberate failure direction: a duplicate is
-  recoverable, a dropped alert is not.
-- Ingestion uses Statuspage's Atom feeds, not its `/api/`, which `robots.txt`
-  disallows.
+## Limitations
 
-An earlier version (an LLM root-cause agent, a synthetic benchmark, a
-225-incident retrieval eval) was replaced by this one. Its numbers described
-that code, not this, and are not reproducible here.
+- An earlier sample found explicit causes in only about 4% of incidents. The
+  extractive cause field quotes source text; this is not a measured guarantee
+  about the LLM narrative or the current corpus.
+- Forty-two providers is a small corpus. The measurements describe this feed
+  set, not status pages in general.
+- Citation provenance checks remove unknown IDs and fill timestamps from evidence.
+  They do not verify semantic support; uncited or unsupported prose can remain.
+- Delivery is at-least-once. A crash after a Slack post but before the database
+  update can result in a duplicate rather than a lost alert.
+- Ingestion uses Statuspage Atom feeds, not the `/api/` endpoints disallowed by
+  `robots.txt`.
