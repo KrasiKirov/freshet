@@ -21,6 +21,15 @@ displayed demo duration are not a measurement of the provider's recovery.
 
 ![Slack lifecycle demo](docs/slack-lifecycle-thread.png)
 
+On **2026-10-05**, a fresh Zoom demo brief was posted to Slack and a human
+reply asked, “What services are affected, and what does the provider say about
+the cause?” Freshet answered in the same thread, cited the incident updates,
+and explicitly said that the affected services were not specified by the
+provider. It attributed the explanation to the provider's scheduled-maintenance
+wording rather than inventing a more specific cause. This verifies the live
+follow-up path; the demo transition itself is controlled and is not evidence of
+the provider's actual recovery.
+
 ## How it works
 
 ```
