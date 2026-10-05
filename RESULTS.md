@@ -3,18 +3,20 @@
 Method and derivations behind the README's numbers. Figures from the earlier
 version of this project are not reproducible here and are not cited as current.
 
-The latest refresh on 2026-10-03 reindexed the current public-feed snapshot:
-5,763 events, 6,904 chunks, and 42 providers. Retrieval was rerun over all
-1,312 eligible incidents. Freshness was also rerun, but correctly produced no
-score because the continuous run began after the newest feed updates had been
-posted.
+The latest retrieval refresh on 2026-10-03 covered the current public-feed
+snapshot: 5,763 events, 6,904 chunks, and 42 providers. Retrieval was rerun over
+all 1,312 eligible incidents. A corrected freshness run collected 20 live updates
+from October 4–5, 2026 after the indexing backlog reached zero.
 
 ## Staleness — `make freshness` → `results/freshness.json`
 
-**A live-arrival score with corrected instrumentation is still pending.** The
-saved October 3 snapshot had n = 0: its updates were posted before the observed
-run began. Its index snapshot (5,763 events, 24 posted in the prior 24 hours)
-is a corpus-currentness signal, not a streaming-latency measurement.
+**Corrected live-arrival result: n = 20 updates, mean 149.71s, p50 82.93s,
+p95 246.20s.** The run began after catch-up at 2026-10-04T18:19:00Z and
+completed at 2026-10-05T12:47:38Z. The measured ratio is 12.03× against a
+modeled hourly batch mean of 1800.47s. Alignment sensitivity for the modeled
+batch arm ranges from 7.69× to 16.10×, with a median of 12.09×. The sample is
+small, so p95 and the ratio should be treated as an initial measurement rather
+than a performance guarantee.
 
 Version 2 records `event_indexing.first_queryable_at` only after all of an
 update's chunk writes have been acknowledged by Postgres in autocommit mode.
@@ -46,9 +48,8 @@ phases, not a guarantee for every batch schedule. Source timestamp rounding and
 omitted embedding/write time introduce different biases, so no corrected ratio
 can be inferred from those aggregates.
 
-Run `make db-init`, restart the embedder with this code, and collect new live
-arrivals before reporting a replacement score. `FRESHNESS_MIN_N=20 make freshness`
-rejects an undersized sample. A zero-sample report is explicitly “not yet measured”.
+`FRESHNESS_MIN_N=20 make freshness` rejects an undersized sample. The current
+machine-readable report records this completed sample and its index snapshot.
 
 ## Retrieval — `make live-eval` → `results/live_retrieval.json`
 

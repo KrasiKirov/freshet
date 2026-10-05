@@ -51,7 +51,7 @@ The feeds are polled, but everything after polling is streamed through Kafka.
 The poller runs a 60-second sweep with conditional requests and per-host
 backoff. Briefs read their incident's updates by key; follow-up questions use
 retrieval. Current latency instrumentation records completion after acknowledged
-index writes. A new live-arrival sample is still needed for that instrumentation.
+index writes. The latest corrected live-arrival sample is reported below.
 
 ## Run it
 
@@ -137,16 +137,16 @@ require validation beyond this local stack and its small observed workload.
 
 | | |
 |---|---|
-| staleness | live-arrival sample not yet measured; the index snapshot is reported separately in `results/freshness.json` |
+| staleness | **149.71s mean**, **82.93s p50**, **246.20s p95** — 20 live updates; 12.03× versus a modeled hourly batch wait |
 | retrieval ranking (reported recall@5) | hybrid **0.699**, vector_only **0.838**, keyword_only 0.330, blind-recent control 0.002 — 1,312 queries, before abstention |
 | autonomous delivery | **3 of 3** real incidents briefed with no human trigger in the September 4 run; all three completed open → brief → resolve → threaded postmortem |
 
-The saved freshness report has no live-arrival score. Version 2 records an event
-completion receipt after all chunk writes are acknowledged, preserves the first
-completion across replays, and records reindexing separately. Legacy rows cannot
-be scored with this instrumentation. Historical timing figures in RESULTS.md
-used an earlier, flawed timestamp and are not current performance claims. The
-hourly batch comparison is modeled, not a second deployed system.
+The saved freshness report contains a 20-update live-arrival sample. Version 2
+records an event completion receipt after all chunk writes are acknowledged,
+preserves the first completion across replays, and records reindexing separately.
+Legacy rows cannot be scored with this instrumentation. The sample is useful but
+small, so its p95 is unstable. The hourly batch comparison is modeled, not a
+second deployed system.
 
 The retrieval test measures whether the rest of an incident can be found from
 its opening update, before the abstention decision. Here “recall@5” is the fraction
